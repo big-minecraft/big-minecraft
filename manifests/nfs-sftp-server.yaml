@@ -20,9 +20,11 @@ spec:
         command: ["/bin/sh", "-c"]
         args:
           - |
+            echo "Setting up SFTP directory..."
             mkdir -p /home/user/nfsshare;  # Create the directory if it doesn't exist
             chown 1001:1001 /home/user/nfsshare;  # Set ownership to the SFTP user
             chmod 755 /home/user/nfsshare;  # Set directory permissions
+            echo "SFTP directory setup complete."
         volumeMounts:
           - name: nfs-volume
             mountPath: /home/user/nfsshare  # This is the mount path for the SFTP user's home
@@ -60,10 +62,27 @@ spec:
             SFTP_DIR="/home/user/nfsshare";
             REDIS_HOST="redis-service";  # Change this to your Redis service name
             REDIS_PORT=6379;
-            inotifywait -m -r -e create -e modify --format '%w%f' "$SFTP_DIR" | while read FILE
+
+            # Debugging print statement for directory monitoring setup
+            echo "Monitoring directory: $SFTP_DIR"
+            echo "Connecting to Redis at $REDIS_HOST:$REDIS_PORT"
+
+            inotifywait -m -r -e create -e modify -e delete --format '%w%f' "$SFTP_DIR" | while read FILE
             do
-                MESSAGE="File changed: $FILE";
-                redis-cli -h $REDIS_HOST -p $REDIS_PORT PUBLISH file_changes "$MESSAGE";
+              # Debugging print statement to check the file events
+              echo "Event detected for file: $FILE"
+
+              if [[ ! -e "$FILE" ]]; then
+                  MESSAGE="File deleted: $FILE";
+                  echo "$MESSAGE"
+              else
+                  MESSAGE="File changed: $FILE";
+                  echo "$MESSAGE"
+              fi
+
+              # Debugging print statement before publishing to Redis
+              echo "Publishing message to Redis: $MESSAGE"
+              redis-cli -h $REDIS_HOST -p $REDIS_PORT PUBLISH file_changes "$MESSAGE" || echo "Failed to publish message to Redis"
             done
         volumeMounts:
           - name: nfs-volume
