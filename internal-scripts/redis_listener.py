@@ -11,7 +11,7 @@ DEBOUNCE_TIME = 5  # Debounce time in seconds
 backup_thread = None
 
 def run_backup_script():
-    print(f"Running backup script")
+    print(f"Running backup script!")
     
     backup_script = """
     mkdir -p /mnt/local  # Create local backup directory, if not exists
