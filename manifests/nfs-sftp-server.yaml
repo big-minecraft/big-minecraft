@@ -51,6 +51,23 @@ spec:
         volumeMounts:
           - name: nfs-volume
             mountPath: /home/user/nfsshare  # Mount shared NFS directory to user's home
+      - name: file-monitor
+        image: alpine
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            apk add --no-cache inotify-tools redis;  # Install inotify-tools and redis-cli
+            SFTP_DIR="/home/user/nfsshare";
+            REDIS_HOST="redis-service";  # Change this to your Redis service name
+            REDIS_PORT=6379;
+            inotifywait -m -r -e create -e modify --format '%w%f' "$SFTP_DIR" | while read FILE
+            do
+                MESSAGE="File changed: $FILE";
+                redis-cli -h $REDIS_HOST -p $REDIS_PORT PUBLISH file_changes "$MESSAGE";
+            done
+        volumeMounts:
+          - name: nfs-volume
+            mountPath: /home/user/nfsshare  # Mount shared NFS directory
       volumes:
       - name: nfs-volume
         hostPath:
