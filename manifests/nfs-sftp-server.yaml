@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nfs-sftp-server
+  labels:
+    app: nfs-sftp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nfs-sftp
+  template:
+    metadata:
+      labels:
+        app: nfs-sftp
+    spec:
+      initContainers:
+      - name: init-sftp-setup
+        image: alpine
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            mkdir -p /home/user/nfsshare;  # Create the directory if it doesn't exist
+            chown 1001:1001 /home/user/nfsshare;  # Set ownership to the SFTP user
+            chmod 755 /home/user/nfsshare;  # Set directory permissions
+        volumeMounts:
+          - name: nfs-volume
+            mountPath: /home/user/nfsshare  # This is the mount path for the SFTP user's home
+      containers:
+      - name: nfs-server
+        image: itsthenetwork/nfs-server-alpine
+        securityContext:
+          privileged: true
+        ports:
+          - containerPort: 2049 # NFS
+        volumeMounts:
+          - name: nfs-volume
+            mountPath: /nfsshare  # NFS shared directory
+        env:
+          - name: SHARED_DIRECTORY
+            value: "/nfsshare"
+          - name: NFS_VERSION
+            value: "4"
+      - name: sftp-server
+        image: atmoz/sftp
+        ports:
+          - containerPort: 22    # SFTP
+        env:
+          - name: SFTP_USERS
+            value: "user:password:1001:1001"  # username:password:uid:gid
+        volumeMounts:
+          - name: nfs-volume
+            mountPath: /home/user/nfsshare  # Mount shared NFS directory to user's home
+      volumes:
+      - name: nfs-volume
+        hostPath:
+          path: /mnt/nfsshare  # This is the host path for the shared folder
+          type: DirectoryOrCreate  # Create the directory if it does not exist

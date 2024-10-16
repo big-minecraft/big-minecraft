@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: proxy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: minecraft-proxy
+  template:
+    metadata:
+      labels:
+        app: minecraft-proxy
+    spec:
+      serviceAccountName: velocity-account
+      containers:
+      - name: proxy
+        image: wiji1/mc-proxy:latest
+        volumeMounts:
+          - name: local-volume
+            mountPath: /mnt/local/velocity
+        ports:
+        - containerPort: 25565
+          name: minecraft
+        env:
+        - name: HOSTNAME
+          value: "proxy"  # Set a static hostname
+      volumes:
+      - name: local-volume
+        hostPath:
+          path: /mnt/local/velocity  # The path on your Kind worker nodes
+          type: Directory
