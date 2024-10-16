@@ -15,24 +15,9 @@ spec:
     spec:
       containers:
       - name: pv-backup-container
-        image: alpine
+        image: wiji1/volume-daemon:latest
         securityContext:
           privileged: true
-        command: ["/bin/sh", "-c"]
-        args:
-          - |
-            mkdir -p /mnt/local  # Create local backup directory, if not exists
-            
-            apk add --no-cache nfs-utils rsync;
-            mount -o nolock,vers=4 nfs-sftp-service.default.svc.cluster.local:/ /mnt/pv || { echo "Mount failed"; exit 1; }
-            ls /mnt;
-
-            while true; do
-              rm -rf /mnt/local/*;  # Delete everything in /mnt/local if it exists
-              rsync -av --exclude '/mnt/local' /mnt/pv/ /mnt/local/;
-              sleep 3600;
-            done
-
         volumeMounts:
         - name: pv-storage
           mountPath: /mnt/pv  # This will be mounted directly to NFS on the host

@@ -1,0 +1,9 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY ../internal-scripts/redis_listener.py .
+
+RUN pip install redis
+
+CMD ["python", "redis_listener.py"]
