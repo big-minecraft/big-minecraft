@@ -9,4 +9,4 @@ ENV SERVER_PORT=25565
 EXPOSE $SERVER_PORT
 
 # Directly run the server.jar file
-CMD ["java", "-Xmx1024M", "-Xms1024M", "-jar", "server.jar", "nogui"]
+CMD ["java", "-jar", "server.jar", "nogui"]

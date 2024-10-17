@@ -27,6 +27,13 @@ spec:
         env:
         - name: HOSTNAME
           value: "lobby"  # Set a static hostname
+        resources:
+          requests:
+            memory: "256Mi"  # Minimum amount of memory guaranteed for each replica
+            cpu: "250m"      # Minimum CPU (500 millicores = 0.5 cores)
+          limits:
+            memory: "512Mi"    # Maximum amount of memory the container can use
+            cpu: "500m"         # Maximum CPU (1 core)
       volumes:
       - name: local-volume
         hostPath:
