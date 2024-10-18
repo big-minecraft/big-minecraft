@@ -37,3 +37,16 @@ spec:
         hostPath:
           path: /mnt/local/velocity  # The path on your Kind worker nodes
           type: Directory
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: proxy-lb
+spec:
+  type: LoadBalancer
+  selector:
+    app: minecraft-proxy
+  ports:
+    - protocol: TCP
+      port: 25565           # The port exposed externally
+      targetPort: 25565     # The port inside the pod/container
