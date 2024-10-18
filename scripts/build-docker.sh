@@ -5,6 +5,8 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
+cd ../
+
 total=$(find images/* -type f | wc -l | xargs)
 count=0
 
@@ -12,7 +14,7 @@ for file in images/*; do
   if [ -f "$file" ]; then
     count=$((count + 1))
     image_name=$(basename "$file")
-    
+
     echo -e "${GREEN}Building and pushing image ${YELLOW}$count${GREEN} of ${YELLOW}$total${GREEN}: wiji1/${YELLOW}$image_name${GREEN}:latest${NC}"
     docker build -f "$file" --platform linux/amd64,linux/arm64 -t "wiji1/$image_name:latest" --push .
 
