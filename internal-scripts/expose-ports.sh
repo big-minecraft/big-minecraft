@@ -46,7 +46,7 @@ done
 
 # Loop through existing services and delete those that are no longer active
 for svc in $existing_services; do
-    if [[ ! " ${active_services[@]} " =~ " ${svc} " ]] && [[ "$svc" != "nfs-sftp-service" ]]; then
+    if [[ ! " ${active_services[@]} " =~ " ${svc} " ]] && [[ "$svc" != "nfs-sftp-service" ]] && [[ "$svc" != "redis-service" ]]; then
         echo "Deleting unused service: $svc"
         kubectl delete service "$svc" -n $NAMESPACE
         if [ $? -eq 0 ]; then
