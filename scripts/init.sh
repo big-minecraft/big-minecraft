@@ -14,3 +14,4 @@ fi
 
 
 helm install big-minecraft ../
+helmfile apply --file ../helmfile.yaml
