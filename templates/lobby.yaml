@@ -23,10 +23,7 @@ spec:
             mountPath: /mnt/local/minestom
         ports:
         - containerPort: 25565
-          name: minecraft
-        env:
-        - name: HOSTNAME
-          value: "lobby"  # Set a static hostname
+          name: minecraft 
         resources:
           requests:
             memory: "256Mi"  # Minimum amount of memory guaranteed for each replica
