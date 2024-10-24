@@ -8,5 +8,13 @@ ENV SERVER_PORT=25565
 
 EXPOSE $SERVER_PORT
 
-# Directly run the server.jar file
-CMD ["java", "-jar", "server.jar", "nogui"]
+# Create a startup script that redirects input
+RUN echo '#!/bin/bash\n' \
+    'mkfifo /tmp/server_input\n' \
+    'tail -f /tmp/server_input | java -jar server.jar nogui' > /start-server.sh
+
+# Make the script executable
+RUN chmod +x /start-server.sh
+
+# Run the startup script
+CMD ["/bin/bash", "/start-server.sh"]

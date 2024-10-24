@@ -3,14 +3,15 @@ kind: Deployment
 metadata:
   name: proxy
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
-      app: minecraft-proxy
+      app: proxy
   template:
     metadata:
       labels:
-        app: minecraft-proxy
+        app: proxy
+        kyriji.dev/enable-panel-discovery: "true"
     spec:
       serviceAccountName: velocity-account
       containers:
@@ -42,7 +43,7 @@ metadata:
 spec:
   type: LoadBalancer
   selector:
-    app: minecraft-proxy
+    app: proxy
   ports:
     - protocol: TCP
       port: 25565           # The port exposed externally
