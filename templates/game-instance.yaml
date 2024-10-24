@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.name }}
+  labels:
+    app: {{ .Values.name }}
+    chart: "{{ .Chart.Name }}-{{ .Chart.Version }}"
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ .Values.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.name }}
+        kyriji.dev/enable-server-discovery: "true"
+        kyriji.dev/enable-panel-discovery: "true"
+        kyriji.dev/initial-server: "{{ .Values.initialServer }}"
+    spec:
+      containers:
+      - name: mc
+        image: wiji1/mc-server:latest
+        volumeMounts:
+          - name: local-volume
+            mountPath: {{ .Values.volume.mountPath | default "/minecraft" }}
+        ports:
+        - containerPort: 25565
+          name: minecraft
+        resources:
+          requests:
+            memory: {{ .Values.resources.requests.memory }}
+            cpu: {{ .Values.resources.requests.cpu }}
+          limits:
+            memory: {{ .Values.resources.limits.memory }}
+            cpu: {{ .Values.resources.limits.cpu }}
+      volumes:
+      - name: local-volume
+        hostPath:
+          path: {{ .Values.volume.hostPath }}
+          type: Directory

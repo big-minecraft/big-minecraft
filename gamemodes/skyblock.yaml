@@ -1,0 +1,13 @@
+name: "skyblock"
+initialServer: "false"
+replicaCount: 3
+volume:
+  hostPath: "/mnt/local/minestom"
+  mountPath: "/mnt/local/minestom"
+resources:
+  requests:
+    memory: "256Mi"
+    cpu: "250m"
+  limits:
+    memory: "516Mi"
+    cpu: "500m"
