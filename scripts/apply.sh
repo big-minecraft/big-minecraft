@@ -30,6 +30,23 @@ if [ ! -d "$CHART_DIR/templates" ]; then
     mkdir -p "$CHART_DIR/templates"
 fi
 
+# Get a list of currently deployed Helm releases
+DEPLOYED_GAMEMODES=$(helm list -q)
+
+# Get a list of gamemode files (without extension) in the values directory
+AVAILABLE_GAMEMODES=$(find "$VALUES_DIR" -type f -name "*.yaml" -o -name "*.yml" | xargs -n1 basename | sed 's/\.[^.]*$//')
+
+# Loop through deployed gamemodes and delete any that no longer have a corresponding values file
+for gamemode in $DEPLOYED_GAMEMODES; do
+    # Check if the deployment has the required label
+    if kubectl get deployment "$gamemode" -o jsonpath='{.spec.template.metadata.labels.kyriji\.dev/enable-server-discovery}' | grep -q "true"; then
+        if ! echo "$AVAILABLE_GAMEMODES" | grep -q "^$gamemode$"; then
+            echo "Deleting removed gamemode: $gamemode"
+            helm uninstall "$gamemode"
+        fi
+    fi
+done
+
 # Process both .yaml and .yml files
 for values_file in "$VALUES_DIR"/*.{yaml,yml}; do
     [ -f "$values_file" ] || continue  # Skip if no matches
@@ -61,6 +78,8 @@ done
 # Show final state
 echo "Final Helm releases:"
 helm list
+
+helmfile apply --file ../helmfile.yaml
 
 echo "Final Kubernetes deployments:"
 kubectl get deployments -o wide

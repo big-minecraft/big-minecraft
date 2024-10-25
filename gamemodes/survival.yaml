@@ -1,0 +1,17 @@
+# Ensure this name matches the name of the gamemode
+name: "survival"
+# Whether or not the player can be sent to this server when first joining the network
+initialServer: "true"
+replicaCount: 2
+volume:
+  # The path of the server's working directory in the SFTP server
+  hostPath: "/mnt/local/minestom"
+  # The path of the server's working directory in the SFTP server
+  mountPath: "/mnt/local/minestom"
+resources:
+  requests:
+    memory: "256Mi"
+    cpu: "250m"
+  limits:
+    memory: "516Mi"
+    cpu: "500m"

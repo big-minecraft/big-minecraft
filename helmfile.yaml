@@ -6,3 +6,6 @@ releases:
   - name: metallb
     namespace: default
     chart: metallb/metallb
+  - name: minecraft
+    namespace: default
+    chart: ./deployments
