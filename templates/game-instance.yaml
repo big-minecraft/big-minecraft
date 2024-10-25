@@ -18,6 +18,7 @@ spec:
         kyriji.dev/enable-panel-discovery: "true"
         kyriji.dev/initial-server: "{{ .Values.initialServer }}"
     spec:
+      terminationGracePeriodSeconds: 2
       containers:
       - name: mc
         image: wiji1/mc-server:latest
