@@ -1,13 +1,13 @@
-name: "lobby"
-initialServer: "true"
-replicaCount: 2
+name: lobby
+initialServer: 'true'
+minimumInstances: 2
 volume:
-  hostPath: "/mnt/local/minestom"
-  mountPath: "/mnt/local/minestom"
+  hostPath: /mnt/local/minestom
+  mountPath: /mnt/local/minestom
 resources:
   requests:
-    memory: "256Mi"
-    cpu: "250m"
+    memory: 256Mi
+    cpu: 250m
   limits:
-    memory: "516Mi"
-    cpu: "500m"
+    memory: 516Mi
+    cpu: 500m

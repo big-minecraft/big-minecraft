@@ -6,7 +6,7 @@ metadata:
     app: {{ .Values.name }}
     chart: "{{ .Chart.Name }}-{{ .Chart.Version }}"
 spec:
-  replicas: {{ .Values.replicaCount }}
+  replicas: {{ .Values.minimumInstances }}
   selector:
     matchLabels:
       app: {{ .Values.name }}
