@@ -2,3 +2,5 @@ pv/
 .idea/
 .DS_Store
 gamemodes/*
+
+!gamemodes/.gitkeep
