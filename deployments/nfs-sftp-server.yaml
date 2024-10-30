@@ -15,7 +15,7 @@ spec:
         app: nfs-sftp
     spec:
       nodeSelector:
-        node-role.kubernetes.io/control-plane: "true"  # Ensure the pod runs on the control plane node
+        node-role.kubernetes.io/control-plane: "true"
       initContainers:
       - name: init-sftp-setup
         image: alpine
