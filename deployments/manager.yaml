@@ -18,7 +18,7 @@ spec:
       containers:
       - name: manager
         image: eclipse-temurin:21-jdk
-        command: ["java", "-jar", "/mnt/local/system/manager/bmc-manager-all.jar"]
+        command: ["java", "-jar", "/mnt/local/system/manager/bmc-manager.jar"]
         volumeMounts:
           - name: local-volume
             mountPath: /mnt/local/system/manager
