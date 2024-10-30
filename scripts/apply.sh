@@ -3,6 +3,9 @@
 set -e  # Exit on error
 set -x  # Enable debug output
 
+# Get the directory where the script is located, resolving symlinks
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+
 # Function to check if a command exists
 command_exists() {
     command -v "$1" &> /dev/null
@@ -20,21 +23,21 @@ if ! command_exists helmfile; then
     exit 1
 fi
 
-# Define the paths
-VALUES_DIR="../gamemodes"
-CHART_DIR=".."
+# Define the paths relative to the script location
+VALUES_DIR="${SCRIPT_DIR}/../gamemodes"
+CHART_DIR="${SCRIPT_DIR}/.."
 
 # Verify chart structure
-if [ ! -d "$CHART_DIR/templates" ]; then
+if [ ! -d "${CHART_DIR}/templates" ]; then
     echo "Creating templates directory..."
-    mkdir -p "$CHART_DIR/templates"
+    mkdir -p "${CHART_DIR}/templates"
 fi
 
 # Get a list of currently deployed Helm releases
 DEPLOYED_GAMEMODES=$(helm list -q)
 
 # Get a list of gamemode files (without extension) in the values directory
-AVAILABLE_GAMEMODES=$(find "$VALUES_DIR" -type f -name "*.yaml" -o -name "*.yml" | xargs -n1 basename | sed 's/\.[^.]*$//')
+AVAILABLE_GAMEMODES=$(find "${VALUES_DIR}" -type f -name "*.yaml" -o -name "*.yml" | xargs -n1 basename | sed 's/\.[^.]*$//')
 
 # Loop through deployed gamemodes and delete any that no longer have a corresponding values file
 for gamemode in $DEPLOYED_GAMEMODES; do
@@ -48,7 +51,7 @@ for gamemode in $DEPLOYED_GAMEMODES; do
 done
 
 # Process both .yaml and .yml files
-for values_file in "$VALUES_DIR"/*.{yaml,yml}; do
+for values_file in "${VALUES_DIR}"/*.{yaml,yml}; do
     [ -f "$values_file" ] || continue  # Skip if no matches
 
     # Extract the gamemode name from the filename
@@ -61,13 +64,13 @@ for values_file in "$VALUES_DIR"/*.{yaml,yml}; do
 
     # Deploy using Helm
     echo "Deploying $gamemode..."
-    helm upgrade --install "$gamemode" "$CHART_DIR" \
+    helm upgrade --install "$gamemode" "${CHART_DIR}" \
         --values "$values_file" \
         --debug \
         --dry-run  # First do a dry run to see what would be created
 
     # If dry run succeeds, do the actual deployment
-    helm upgrade --install "$gamemode" "$CHART_DIR" \
+    helm upgrade --install "$gamemode" "${CHART_DIR}" \
         --values "$values_file"
 
     # Verify deployment
@@ -79,7 +82,7 @@ done
 echo "Final Helm releases:"
 helm list
 
-helmfile apply --file ../helmfile.yaml
+helmfile apply --file "${SCRIPT_DIR}/../helmfile.yaml"
 
 echo "Final Kubernetes deployments:"
 kubectl get deployments -o wide
