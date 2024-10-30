@@ -2,6 +2,8 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: proxy
+  labels:
+    app: proxy
 spec:
   replicas: 1
   selector:
@@ -13,27 +15,39 @@ spec:
         app: proxy
         kyriji.dev/enable-panel-discovery: "true"
     spec:
+      terminationGracePeriodSeconds: 2
       serviceAccountName: velocity-account
       containers:
       - name: proxy
-        image: wiji1/mc-proxy:latest
+        image: openjdk:21-jdk-slim
+        command: ["/bin/bash", "-c"]
+        args:
+          - |
+            cd /minecraft
+            if [ ! -f "./server.jar" ]; then
+              echo "server.jar not found in /minecraft"
+              ls -la ./
+              exit 1
+            fi
+            mkfifo /tmp/server_input
+            tail -f /tmp/server_input | java -Xmx512M -Xms256M -jar ./server.jar
         volumeMounts:
           - name: local-volume
-            mountPath: /mnt/local/velocity
+            mountPath: /minecraft
         ports:
         - containerPort: 25565
           name: minecraft
         resources:
-            requests:
-              memory: "256Mi"  # Minimum amount of memory guaranteed for each replica
-              cpu: "250m"      # Minimum CPU (500 millicores = 0.5 cores)
-            limits:
-              memory: "512Mi"    # Maximum amount of memory the container can use
-              cpu: "500m"         # M
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
       volumes:
       - name: local-volume
         hostPath:
-          path: /mnt/local/velocity  # The path on your Kind worker nodes
+          path: /mnt/local/system/proxy
           type: Directory
 ---
 apiVersion: v1
@@ -46,5 +60,5 @@ spec:
     app: proxy
   ports:
     - protocol: TCP
-      port: 25565           # The port exposed externally
-      targetPort: 25565     # The port inside the pod/container
+      port: 25565
+      targetPort: 25565

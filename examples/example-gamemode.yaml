@@ -1,19 +1,47 @@
-# Ensure this name matches the name of the gamemode
-name: "example-gamemode"
-# Whether or not the player can be sent to this server when first joining the network
-initialServer: "true"
-# The minimum number of game instances for this gamemode
+# Ensure this remains the same as the gamemode's name
+name: example-gamemode
+
+# Whether or not this server should be used for initial connections. (AKA Lobby Servers)
+initialServer: 'true'
+
+# The minimum number of instances this gamemode can have
 minimumInstances: 2
+
+server:
+  # Change this if you need to use a different java version
+  image: openjdk:21-jdk-slim
+
+  # This is the name of your jarfile located in the base gamemode directory
+  jarName: server.jar
+
+  # Include any JVM options
+  jvmOpts: ""
+
+  # Include any JVM args
+  args: "nogui"
+
+  # Do not change this unless you know what you're doing. All internal servers should be able to run on the same port.
+  port: 25565
+
+  # Optional ENV variables. These example ones have no real effect and are just for demonstration.
+  env:
+    - name: EULA
+      value: "TRUE"
+    - name: VERSION
+      value: "1.20.2"
+
 volume:
-  # The contents of the nfsstore folder in the SFTP server are copied into the /mnt/local host folder,
-  # anything after "/mnt/local" should be replaced with the folder path of the desired working directory of the server
-  hostPath: "/mnt/local/minestom"
-  # Where the above path is copied to internally inside the container
-  mountPath: "/mnt/local/minestom"
+  # The directory to pull the server's data from. By default this is set to the folder that is automatically created for the gamemode.
+  dataDirectory: minestom
+
+  # Where the contents of the aformentioned data directory is copied to internally. There is no real reason to change this.
+  mountPath: /minecraft
+
+# Set recource limits per instance. "Mi" refers to megabytes, and "m" refers to micro-cpus.
 resources:
   requests:
-    memory: "256Mi"
-    cpu: "250m"
+    memory: 256Mi
+    cpu: 250m
   limits:
-    memory: "516Mi"
-    cpu: "500m"
+    memory: 516Mi
+    cpu: 500m
