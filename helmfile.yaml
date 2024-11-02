@@ -49,4 +49,6 @@ releases:
     createNamespace: true
     chart: ./deployments
     needs:
+      - metallb-system/metallb
+      - ingress-nginx/nginx-ingress
       - cert-manager/cert-manager
