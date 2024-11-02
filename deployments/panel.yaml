@@ -13,13 +13,14 @@ spec:
       labels:
         app: fullstack-app
     spec:
+      serviceAccountName: kubectl-sa
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
-            - matchExpressions:
-              - key: node-role.kubernetes.io/master
-                operator: Exists
+              - matchExpressions:
+                  - key: node-role.kubernetes.io/master
+                    operator: Exists
       tolerations:
         - key: "node-role.kubernetes.io/control-plane"
           operator: "Exists"
@@ -28,90 +29,90 @@ spec:
           operator: "Exists"
           effect: "NoSchedule"
       volumes:
-      - name: app-source
-        emptyDir:
-          medium: Memory
-      - name: host-root
-        hostPath:
-          path: /
-          type: Directory
-      - name: kube-config
-        emptyDir: {}
+        - name: app-source
+          emptyDir:
+            medium: Memory
+        - name: host-root
+          hostPath:
+            path: /
+            type: Directory
+        - name: kube-config
+          emptyDir: {}
       securityContext:
         fsGroup: 1000
       initContainers:
-      - name: fetch-source
-        image: curlimages/curl:latest
-        securityContext:
-          runAsUser: 0
-        command:
-          - sh
-          - -c
-          - |
-            mkdir -p /tmp/source
-            mkdir -p /usr/src/app
-            curl -L -o /tmp/source/app.tar.gz https://api.github.com/repos/BigMinecraftFramework/bmc-panel/tarball/main && \
-            cd /tmp/source && \
-            tar -xzf app.tar.gz && \
-            EXTRACTED_DIR=$(ls -d */ | head -n 1) && \
-            cp -r /tmp/source/$EXTRACTED_DIR/* /usr/src/app/ && \
-            chown -R 1000:1000 /usr/src/app && \
-            chmod -R 755 /usr/src/app
-        volumeMounts:
-          - name: app-source
-            mountPath: /usr/src/app
+        - name: fetch-source
+          image: curlimages/curl:latest
+          securityContext:
+            runAsUser: 0
+          command:
+            - sh
+            - -c
+            - |
+              mkdir -p /tmp/source
+              mkdir -p /usr/src/app
+              curl -L -o /tmp/source/app.tar.gz https://api.github.com/repos/BigMinecraftFramework/bmc-panel/tarball/main && \
+              cd /tmp/source && \
+              tar -xzf app.tar.gz && \
+              EXTRACTED_DIR=$(ls -d */ | head -n 1) && \
+              cp -r /tmp/source/$EXTRACTED_DIR/* /usr/src/app/ && \
+              chown -R 1000:1000 /usr/src/app && \
+              chmod -R 755 /usr/src/app
+          volumeMounts:
+            - name: app-source
+              mountPath: /usr/src/app
       containers:
-      - name: react-container
-        image: node:18-alpine
-        securityContext:
-          runAsUser: 0
-          runAsGroup: 0
-        workingDir: /usr/src/app/frontend
-        command:
-          - sh
-          - -c
-          - |
-            cd /usr/src/app/frontend && \
-            export NODE_ENV=development && \
-            export PUBLIC_URL=/ && \
-            export WDS_SOCKET_PORT=0 && \
-            export BROWSER=none && \
-            npm install && \
-            npm run client
-        ports:
-          - containerPort: 3000
-        env:
-        - name: DANGEROUSLY_DISABLE_HOST_CHECK
-          value: "true"
-        volumeMounts:
-          - name: app-source
-            mountPath: /usr/src/app
-          - name: host-root
-            mountPath: /host-root
-            readOnly: false
+        - name: react-container
+          image: node:18-alpine
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+          workingDir: /usr/src/app/frontend
+          command:
+            - sh
+            - -c
+            - |
+              cd /usr/src/app/frontend && \
+              export NODE_ENV=development && \
+              export PUBLIC_URL=/ && \
+              export WDS_SOCKET_PORT=0 && \
+              export BROWSER=none && \
+              npm install && \
+              npm run client
+          ports:
+            - containerPort: 3000
+          env:
+            - name: DANGEROUSLY_DISABLE_HOST_CHECK
+              value: "true"
+          volumeMounts:
+            - name: app-source
+              mountPath: /usr/src/app
+            - name: host-root
+              mountPath: /host-root
+              readOnly: false
 
-      - name: node-container
-        image: node:18-alpine
-        securityContext:
-          runAsUser: 0
-          runAsGroup: 0
-        workingDir: /usr/src/app/backend
-        command:
-          - sh
-          - -c
-          - |
-            cd /usr/src/app/backend && \
-            export NODE_ENV=production && \
-            npm install && \
-            npm run start:prod
-        ports:
-          - containerPort: 3001
-        volumeMounts:
-          - name: app-source
-            mountPath: /usr/src/app
-          - name: host-root
-            mountPath: /host-root
-            readOnly: false
+        - name: node-container
+          image: node:18-alpine
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+          workingDir: /usr/src/app/backend
+          command:
+            - sh
+            - -c
+            - |
+              cd /usr/src/app/backend && \
+              export NODE_ENV=production && \
+              npm install && \
+              npm run start:prod
+          ports:
+            - containerPort: 3001
+          volumeMounts:
+            - name: app-source
+              mountPath: /usr/src/app
+            - name: host-root
+              mountPath: /host-root
+              readOnly: false
 ---
 apiVersion: v1
 kind: Service
@@ -153,23 +154,23 @@ metadata:
 spec:
   ingressClassName: nginx
   rules:
-  - host: panel.lewenste.in
-    http:
-      paths:
-      - path: /api/(.*)
-        pathType: Prefix
-        backend:
-          service:
-            name: fullstack-service
-            port:
-              number: 3002
-      - path: /(.*)
-        pathType: Prefix
-        backend:
-          service:
-            name: fullstack-service
-            port:
-              number: 80
+    - host: web.lewenste.in
+      http:
+        paths:
+          - path: /api/(.*)
+            pathType: Prefix
+            backend:
+              service:
+                name: fullstack-service
+                port:
+                  number: 3002
+          - path: /(.*)
+            pathType: Prefix
+            backend:
+              service:
+                name: fullstack-service
+                port:
+                  number: 80
 ---
 apiVersion: metallb.io/v1beta1
 kind: IPAddressPool
@@ -178,9 +179,7 @@ metadata:
   namespace: metallb-system
 spec:
   addresses:
-  - 5.78.123.236-5.78.123.236
-  - 15.204.86.49-15.204.86.49
-  - 15.204.86.254-15.204.86.254
+    - 5.78.123.236/32
   autoAssign: true
 ---
 apiVersion: metallb.io/v1beta1
@@ -190,4 +189,4 @@ metadata:
   namespace: metallb-system
 spec:
   ipAddressPools:
-  - default
+    - default
