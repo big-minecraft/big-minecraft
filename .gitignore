@@ -3,4 +3,6 @@ pv/
 .DS_Store
 gamemodes/*
 
+nuke.sh
+
 !gamemodes/.gitkeep
