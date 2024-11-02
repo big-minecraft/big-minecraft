@@ -14,8 +14,16 @@ spec:
       labels:
         app: nfs-sftp
     spec:
+      # Updated nodeSelector to match K3s control plane label
       nodeSelector:
-        node-role.kubernetes.io/control-plane: "true"
+        node-role.kubernetes.io/master: "true"
+      tolerations:
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule
+      - key: node-role.kubernetes.io/master
+        operator: Exists
+        effect: NoSchedule
       initContainers:
       - name: init-sftp-setup
         image: alpine
@@ -23,23 +31,23 @@ spec:
         args:
           - |
             echo "Setting up SFTP directory..."
-            mkdir -p /home/user/nfsshare;  # Create the directory if it doesn't exist
-            chown 1001:1001 /home/user/nfsshare;  # Set ownership to the SFTP user
-            chmod 755 /home/user/nfsshare;  # Set directory permissions
+            mkdir -p /home/user/nfsshare;
+            chown 1001:1001 /home/user/nfsshare;
+            chmod 755 /home/user/nfsshare;
             echo "SFTP directory setup complete."
         volumeMounts:
           - name: nfs-volume
-            mountPath: /home/user/nfsshare  # This is the mount path for the SFTP user's home
+            mountPath: /home/user/nfsshare
       containers:
       - name: nfs-server
         image: itsthenetwork/nfs-server-alpine
         securityContext:
           privileged: true
         ports:
-          - containerPort: 2049 # NFS
+          - containerPort: 2049
         volumeMounts:
           - name: nfs-volume
-            mountPath: /nfsshare  # NFS shared directory
+            mountPath: /nfsshare
         env:
           - name: SHARED_DIRECTORY
             value: "/nfsshare"
@@ -48,52 +56,45 @@ spec:
       - name: sftp-server
         image: atmoz/sftp
         ports:
-          - containerPort: 22    # SFTP
+          - containerPort: 22
         env:
           - name: SFTP_USERS
-            value: "user:password:1001:1001"  # username:password:uid:gid
+            value: "user:password:1001:1001"
         volumeMounts:
           - name: nfs-volume
-            mountPath: /home/user/nfsshare  # Mount shared NFS directory to user's home
+            mountPath: /home/user/nfsshare
       - name: file-monitor
         image: alpine
         command: ["/bin/sh", "-c"]
         args:
           - |
-            apk add --no-cache inotify-tools redis;  # Install inotify-tools and redis-cli
-            SFTP_DIR="/home/user/nfsshare";
-            REDIS_HOST="redis-service";  # Change this to your Redis service name
-            REDIS_PORT=6379;
-
-            # Debugging print statement for directory monitoring setup
+            apk add --no-cache inotify-tools redis
+            SFTP_DIR="/home/user/nfsshare"
+            REDIS_HOST="redis-service"
+            REDIS_PORT=6379
             echo "Monitoring directory: $SFTP_DIR"
             echo "Connecting to Redis at $REDIS_HOST:$REDIS_PORT"
-
             inotifywait -m -r -e create -e modify -e delete --format '%w%f' "$SFTP_DIR" | while read FILE
             do
-              # Debugging print statement to check the file events
               echo "Event detected for file: $FILE"
-
               if [[ ! -e "$FILE" ]]; then
-                  MESSAGE="File deleted: $FILE";
+                  MESSAGE="File deleted: $FILE"
                   echo "$MESSAGE"
               else
-                  MESSAGE="File changed: $FILE";
+                  MESSAGE="File changed: $FILE"
                   echo "$MESSAGE"
               fi
-
-              # Debugging print statement before publishing to Redis
               echo "Publishing message to Redis: $MESSAGE"
               redis-cli -h $REDIS_HOST -p $REDIS_PORT PUBLISH file_changes "$MESSAGE" || echo "Failed to publish message to Redis"
             done
         volumeMounts:
           - name: nfs-volume
-            mountPath: /home/user/nfsshare  # Mount shared NFS directory
+            mountPath: /home/user/nfsshare
       volumes:
       - name: nfs-volume
         hostPath:
-          path: /mnt/nfsshare  # This is the host path for the shared folder
-          type: DirectoryOrCreate  # Create the directory if it does not exist
+          path: /mnt/nfsshare
+          type: DirectoryOrCreate
 ---
 apiVersion: v1
 kind: Service
@@ -106,10 +107,9 @@ spec:
     - name: nfs
       port: 2049
       targetPort: 2049
-      nodePort: 30000  # This will expose NFS on port 30000
+      nodePort: 30000
     - name: sftp
       port: 22
       targetPort: 22
-      nodePort: 30022  # This will expose SFTP on port 30022
-  type: NodePort  # This exposes the service on a static port range (30000-32767) on the node's IP
-
+      nodePort: 30022
+  type: NodePort

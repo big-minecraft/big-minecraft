@@ -1,0 +1,193 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fullstack-app
+  namespace: minecraft
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fullstack-app
+  template:
+    metadata:
+      labels:
+        app: fullstack-app
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: node-role.kubernetes.io/master
+                operator: Exists
+      tolerations:
+        - key: "node-role.kubernetes.io/control-plane"
+          operator: "Exists"
+          effect: "NoSchedule"
+        - key: "node-role.kubernetes.io/master"
+          operator: "Exists"
+          effect: "NoSchedule"
+      volumes:
+      - name: app-source
+        emptyDir:
+          medium: Memory
+      - name: host-root
+        hostPath:
+          path: /
+          type: Directory
+      - name: kube-config
+        emptyDir: {}
+      securityContext:
+        fsGroup: 1000
+      initContainers:
+      - name: fetch-source
+        image: curlimages/curl:latest
+        securityContext:
+          runAsUser: 0
+        command:
+          - sh
+          - -c
+          - |
+            mkdir -p /tmp/source
+            mkdir -p /usr/src/app
+            curl -L -o /tmp/source/app.tar.gz https://api.github.com/repos/BigMinecraftFramework/bmc-panel/tarball/main && \
+            cd /tmp/source && \
+            tar -xzf app.tar.gz && \
+            EXTRACTED_DIR=$(ls -d */ | head -n 1) && \
+            cp -r /tmp/source/$EXTRACTED_DIR/* /usr/src/app/ && \
+            chown -R 1000:1000 /usr/src/app && \
+            chmod -R 755 /usr/src/app
+        volumeMounts:
+          - name: app-source
+            mountPath: /usr/src/app
+      containers:
+      - name: react-container
+        image: node:18-alpine
+        securityContext:
+          runAsUser: 0
+          runAsGroup: 0
+        workingDir: /usr/src/app/frontend
+        command:
+          - sh
+          - -c
+          - |
+            cd /usr/src/app/frontend && \
+            export NODE_ENV=development && \
+            export PUBLIC_URL=/ && \
+            export WDS_SOCKET_PORT=0 && \
+            export BROWSER=none && \
+            npm install && \
+            npm run client
+        ports:
+          - containerPort: 3000
+        env:
+        - name: DANGEROUSLY_DISABLE_HOST_CHECK
+          value: "true"
+        volumeMounts:
+          - name: app-source
+            mountPath: /usr/src/app
+          - name: host-root
+            mountPath: /host-root
+            readOnly: false
+
+      - name: node-container
+        image: node:18-alpine
+        securityContext:
+          runAsUser: 0
+          runAsGroup: 0
+        workingDir: /usr/src/app/backend
+        command:
+          - sh
+          - -c
+          - |
+            cd /usr/src/app/backend && \
+            export NODE_ENV=production && \
+            npm install && \
+            npm run start:prod
+        ports:
+          - containerPort: 3001
+        volumeMounts:
+          - name: app-source
+            mountPath: /usr/src/app
+          - name: host-root
+            mountPath: /host-root
+            readOnly: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fullstack-service
+  namespace: minecraft
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /api$1
+spec:
+  selector:
+    app: fullstack-app
+  ports:
+    - name: frontend
+      protocol: TCP
+      port: 80
+      targetPort: 3000
+    - name: backend
+      protocol: TCP
+      port: 3001
+      targetPort: 3001
+      # Add a new port specifically for API
+    - name: api
+      protocol: TCP
+      port: 3002
+      targetPort: 3001
+  type: ClusterIP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: fullstack-ingress
+  namespace: minecraft
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "64m"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "15"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
+    nginx.ingress.kubernetes.io/use-regex: "true"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: panel.lewenste.in
+    http:
+      paths:
+      - path: /api/(.*)
+        pathType: Prefix
+        backend:
+          service:
+            name: fullstack-service
+            port:
+              number: 3002
+      - path: /(.*)
+        pathType: Prefix
+        backend:
+          service:
+            name: fullstack-service
+            port:
+              number: 80
+---
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: default
+  namespace: metallb-system
+spec:
+  addresses:
+  - 5.78.123.236-5.78.123.236
+  - 15.204.86.49-15.204.86.49
+  - 15.204.86.254-15.204.86.254
+  autoAssign: true
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: default
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+  - default

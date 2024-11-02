@@ -1,11 +1,52 @@
 repositories:
   - name: metallb
     url: https://metallb.github.io/metallb
+  - name: ingress-nginx
+    url: https://kubernetes.github.io/ingress-nginx
+  - name: jetstack
+    url: https://charts.jetstack.io
 
 releases:
   - name: metallb
-    namespace: default
+    namespace: metallb-system
+    createNamespace: true
     chart: metallb/metallb
+    hooks:
+      - events: ["presync"]
+        showlogs: true
+        command: "kubectl"
+        args:
+          - delete
+          - crd
+          - bfdprofiles.metallb.io,bgpadvertisements.metallb.io,bgppeers.metallb.io,ipaddresspools.metallb.io,l2advertisements.metallb.io
+          - --ignore-not-found=true
+
+  - name: nginx-ingress
+    namespace: ingress-nginx
+    createNamespace: true
+    chart: ingress-nginx/ingress-nginx
+    needs:
+      - metallb-system/metallb
+    values:
+      - controller:
+          service:
+            type: LoadBalancer
+
+  - name: cert-manager
+    namespace: cert-manager
+    createNamespace: true
+    chart: jetstack/cert-manager
+    version: v1.12.0
+    needs:
+      - ingress-nginx/nginx-ingress
+    set:
+      - name: installCRDs
+        value: true
+    wait: true
+
   - name: minecraft
-    namespace: default
+    namespace: minecraft
+    createNamespace: true
     chart: ./deployments
+    needs:
+      - cert-manager/cert-manager
