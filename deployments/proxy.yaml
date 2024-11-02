@@ -18,42 +18,45 @@ spec:
       terminationGracePeriodSeconds: 2
       serviceAccountName: velocity-account
       containers:
-      - name: proxy
-        image: openjdk:21-jdk-slim
-        command: ["/bin/bash", "-c"]
-        args:
-          - |
-            cd /minecraft
-            if [ ! -f "./server.jar" ]; then
-              echo "server.jar not found in /minecraft"
-              ls -la ./
-              exit 1
-            fi
-            mkfifo /tmp/server_input
-            tail -f /tmp/server_input | java -Xmx512M -Xms256M -jar ./server.jar
-        volumeMounts:
-          - name: local-volume
-            mountPath: /minecraft
-        ports:
-        - containerPort: 25565
-          name: minecraft
-        resources:
-          requests:
-            memory: "256Mi"
-            cpu: "250m"
-          limits:
-            memory: "512Mi"
-            cpu: "500m"
+        - name: proxy
+          image: openjdk:21-jdk-slim
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              cd /minecraft
+              if [ ! -f "./server.jar" ]; then
+                echo "server.jar not found in /minecraft"
+                ls -la ./
+                exit 1
+              fi
+              mkfifo /tmp/server_input
+              tail -f /tmp/server_input | java -Xmx512M -Xms256M -jar ./server.jar
+          volumeMounts:
+            - name: local-volume
+              mountPath: /minecraft
+          ports:
+            - containerPort: 25565
+              name: minecraft
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
       volumes:
-      - name: local-volume
-        hostPath:
-          path: /mnt/local/system/proxy
-          type: Directory
+        - name: local-volume
+          hostPath:
+            path: /mnt/local/system/proxy
+            type: Directory
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: proxy-lb
+  annotations:
+    metallb.universe.tf/allow-shared-ip: "shared-ip-key"
+    metallb.universe.tf/loadBalancerIPs: "5.78.123.236"
 spec:
   type: LoadBalancer
   selector:
