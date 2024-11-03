@@ -150,9 +150,22 @@ metadata:
     nginx.ingress.kubernetes.io/proxy-connect-timeout: "15"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
+    nginx.ingress.kubernetes.io/connection-upgrade: "true"
+    nginx.ingress.kubernetes.io/upgrade: "websocket"
     nginx.ingress.kubernetes.io/use-regex: "true"
+    # Add cert-manager annotations
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"  # Use your ClusterIssuer name
+    # Force SSL
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
 spec:
   ingressClassName: nginx
+  tls:
+  - hosts:
+    - web.lewenste.in
+    secretName: fullstack-tls-secret  # cert-manager will create this secret
   rules:
     - host: web.lewenste.in
       http:
@@ -190,3 +203,21 @@ metadata:
 spec:
   ipAddressPools:
     - default
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    # Email address used for ACME registration
+    email: your-email@contact.com  # Replace with your email
+    server: https://acme-v02.api.letsencrypt.org/directory
+    privateKeySecretRef:
+      # Name of a secret used to store the ACME account private key
+      name: letsencrypt-prod-private-key
+    # Add a single challenge solver, HTTP01 using nginx
+    solvers:
+    - http01:
+        ingress:
+          class: nginx
