@@ -11,6 +11,7 @@ releases:
     namespace: metallb-system
     createNamespace: true
     chart: metallb/metallb
+    wait: true
     hooks:
       - events: ["presync"]
         showlogs: true
