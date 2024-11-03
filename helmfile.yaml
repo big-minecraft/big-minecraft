@@ -7,11 +7,11 @@ repositories:
     url: https://charts.jetstack.io
 
 releases:
-  name: metallb
+  - name: metallb
     namespace: metallb-system
-  -     createNamespace: true
+    createNamespace: true
     chart: metallb/metallb
-  -     wait: true
+    wait: true
     hooks:
       - events: ["presync"]
         showlogs: true
@@ -58,28 +58,3 @@ releases:
       - metallb-system/metallb
       - ingress-nginx/nginx-ingress
       - cert-manager/cert-manager
-    hooks:
-      - events: ["presync"]
-        showlogs: true
-        command: "kubectl"
-        args:
-          - wait
-          - --for=condition=Established
-          - crd/clusterissuers.cert-manager.io
-          - --timeout=60s
-      - events: ["presync"]
-        showlogs: true
-        command: "kubectl"
-        args:
-          - wait
-          - --for=condition=Established
-          - crd/ipaddresspools.metallb.io
-          - --timeout=60s
-      - events: ["presync"]
-        showlogs: true
-        command: "kubectl"
-        args:
-          - wait
-          - --for=condition=Established
-          - crd/l2advertisements.metallb.io
-          - --timeout=60s
