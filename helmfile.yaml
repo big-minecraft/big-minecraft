@@ -26,6 +26,7 @@ releases:
     namespace: ingress-nginx
     createNamespace: true
     chart: ingress-nginx/ingress-nginx
+    wait: true
     needs:
       - metallb-system/metallb
     values:
@@ -52,6 +53,7 @@ releases:
     namespace: minecraft
     createNamespace: true
     chart: ./deployments
+    wait: true
     needs:
       - metallb-system/metallb
       - ingress-nginx/nginx-ingress
