@@ -1,4 +1,5 @@
 #!/bin/bash
+export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 
 set -e  # Exit on error
 set -x  # Enable debug output
