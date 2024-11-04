@@ -64,3 +64,4 @@ releases:
       - global:
           domain: {{ .Environment.Values.domain }}
           loadBalancerIP: {{ .Environment.Values.loadBalancerIP }}
+          inviteCode: {{ .Environment.Values.inviteCode }}

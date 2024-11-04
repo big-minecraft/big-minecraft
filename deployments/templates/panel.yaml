@@ -86,6 +86,8 @@ spec:
           env:
             - name: DANGEROUSLY_DISABLE_HOST_CHECK
               value: "true"
+            - name: INITIAL_INVITE_CODE
+              value: {{ .Values.global.inviteCode }}
           volumeMounts:
             - name: app-source
               mountPath: /usr/src/app
