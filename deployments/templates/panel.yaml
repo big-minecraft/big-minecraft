@@ -3,6 +3,8 @@ kind: Deployment
 metadata:
   name: fullstack-app
   namespace: minecraft
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
 spec:
   replicas: 1
   selector:
@@ -120,6 +122,8 @@ kind: Service
 metadata:
   name: fullstack-service
   namespace: minecraft
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
   annotations:
     nginx.ingress.kubernetes.io/rewrite-target: /api$1
 spec:
@@ -165,10 +169,10 @@ spec:
   ingressClassName: nginx
   tls:
   - hosts:
-    - web.lewenste.in
+    - {{ .Values.global.domain }}
     secretName: fullstack-tls-secret  # cert-manager will create this secret
   rules:
-    - host: web.lewenste.in
+    - host: {{ .Values.global.domain }}
       http:
         paths:
           - path: /api/(.*)
@@ -191,9 +195,11 @@ kind: IPAddressPool
 metadata:
   name: default
   namespace: metallb-system
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
 spec:
   addresses:
-    - 5.78.123.236/32
+    - {{ .Values.global.loadBalancerIP }}/32
   autoAssign: true
 ---
 apiVersion: metallb.io/v1beta1

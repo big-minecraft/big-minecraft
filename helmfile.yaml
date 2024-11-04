@@ -1,3 +1,8 @@
+environments:
+  default:
+    values:
+      - values/global.yaml
+
 repositories:
   - name: metallb
     url: https://metallb.github.io/metallb
@@ -33,7 +38,7 @@ releases:
             type: LoadBalancer
             annotations:
               metallb.universe.tf/allow-shared-ip: "shared-ip-key"
-              metallb.universe.tf/loadBalancerIPs: "5.78.123.236"
+              metallb.universe.tf/loadBalancerIPs: {{ .Environment.Values.loadBalancerIP | quote }}
 
   - name: cert-manager
     namespace: cert-manager
@@ -55,3 +60,7 @@ releases:
       - metallb-system/metallb
       - ingress-nginx/nginx-ingress
       - cert-manager/cert-manager
+    values:
+      - global:
+          domain: {{ .Environment.Values.domain }}
+          loadBalancerIP: {{ .Environment.Values.loadBalancerIP }}
