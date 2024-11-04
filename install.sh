@@ -1,5 +1,7 @@
 #!/bin/bash
 
+export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+
 # Create values directory if it doesn't exist
 mkdir -p values
 
