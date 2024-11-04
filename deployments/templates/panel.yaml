@@ -69,18 +69,18 @@ spec:
           securityContext:
             runAsUser: 0
             runAsGroup: 0
-          workingDir: /usr/src/app/frontend
+          workingDir: /usr/src/app/client
           command:
             - sh
             - -c
             - |
-              cd /usr/src/app/frontend && \
+              cd /usr/src/app/client && \
               export NODE_ENV=development && \
               export PUBLIC_URL=/ && \
               export WDS_SOCKET_PORT=0 && \
               export BROWSER=none && \
               npm install && \
-              npm run client
+              npm run start
           ports:
             - containerPort: 3000
           env:
@@ -100,16 +100,16 @@ spec:
           securityContext:
             runAsUser: 0
             runAsGroup: 0
-          workingDir: /usr/src/app/backend
+          workingDir: /usr/src/app/server
           command:
             - sh
             - -c
             - |
               apk add --no-cache bash && \
-              cd /usr/src/app/backend && \
+              cd /usr/src/app/server && \
               export NODE_ENV=production && \
               npm install && \
-              npm run start:prod
+              npm run start
           ports:
             - containerPort: 3001
           volumeMounts:
