@@ -2,7 +2,7 @@ environments:
   default:
     values:
       - values/global.yaml
-
+---
 repositories:
   - name: metallb
     url: https://metallb.github.io/metallb
@@ -10,7 +10,7 @@ repositories:
     url: https://kubernetes.github.io/ingress-nginx
   - name: jetstack
     url: https://charts.jetstack.io
-
+---
 releases:
   - name: metallb
     namespace: metallb-system
