@@ -1,5 +1,4 @@
 #!/bin/bash
-
 set -e
 
 # Version constants
@@ -7,12 +6,13 @@ CURL_VERSION="v8.10.1"
 HELM_VERSION="v3.16.2"
 HELMFILE_VERSION="v0.158.0"
 HELM_DIFF_VERSION="v3.9.11"
+KUBECTL_VERSION="v1.29.2"  # Added kubectl version
 
 command_exists() {
     command -v "$1" >/dev/null 2>&1
 }
 
-echo "Starting installation of helm tools"
+echo "Starting installation of helm tools and kubectl"
 
 # Install curl if not present
 if ! command_exists curl; then
@@ -20,6 +20,14 @@ if ! command_exists curl; then
     wget -q "https://github.com/moparisthebest/static-curl/releases/download/${CURL_VERSION}/curl-amd64" -O /usr/local/bin/curl
     chmod +x /usr/local/bin/curl
     export PATH="/usr/local/bin:$PATH"
+fi
+
+# Install kubectl if not present
+if ! command_exists kubectl; then
+    echo "Installing kubectl"
+    curl -LO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
+    chmod +x kubectl
+    mv kubectl /usr/local/bin/
 fi
 
 # Install helm if not present
@@ -52,8 +60,8 @@ fi
 
 # Verify installations
 echo -e "\nVerifying installations:"
+echo "Kubectl: $(kubectl version --client -o json | grep -o '"gitVersion":"[^"]*' | cut -d':' -f2 | tr -d '"')"
 echo "Helm: $(helm version --short)"
 echo "Helmfile: $(helmfile -v)"
 echo "Helm-diff: $(helm plugin list | grep diff)"
-
 echo "Installation complete!"
