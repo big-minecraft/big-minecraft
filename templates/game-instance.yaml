@@ -17,6 +17,8 @@ spec:
         kyriji.dev/enable-server-discovery: "true"
         kyriji.dev/enable-panel-discovery: "true"
         kyriji.dev/initial-server: "{{ .Values.initialServer }}"
+        kyriji.dev/queue-strategy: "{{ .Values.queueStrategy }}"
+        kyriji.dev/max-players: "{{ .Values.maxPlayers }}"
     spec:
       terminationGracePeriodSeconds: 2
       containers:

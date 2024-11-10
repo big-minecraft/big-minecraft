@@ -7,6 +7,20 @@ initialServer: 'true'
 # The minimum number of instances this gamemode can have
 minimumInstances: 2
 
+# The maximum number of players per instance
+maxPlayers: 10
+
+# The strategy to use when placing players in instances.
+#
+# FILL - Try to completely fill one instance before sending players to another
+#
+# SPREAD - Try to evenly spread players between all available instances
+#
+# DYNAMIC_FILL - The same as FILL but allowing some instances to be immune from queuing.
+# This is best used for minigame instances where players should not be sent to an instance after the game has started.
+# Use the BMC-API to set an instance as immune.
+queueStrategy: FILL
+
 server:
   # Change this if you need to use a different java version
   image: openjdk:21-jdk-slim

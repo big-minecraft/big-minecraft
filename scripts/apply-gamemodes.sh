@@ -85,7 +85,7 @@ done
 echo "Final Helm releases:"
 helm list --namespace minecraft
 
-helmfile apply --file "${SCRIPT_DIR}/../helmfile.yaml"
+#helmfile apply --file "${SCRIPT_DIR}/../helmfile.yaml"
 
 echo "Final Kubernetes deployments:"
 kubectl get deployments -n minecraft -o wide

@@ -3,6 +3,8 @@ kind: Deployment
 metadata:
   name: fullstack-app
   namespace: minecraft
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
 spec:
   replicas: 1
   selector:
@@ -67,18 +69,18 @@ spec:
           securityContext:
             runAsUser: 0
             runAsGroup: 0
-          workingDir: /usr/src/app/frontend
+          workingDir: /usr/src/app/client
           command:
             - sh
             - -c
             - |
-              cd /usr/src/app/frontend && \
+              cd /usr/src/app/client && \
               export NODE_ENV=development && \
               export PUBLIC_URL=/ && \
               export WDS_SOCKET_PORT=0 && \
               export BROWSER=none && \
               npm install && \
-              npm run client
+              npm run start
           ports:
             - containerPort: 3000
           env:
@@ -96,17 +98,21 @@ spec:
           securityContext:
             runAsUser: 0
             runAsGroup: 0
-          workingDir: /usr/src/app/backend
+          workingDir: /usr/src/app/server
           command:
             - sh
             - -c
             - |
-              cd /usr/src/app/backend && \
+              apk add --no-cache bash && \
+              cd /usr/src/app/server && \
               export NODE_ENV=production && \
               npm install && \
-              npm run start:prod
+              npm run start
           ports:
             - containerPort: 3001
+          env:
+            - name: INITIAL_INVITE_CODE
+              value: {{ .Values.global.inviteCode }}
           volumeMounts:
             - name: app-source
               mountPath: /usr/src/app
@@ -119,6 +125,8 @@ kind: Service
 metadata:
   name: fullstack-service
   namespace: minecraft
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
   annotations:
     nginx.ingress.kubernetes.io/rewrite-target: /api$1
 spec:
@@ -150,11 +158,24 @@ metadata:
     nginx.ingress.kubernetes.io/proxy-connect-timeout: "15"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
+    nginx.ingress.kubernetes.io/connection-upgrade: "true"
+    nginx.ingress.kubernetes.io/upgrade: "websocket"
     nginx.ingress.kubernetes.io/use-regex: "true"
+    # Add cert-manager annotations
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"  # Use your ClusterIssuer name
+    # Force SSL
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
 spec:
   ingressClassName: nginx
+  tls:
+  - hosts:
+    - {{ .Values.global.domain }}
+    secretName: fullstack-tls-secret  # cert-manager will create this secret
   rules:
-    - host: web.lewenste.in
+    - host: {{ .Values.global.domain }}
       http:
         paths:
           - path: /api/(.*)
@@ -177,9 +198,11 @@ kind: IPAddressPool
 metadata:
   name: default
   namespace: metallb-system
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
 spec:
   addresses:
-    - 5.78.123.236/32
+    - {{ .Values.global.loadBalancerIP }}/32
   autoAssign: true
 ---
 apiVersion: metallb.io/v1beta1
@@ -190,3 +213,21 @@ metadata:
 spec:
   ipAddressPools:
     - default
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    # Email address used for ACME registration
+    email: your-email@contact.com  # Replace with your email
+    server: https://acme-v02.api.letsencrypt.org/directory
+    privateKeySecretRef:
+      # Name of a secret used to store the ACME account private key
+      name: letsencrypt-prod-private-key
+    # Add a single challenge solver, HTTP01 using nginx
+    solvers:
+    - http01:
+        ingress:
+          class: nginx
