@@ -6,7 +6,7 @@ CURL_VERSION="v8.10.1"
 HELM_VERSION="v3.16.2"
 HELMFILE_VERSION="v0.158.0"
 HELM_DIFF_VERSION="v3.9.11"
-KUBECTL_VERSION="v1.29.2"  # Added kubectl version
+KUBECTL_VERSION="v1.29.2"
 
 command_exists() {
     command -v "$1" >/dev/null 2>&1
@@ -14,7 +14,7 @@ command_exists() {
 
 echo "Starting installation of helm tools and kubectl"
 
-# Install curl if not present
+# Install curl
 if ! command_exists curl; then
     echo "Installing curl"
     wget -q "https://github.com/moparisthebest/static-curl/releases/download/${CURL_VERSION}/curl-amd64" -O /usr/local/bin/curl
@@ -22,7 +22,7 @@ if ! command_exists curl; then
     export PATH="/usr/local/bin:$PATH"
 fi
 
-# Install kubectl if not present
+# Install kubectl
 if ! command_exists kubectl; then
     echo "Installing kubectl"
     curl -LO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
@@ -30,7 +30,7 @@ if ! command_exists kubectl; then
     mv kubectl /usr/local/bin/
 fi
 
-# Install helm if not present
+# Install helm
 if ! command_exists helm; then
     echo "Installing helm"
     curl -sL "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz" | tar xz
@@ -38,7 +38,7 @@ if ! command_exists helm; then
     rm -rf linux-amd64
 fi
 
-# Install helmfile if not present
+# Install helmfile
 if ! command_exists helmfile; then
     echo "Installing helmfile"
     TMP_DIR=$(mktemp -d)
@@ -50,7 +50,7 @@ if ! command_exists helmfile; then
     rm -rf "$TMP_DIR"
 fi
 
-# Install helm-diff plugin if not present
+# Install helm-diff
 if ! helm plugin list | grep -q "diff"; then
     echo "Installing helm-diff plugin"
     PLUGIN_DIR="${HELM_PLUGIN_DIR:-$HOME/.local/share/helm/plugins}"
