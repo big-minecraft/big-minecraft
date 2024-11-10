@@ -62,6 +62,7 @@ releases:
       - cert-manager/cert-manager
     values:
       - global:
-          domain: {{ .Environment.Values.domain }}
+          panelDomain: {{ .Environment.Values.panelDomain }}
+          k8sDashboardDomain: {{ .Environment.Values.k8sDashboardDomain }}
           loadBalancerIP: {{ .Environment.Values.loadBalancerIP }}
           inviteCode: {{ .Environment.Values.inviteCode }}

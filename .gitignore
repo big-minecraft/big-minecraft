@@ -4,5 +4,6 @@ pv/
 gamemodes/*
 
 nuke.sh
+scripts/Dockerfile
 
 !gamemodes/.gitkeep

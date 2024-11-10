@@ -172,10 +172,10 @@ spec:
   ingressClassName: nginx
   tls:
   - hosts:
-    - {{ .Values.global.domain }}
+    - {{ .Values.global.panelDomain }}
     secretName: fullstack-tls-secret  # cert-manager will create this secret
   rules:
-    - host: {{ .Values.global.domain }}
+    - host: {{ .Values.global.panelDomain }}
       http:
         paths:
           - path: /api/(.*)

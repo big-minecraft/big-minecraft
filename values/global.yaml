@@ -1,3 +1,4 @@
-domain: panel.example.com
-loadBalancerIP: 0.0.0.0
+panelDomain: web.lewenste.in
+k8sDashboardDomain: k8s.lewenste.in
+loadBalancerIP: 5.78.123.236
 inviteCode: 
