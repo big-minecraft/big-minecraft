@@ -35,7 +35,7 @@ if [ ! -d "${CHART_DIR}/templates" ]; then
 fi
 
 # Get a list of currently deployed Helm releases
-DEPLOYED_GAMEMODES=$(helm list -q --namespace minecraft)
+DEPLOYED_GAMEMODES=$(helm list -q --namespace default)
 
 # Get a list of gamemode files (without extension) in the values directory
 AVAILABLE_GAMEMODES=$(find "${VALUES_DIR}" -type f -name "*.yaml" -o -name "*.yml" | xargs -n1 basename | sed 's/\.[^.]*$//')
@@ -43,10 +43,10 @@ AVAILABLE_GAMEMODES=$(find "${VALUES_DIR}" -type f -name "*.yaml" -o -name "*.ym
 # Loop through deployed gamemodes and delete any that no longer have a corresponding values file
 for gamemode in $DEPLOYED_GAMEMODES; do
     # Check if the deployment has the required label
-    if kubectl get deployment "$gamemode" -n minecraft -o jsonpath='{.spec.template.metadata.labels.kyriji\.dev/enable-server-discovery}' | grep -q "true"; then
+    if kubectl get deployment "$gamemode" -n default -o jsonpath='{.spec.template.metadata.labels.kyriji\.dev/enable-server-discovery}' | grep -q "true"; then
         if ! echo "$AVAILABLE_GAMEMODES" | grep -q "^$gamemode$"; then
             echo "Deleting removed gamemode: $gamemode"
-            helm uninstall "$gamemode" --namespace minecraft
+            helm uninstall "$gamemode" --namespace default
         fi
     fi
 done
@@ -67,27 +67,27 @@ for values_file in "${VALUES_DIR}"/*.{yaml,yml}; do
     echo "Deploying $gamemode..."
     helm upgrade --install "$gamemode" "${CHART_DIR}" \
         --values "$values_file" \
-        --namespace minecraft \
+        --namespace default \
         --debug \
         --dry-run  # First do a dry run to see what would be created
 
     # If dry run succeeds, do the actual deployment
     helm upgrade --install "$gamemode" "${CHART_DIR}" \
         --values "$values_file" \
-        --namespace minecraft
+        --namespace default
 
     # Verify deployment
     echo "Verifying deployment..."
-    kubectl get deployment "$gamemode" -n minecraft -o yaml
+    kubectl get deployment "$gamemode" -n default -o yaml
 done
 
 # Show final state
 echo "Final Helm releases:"
-helm list --namespace minecraft
+helm list --namespace default
 
 #helmfile apply --file "${SCRIPT_DIR}/../helmfile.yaml"
 
 echo "Final Kubernetes deployments:"
-kubectl get deployments -n minecraft -o wide
+kubectl get deployments -n default -o wide
 
 echo "Deployment of all gamemodes completed successfully."
