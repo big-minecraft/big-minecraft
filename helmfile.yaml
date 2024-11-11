@@ -55,7 +55,7 @@ releases:
   - name: big-minecraft
     namespace: minecraft
     createNamespace: true
-    chart: ./bmc-chart
+    chart: ./charts/bmc-chart
     needs:
       - metallb-system/metallb
       - ingress-nginx/nginx-ingress

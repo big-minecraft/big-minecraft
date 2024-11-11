@@ -26,7 +26,7 @@ fi
 
 # Define the paths relative to the script location
 VALUES_DIR="${SCRIPT_DIR}/../gamemodes"
-CHART_DIR="${SCRIPT_DIR}/.."
+CHART_DIR="${SCRIPT_DIR}/../charts/gamemodes-chart"
 
 # Verify chart structure
 if [ ! -d "${CHART_DIR}/templates" ]; then
