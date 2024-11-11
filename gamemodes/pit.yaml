@@ -1,0 +1,57 @@
+# Ensure this remains the same as the gamemode's name
+name: pit
+
+# Whether or not this server should be used for initial connections. (AKA Lobby Servers)
+initialServer: 'true'
+
+# The minimum number of instances this gamemode can have
+minimumInstances: 2
+
+# The maximum number of players per instance
+maxPlayers: 10
+
+# The strategy to use when placing players in instances.
+#
+# FILL - Try to completely fill one instance before sending players to another
+#
+# SPREAD - Try to evenly spread players between all available instances
+queueStrategy: FILL
+
+server:
+  # Change this if you need to use a different java version
+  image: openjdk:21-jdk-slim
+
+  # This is the name of your jarfile located in the base gamemode directory
+  jarName: server.jar
+
+  # Include any JVM options
+  jvmOpts: ""
+
+  # Include any JVM args
+  args: "nogui"
+
+  # Do not change this unless you know what you're doing. All internal servers should be able to run on the same port.
+  port: 25565
+
+  # Optional ENV variables. These example ones have no real effect and are just for demonstration.
+  env:
+    - name: EULA
+      value: "TRUE"
+    - name: VERSION
+      value: "1.20.2"
+
+volume:
+  # The directory to pull the server's data from. By default this is set to the folder that is automatically created for the gamemode.
+  dataDirectory: minestom
+
+  # Where the contents of the aformentioned data directory is copied to internally. There is no real reason to change this.
+  mountPath: /minecraft
+
+# Set recource limits per instance. "Mi" refers to megabytes, and "m" refers to micro-cpus.
+resources:
+  requests:
+    memory: 256Mi
+    cpu: 250m
+  limits:
+    memory: 516Mi
+    cpu: 500m

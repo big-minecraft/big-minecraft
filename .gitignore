@@ -1,9 +1,6 @@
 pv/
 .idea/
 .DS_Store
-gamemodes/*
 
 nuke.sh
 scripts/Dockerfile
-
-!gamemodes/.gitkeep
