@@ -14,7 +14,7 @@ spec:
       labels:
         app: manager
     spec:
-      serviceAccountName: velocity-account
+      serviceAccountName: kubectl-sa
       containers:
       - name: manager
         image: eclipse-temurin:21-jdk

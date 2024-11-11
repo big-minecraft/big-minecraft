@@ -16,7 +16,7 @@ spec:
         kyriji.dev/enable-panel-discovery: "true"
     spec:
       terminationGracePeriodSeconds: 2
-      serviceAccountName: velocity-account
+      serviceAccountName: kubectl-sa
       containers:
         - name: proxy
           image: openjdk:21-jdk-slim
