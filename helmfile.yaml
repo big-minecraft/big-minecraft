@@ -53,8 +53,7 @@ releases:
     wait: true
 
   - name: big-minecraft
-    namespace: minecraft
-    createNamespace: true
+    namespace: default
     chart: ./charts/bmc-chart
     needs:
       - metallb-system/metallb
