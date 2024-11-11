@@ -63,8 +63,8 @@ sleep 5
 
 helmfile apply -l name="metallb"
 helmfile apply -l name="cert-manager"
-helmfile apply
-helmfile sync
+# helmfile apply
+helmfile sync # this is a bad thing to do
 
 echo "------------------------"
 echo "Installation complete!"

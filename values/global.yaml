@@ -1,4 +1,4 @@
-panelDomain: web.lewenste.in
-k8sDashboardDomain: k8s.lewenste.in
+panelDomain: panel.wiji.dev
+k8sDashboardDomain: k8s.wiji.dev    
 loadBalancerIP: 5.78.123.236
 inviteCode: 
