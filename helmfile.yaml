@@ -52,10 +52,10 @@ releases:
         value: true
     wait: true
 
-  - name: minecraft
+  - name: big-minecraft
     namespace: minecraft
     createNamespace: true
-    chart: ./deployments
+    chart: ./bmc-chart
     needs:
       - metallb-system/metallb
       - ingress-nginx/nginx-ingress
