@@ -29,11 +29,11 @@ scaling:
   # The maximum number of instances this gamemode can have. Use "unlimited" to remove this limit.
   maxInstances: 10
 
-  # The ratio of players per instance to scale up.
-  scaleUpThreshold: 0.8
+  # The number of player per instance in the gamemode that triggers a scale-up
+  scaleUpThreshold: 5
 
-  # The ratio of players per instance to scale down.
-  scaleDownThreshold: 0.2
+  # The number of player per instance in the gamemode that triggers a scale-down
+  scaleDownThreshold: 2
 
   # How often the gamemode can be scaled up in seconds.
   scaleUpCooldown: 60
