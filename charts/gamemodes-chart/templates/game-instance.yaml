@@ -16,9 +16,21 @@ spec:
         app: {{ .Values.name }}
         kyriji.dev/enable-server-discovery: "true"
         kyriji.dev/enable-panel-discovery: "true"
-        kyriji.dev/initial-server: "{{ .Values.initialServer }}"
-        kyriji.dev/queue-strategy: "{{ .Values.queueStrategy }}"
-        kyriji.dev/max-players: "{{ .Values.maxPlayers }}"
+
+        kyriji.dev/initial-server: "{{ .Values.queuing.initialServer }}"
+        kyriji.dev/queue-strategy: "{{ .Values.queuing.queueStrategy }}"
+
+        kyriji.dev/scale-strategy: "{{ .Values.scaling.scaleStrategy }}"
+        kyriji.dev/max-players: "{{ .Values.scaling.maxPlayers }}"
+        kyriji.dev/min-instances: "{{ .Values.scaling.minInstances }}"
+        kyriji.dev/max-instances: "{{ .Values.scaling.maxInstances }}"
+        kyriji.dev/scale-up-threshold: "{{ .Values.scaling.scaleUpThreshold }}"
+        kyriji.dev/scale-down-threshold: "{{ .Values.scaling.scaleDownThreshold }}"
+        kyriji.dev/scale-up-cooldown: "{{ .Values.scaling.scaleUpCooldown }}"
+        kyriji.dev/scale-down-cooldown: "{{ .Values.scaling.scaleDownCooldown }}"
+        kyriji.dev/scale-up-limit: "{{ .Values.scaling.scaleUpLimit }}"
+        kyriji.dev/scale-down-limit: "{{ .Values.scaling.scaleDownLimit }}"
+
     spec:
       terminationGracePeriodSeconds: 2
       containers:
