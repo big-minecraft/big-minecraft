@@ -26,8 +26,8 @@ scaling:
   # The minimum number of instances this gamemode can have.
   minInstances: 2
 
-  # The maximum number of instances this gamemode can have. Use -1 for no limit.
-  maxInstances: -1
+  # The maximum number of instances this gamemode can have. Use "unlimited" to remove this limit.
+  maxInstances: 10
 
   # The ratio of players per instance to scale up.
   scaleUpThreshold: 0.8
