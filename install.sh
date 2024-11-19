@@ -26,8 +26,8 @@ generate_invite_code() {
 }
 
 # Read existing values if file exists
-if [ -f values/global.yaml ]; then
-    existing_invite_code=$(grep "inviteCode:" values/global.yaml | awk '{print $2}' | tr -d '"')
+if [ -f local/global-config.yaml ]; then
+    existing_invite_code=$(grep "inviteCode:" local/global-config.yaml | awk '{print $2}' | tr -d '"')
 fi
 
 # If invite code is empty or doesn't exist, generate a new one
@@ -37,15 +37,15 @@ else
     invite_code=$existing_invite_code
 fi
 
-# Create or update values/global.yaml
-cat > values/global.yaml << EOF
+# Create or update local/global-config.yaml
+cat > local/global-config.yaml << EOF
 panelDomain: $panel_domain
 k8sDashboardDomain: $k8s_dashboard_domain
 loadBalancerIP: $ip_address
 inviteCode: $invite_code
 EOF
 
-echo "Created values/global.yaml with:"
+echo "Created local/global-config.yaml with:"
 echo "Panel Domain: $panel_domain"
 echo "K8s Dashboard Domain: $k8s_dashboard_domain"
 echo "IP: $ip_address"
@@ -56,6 +56,10 @@ echo "------------------------"
 
 # Continue with installation
 ./scripts/install-dependents.sh
+
+# Initialize local directory
+./scripts/initialize-local.sh
+
 helm uninstall traefik traefik-crd -n kube-system || true
 
 # Add a small delay to ensure the CRDs are removed
@@ -65,6 +69,9 @@ helmfile apply -l name="metallb"
 helmfile apply -l name="cert-manager"
 # helmfile apply
 helmfile sync # this is a bad thing to do
+
+# Apply the configurable proxy chart
+./scripts/apply-proxy.sh
 
 echo "------------------------"
 echo "Installation complete!"

@@ -1,7 +1,7 @@
 environments:
   default:
     values:
-      - values/global.yaml
+      - local/global-config.yaml
 ---
 repositories:
   - name: metallb

@@ -25,7 +25,7 @@ if ! command_exists helmfile; then
 fi
 
 # Define the paths relative to the script location
-VALUES_DIR="${SCRIPT_DIR}/../gamemodes"
+VALUES_DIR="${SCRIPT_DIR}/../local/gamemodes"
 CHART_DIR="${SCRIPT_DIR}/../charts/gamemodes-chart"
 
 # Verify chart structure

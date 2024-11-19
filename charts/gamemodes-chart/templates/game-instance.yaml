@@ -6,7 +6,7 @@ metadata:
     app: {{ .Values.name }}
     chart: "{{ .Chart.Name }}-{{ .Chart.Version }}"
 spec:
-  replicas: {{ .Values.minimumInstances }}
+  replicas: {{ .Values.scaling.minInstances }}
   selector:
     matchLabels:
       app: {{ .Values.name }}
@@ -41,7 +41,7 @@ spec:
           - |
             cd {{ .Values.volume.mountPath }}
             if [ ! -f "./{{ .Values.server.jarName }}" ]; then
-              echo "server.jar not found!"
+              echo "Jar file not found! Check your gamemode configuration file."
               ls -la ./
               exit 1
             fi

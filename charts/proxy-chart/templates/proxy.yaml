@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: proxy
+  labels:
+    app: proxy
+    chart: "{{ .Chart.Name }}-{{ .Chart.Version }}"
+spec:
+  replicas: {{ .Values.scaling.minInstances }}
+  selector:
+    matchLabels:
+      app: proxy
+  template:
+    metadata:
+      labels:
+        app: proxy
+        kyriji.dev/enable-panel-discovery: "true"
+
+        kyriji.dev/scale-strategy: "{{ .Values.scaling.scaleStrategy }}"
+        kyriji.dev/max-players: "{{ .Values.scaling.maxPlayers }}"
+        kyriji.dev/min-instances: "{{ .Values.scaling.minInstances }}"
+        kyriji.dev/max-instances: "{{ .Values.scaling.maxInstances }}"
+        kyriji.dev/scale-up-threshold: "{{ .Values.scaling.scaleUpThreshold }}"
+        kyriji.dev/scale-down-threshold: "{{ .Values.scaling.scaleDownThreshold }}"
+        kyriji.dev/scale-up-cooldown: "{{ .Values.scaling.scaleUpCooldown }}"
+        kyriji.dev/scale-down-cooldown: "{{ .Values.scaling.scaleDownCooldown }}"
+        kyriji.dev/scale-up-limit: "{{ .Values.scaling.scaleUpLimit }}"
+        kyriji.dev/scale-down-limit: "{{ .Values.scaling.scaleDownLimit }}"
+    spec:
+      terminationGracePeriodSeconds: 2
+      serviceAccountName: kubectl-sa
+      containers:
+        - name: proxy
+          image: {{ .Values.server.image }}
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              cd /minecraft
+              if [ ! -f "./{{ .Values.server.jarName }}" ]; then
+                echo "Jar file not found! Check your proxy configuration file."
+                ls -la ./
+                exit 1
+              fi
+              mkfifo /tmp/server_input
+              tail -f /tmp/server_input | java {{ .Values.server.jvmOpts | default "" }} -jar ./{{ .Values.server.jarName }} {{ .Values.server.args | default "nogui" }}
+          volumeMounts:
+            - name: local-volume
+              mountPath: /minecraft
+          ports:
+          - containerPort: {{ .Values.server.port | default 25565 }}
+            name: minecraft
+          env:
+          {{- range .Values.server.env }}
+          - name: {{ .name }}
+            value: {{ .value | quote }}
+          {{- end }}
+          resources:
+            requests:
+              memory: {{ .Values.resources.requests.memory }}
+              cpu: {{ .Values.resources.requests.cpu }}
+            limits:
+              memory: {{ .Values.resources.limits.memory }}
+              cpu: {{ .Values.resources.limits.cpu }}
+      volumes:
+        - name: local-volume
+          hostPath:
+            path: /mnt/local/system/proxy
+            type: Directory
