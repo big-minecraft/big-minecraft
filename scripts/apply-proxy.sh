@@ -3,14 +3,18 @@
 # Configuration - Change these values as needed
 RELEASE_NAME="proxy"  # The name of your Helm release
 NAMESPACE="default"   # The namespace to deploy to
-VALUES_FILE="${SCRIPT_DIR}/../local/proxy.yaml"  # Path to your values file
-
-export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
-set -e  # Exit on error
-set -x  # Enable debug output
 
 # Get the directory where the script is located, resolving symlinks
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+
+# Define paths relative to script location
+VALUES_FILE="${SCRIPT_DIR}/../local/proxy.yaml"  # Path to your values file
+CHART_DIR="${SCRIPT_DIR}/../charts/proxy-chart"
+
+# Set environment and options
+export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+set -e  # Exit on error
+set -x  # Enable debug output
 
 # Function to check if a command exists
 command_exists() {
@@ -23,9 +27,6 @@ if ! command_exists helm; then
     exit 1
 fi
 
-# Define the chart directory path
-CHART_DIR="${SCRIPT_DIR}/../charts/proxy-chart"
-
 # Verify chart structure
 if [ ! -d "${CHART_DIR}/templates" ]; then
     echo "Creating templates directory..."
@@ -35,6 +36,9 @@ fi
 # Check if values file exists
 if [ ! -f "${VALUES_FILE}" ]; then
     echo "Values file not found at ${VALUES_FILE}"
+    echo "Current directory: $(pwd)"
+    echo "Script directory: ${SCRIPT_DIR}"
+    ls -la "${SCRIPT_DIR}/../local/"
     exit 1
 fi
 
@@ -60,8 +64,6 @@ kubectl get deployment "${RELEASE_NAME}" -n $NAMESPACE -o yaml
 # Show final state
 echo "Final Helm releases:"
 helm list --namespace $NAMESPACE
-
 echo "Final Kubernetes deployments:"
 kubectl get deployments -n $NAMESPACE -o wide
-
 echo "Deployment completed successfully."
