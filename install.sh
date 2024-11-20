@@ -1,6 +1,9 @@
 #!/bin/bash
 export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 
+# Initialize local directory
+./scripts/initialize-local.sh
+
 # Create values directory if it doesn't exist
 mkdir -p values
 
@@ -56,9 +59,6 @@ echo "------------------------"
 
 # Continue with installation
 ./scripts/install-dependents.sh
-
-# Initialize local directory
-./scripts/initialize-local.sh
 
 helm uninstall traefik traefik-crd -n kube-system || true
 

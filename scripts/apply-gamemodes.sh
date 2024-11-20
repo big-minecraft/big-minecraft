@@ -35,7 +35,7 @@ if [ ! -d "${CHART_DIR}/templates" ]; then
 fi
 
 # Get a list of currently deployed Helm releases
-DEPLOYED_GAMEMODES=$(helm list -q --namespace default)
+DEPLOYED_GAMEMODES=$(kubectl get deployments -n default -l 'kyriji.dev/enable-server-discovery=true' -o jsonpath='{.items[*].metadata.name}')
 
 # Get a list of gamemode files (without extension) in the values directory
 AVAILABLE_GAMEMODES=$(find "${VALUES_DIR}" -type f -name "*.yaml" -o -name "*.yml" | xargs -n1 basename | sed 's/\.[^.]*$//')
