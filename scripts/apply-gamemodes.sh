@@ -1,6 +1,5 @@
 #!/bin/bash
 export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
-
 set -e  # Exit on error
 set -x  # Enable debug output
 
@@ -34,20 +33,16 @@ if [ ! -d "${CHART_DIR}/templates" ]; then
     mkdir -p "${CHART_DIR}/templates"
 fi
 
-# Get a list of currently deployed Helm releases
-DEPLOYED_GAMEMODES=$(kubectl get deployments -n default -l 'kyriji.dev/enable-server-discovery=true' -o jsonpath='{.items[*].metadata.name}')
-
+# Get a list of currently deployed gamemodes
+DEPLOYED_GAMEMODES=$(kubectl get deployments -n default -o jsonpath='{.items[?(@.spec.template.metadata.labels.kyriji\.dev/enable-server-discovery=="true")].metadata.name}')
 # Get a list of gamemode files (without extension) in the values directory
 AVAILABLE_GAMEMODES=$(find "${VALUES_DIR}" -type f -name "*.yaml" -o -name "*.yml" | xargs -n1 basename | sed 's/\.[^.]*$//')
 
 # Loop through deployed gamemodes and delete any that no longer have a corresponding values file
 for gamemode in $DEPLOYED_GAMEMODES; do
-    # Check if the deployment has the required label
-    if kubectl get deployment "$gamemode" -n default -o jsonpath='{.spec.template.metadata.labels.kyriji\.dev/enable-server-discovery}' | grep -q "true"; then
-        if ! echo "$AVAILABLE_GAMEMODES" | grep -q "^$gamemode$"; then
-            echo "Deleting removed gamemode: $gamemode"
-            helm uninstall "$gamemode" --namespace default
-        fi
+    if ! echo "$AVAILABLE_GAMEMODES" | grep -q "^$gamemode$"; then
+        echo "Deleting removed gamemode: $gamemode"
+        helm uninstall "$gamemode" --namespace default
     fi
 done
 
@@ -84,8 +79,6 @@ done
 # Show final state
 echo "Final Helm releases:"
 helm list --namespace default
-
-#helmfile apply --file "${SCRIPT_DIR}/../helmfile.yaml"
 
 echo "Final Kubernetes deployments:"
 kubectl get deployments -n default -o wide
