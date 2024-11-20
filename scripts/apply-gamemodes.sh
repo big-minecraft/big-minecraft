@@ -1,7 +1,5 @@
 #!/bin/bash
 export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
-set -e  # Exit on error
-set -x  # Enable debug output
 
 # Get the directory where the script is located, resolving symlinks
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
