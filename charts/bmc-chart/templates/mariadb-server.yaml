@@ -23,7 +23,7 @@ spec:
         - name: MYSQL_ROOT_PASSWORD
           value: "admin"
         - name: MYSQL_ROOT_HOST
-          value: "localhost"
+          value: "10.%.%.%"
         volumeMounts:
         - name: init-script
           mountPath: /docker-entrypoint-initdb.d
