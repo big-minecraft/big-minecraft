@@ -27,9 +27,15 @@ spec:
         - name: MYSQL_ROOT_HOST
           value: "%"
         volumeMounts:
+        - name: mariadb-storage
+          mountPath: /var/lib/mysql
         - name: init-script
           mountPath: /docker-entrypoint-initdb.d
       volumes:
+      - name: mariadb-storage
+        hostPath:
+          path: /data/mariadb
+          type: DirectoryOrCreate
       - name: init-script
         configMap:
           name: mariadb-init-script
