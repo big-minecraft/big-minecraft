@@ -65,3 +65,4 @@ releases:
           k8sDashboardDomain: {{ .Environment.Values.k8sDashboardDomain }}
           loadBalancerIP: {{ .Environment.Values.loadBalancerIP }}
           inviteCode: {{ .Environment.Values.inviteCode }}
+          mariaDBPassword: {{ .Environment.Values.mariaDBPassword }}

@@ -21,11 +21,11 @@ spec:
         - containerPort: 3306
         env:
         - name: MYSQL_ROOT_PASSWORD
-          value: "admin"
+          value: {{ .Values.global.mariaDBPassword }}
         - name: MYSQL_DATABASE
           value: "bmc"
         - name: MYSQL_ROOT_HOST
-          value: "10.%.%.%"
+          value: "%"
         volumeMounts:
         - name: init-script
           mountPath: /docker-entrypoint-initdb.d

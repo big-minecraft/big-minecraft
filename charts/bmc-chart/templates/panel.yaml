@@ -114,6 +114,8 @@ spec:
               value: {{ .Values.global.inviteCode }}
             - name: PANEL_HOST
               value: {{ .Values.global.panelDomain }}
+            - name: MARIADB_PASSWORD
+              value: {{ .Values.global.mariaDBPassword }}
           volumeMounts:
             - name: app-source
               mountPath: /usr/src/app
