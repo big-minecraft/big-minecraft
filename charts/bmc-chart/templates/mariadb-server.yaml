@@ -22,12 +22,23 @@ spec:
         env:
         - name: MYSQL_ROOT_PASSWORD
           value: "admin"
-        - name: MYSQL_DATABASE
-          value: "bmc"
-        - name: MYSQL_USER
-          value: "bmc"
-        - name: MYSQL_PASSWORD
-          value: "bmc"
+        - name: MYSQL_ROOT_HOST
+          value: "localhost"
+        volumeMounts:
+        - name: init-script
+          mountPath: /docker-entrypoint-initdb.d
+      volumes:
+      - name: init-script
+        configMap:
+          name: mariadb-init-script
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mariadb-init-script
+data:
+  init.sql: |
+    FLUSH PRIVILEGES;
 ---
 apiVersion: v1
 kind: Service

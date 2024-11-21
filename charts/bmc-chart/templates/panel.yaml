@@ -112,6 +112,8 @@ spec:
           env:
             - name: INITIAL_INVITE_CODE
               value: {{ .Values.global.inviteCode }}
+            - name: PANEL_HOST
+              value: {{ .Values.global.panelDomain }}
           volumeMounts:
             - name: app-source
               mountPath: /usr/src/app
