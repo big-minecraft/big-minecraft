@@ -17,11 +17,15 @@ if [ -z "$KUBECONFIG" ]; then
     exit 1
 fi
 
+# Try original path first, then prepend /host-root if not found
 if [ ! -f "$KUBECONFIG" ]; then
-    echo "Error: Kubernetes config file not found at $KUBECONFIG"
-    exit 1
+    HOST_ROOT_KUBECONFIG="/host-root${KUBECONFIG}"
+    if [ ! -f "$HOST_ROOT_KUBECONFIG" ]; then
+        echo "Error: Kubernetes config file not found at $KUBECONFIG or $HOST_ROOT_KUBECONFIG"
+        exit 1
+    fi
+    KUBECONFIG="$HOST_ROOT_KUBECONFIG"
 fi
-
 export KUBECONFIG
 
 # Function to check if a command exists
