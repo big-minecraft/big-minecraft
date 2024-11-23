@@ -1,8 +1,28 @@
 #!/bin/bash
-export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 
 # Get the directory where the script is located, resolving symlinks
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+
+# Read KUBECONFIG from global-config.yaml
+CONFIG_FILE="${SCRIPT_DIR}/../local/global-config.yaml"
+if [ ! -f "$CONFIG_FILE" ]; then
+    echo "Error: global-config.yaml not found at $CONFIG_FILE"
+    exit 1
+fi
+
+# Extract clusterConfigPath from global-config.yaml
+KUBECONFIG=$(grep "clusterConfigPath:" "$CONFIG_FILE" | awk '{print $2}' | tr -d '"')
+if [ -z "$KUBECONFIG" ]; then
+    echo "Error: clusterConfigPath not found in global-config.yaml"
+    exit 1
+fi
+
+if [ ! -f "$KUBECONFIG" ]; then
+    echo "Error: Kubernetes config file not found at $KUBECONFIG"
+    exit 1
+fi
+
+export KUBECONFIG
 
 # Function to check if a command exists
 command_exists() {

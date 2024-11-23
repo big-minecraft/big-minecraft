@@ -1,8 +1,50 @@
 #!/bin/bash
-export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+
+# Check if running as root
+if [ "$EUID" -ne 0 ]; then
+    echo "Error: This script must be run as root (with sudo)"
+    exit 1
+fi
+
+# Get the directory where the script is located
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+# Set full permissions (rwx) recursively for the script directory
+chmod -R 777 "$SCRIPT_DIR"
+
+# Function to find kubernetes config path
+find_kube_config() {
+    # Check common locations for kubernetes config
+    possible_paths=(
+        "/etc/rancher/k3s/k3s.yaml"
+        "$HOME/.kube/config"
+        "/etc/kubernetes/admin.conf"
+        "/etc/kubernetes/kubeconfig"
+    )
+    for path in "${possible_paths[@]}"; do
+        if [ -f "$path" ]; then
+            echo "$path"
+            return 0
+        fi
+    done
+    # If no config found, return empty
+    echo ""
+    return 1
+}
+
+# Get BMC path (directory containing this script)
+bmc_path="$SCRIPT_DIR"
+
+# Find and export KUBECONFIG
+KUBECONFIG=$(find_kube_config)
+if [ -z "$KUBECONFIG" ]; then
+    echo "Error: Could not find Kubernetes config file"
+    exit 1
+fi
+export KUBECONFIG
 
 # Initialize local directory
-./scripts/initialize-local.sh
+"$SCRIPT_DIR/scripts/initialize-local.sh"
 
 # Create values directory if it doesn't exist
 mkdir -p values
@@ -21,7 +63,7 @@ if [[ ! $ip_address =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
     exit 1
 fi
 
-# Generate random invite code if it doesn't exist
+# Generate random invite code
 generate_invite_code() {
     openssl rand -base64 9 | tr -dc 'a-zA-Z0-9' | head -c 12
 }
@@ -31,25 +73,9 @@ generate_mariadb_password() {
     openssl rand -base64 32 | tr -dc 'a-zA-Z0-9!@#$%^&*()' | head -c 20
 }
 
-# Read existing values if file exists
-if [ -f local/global-config.yaml ]; then
-    existing_invite_code=$(grep "inviteCode:" local/global-config.yaml | awk '{print $2}' | tr -d '"')
-    existing_mariadb_password=$(grep "mariaDBPassword:" local/global-config.yaml | awk '{print $2}' | tr -d '"')
-fi
-
-# If invite code is empty or doesn't exist, generate a new one
-if [ -z "$existing_invite_code" ] || [ "$existing_invite_code" = "''" ]; then
-    invite_code=$(generate_invite_code)
-else
-    invite_code=$existing_invite_code
-fi
-
-# If MariaDB password is empty or doesn't exist, generate a new one
-if [ -z "$existing_mariadb_password" ] || [ "$existing_mariadb_password" = "''" ]; then
-    mariadb_password=$(generate_mariadb_password)
-else
-    mariadb_password=$existing_mariadb_password
-fi
+# Always generate new strings
+invite_code=$(generate_invite_code)
+mariadb_password=$(generate_mariadb_password)
 
 # Create or update local/global-config.yaml
 cat > local/global-config.yaml << EOF
@@ -58,6 +84,8 @@ k8sDashboardDomain: $k8s_dashboard_domain
 loadBalancerIP: $ip_address
 inviteCode: $invite_code
 mariaDBPassword: $mariadb_password
+clusterConfigPath: $KUBECONFIG
+bmcPath: $bmc_path
 EOF
 
 echo "Created local/global-config.yaml with:"
@@ -66,12 +94,14 @@ echo "K8s Dashboard Domain: $k8s_dashboard_domain"
 echo "IP: $ip_address"
 echo "Invite Code: $invite_code"
 echo "MariaDB Password: $mariadb_password"
+echo "Cluster Config Path: $KUBECONFIG"
+echo "BMC Path: $bmc_path"
 echo "------------------------"
 echo "Proceeding with installation..."
 echo "------------------------"
 
 # Continue with installation
-./scripts/install-dependents.sh
+"$SCRIPT_DIR/scripts/install-dependents.sh"
 helm uninstall traefik traefik-crd -n kube-system || true
 
 # Add a small delay to ensure the CRDs are removed
@@ -83,7 +113,7 @@ helmfile apply
 helmfile sync # this is a bad thing to do
 
 # Apply the configurable proxy chart
-./scripts/apply-proxy.sh
+"$SCRIPT_DIR/scripts/apply-proxy.sh"
 
 echo "------------------------"
 echo "Installation complete!"
