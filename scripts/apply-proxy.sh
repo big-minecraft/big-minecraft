@@ -6,21 +6,18 @@ NAMESPACE="default"   # The namespace to deploy to
 
 # Get the directory where the script is located, resolving symlinks
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
-
 # Read KUBECONFIG from global-config.yaml
 CONFIG_FILE="${SCRIPT_DIR}/../local/global-config.yaml"
 if [ ! -f "$CONFIG_FILE" ]; then
     echo "Error: global-config.yaml not found at $CONFIG_FILE"
     exit 1
 fi
-
 # Extract clusterConfigPath from global-config.yaml
 KUBECONFIG=$(grep "clusterConfigPath:" "$CONFIG_FILE" | awk '{print $2}' | tr -d '"')
 if [ -z "$KUBECONFIG" ]; then
     echo "Error: clusterConfigPath not found in global-config.yaml"
     exit 1
 fi
-
 # Try original path first, then prepend /host-root if not found
 if [ ! -f "$KUBECONFIG" ]; then
     HOST_ROOT_KUBECONFIG="/host-root${KUBECONFIG}"
@@ -28,16 +25,20 @@ if [ ! -f "$KUBECONFIG" ]; then
         echo "Error: Kubernetes config file not found at $KUBECONFIG or $HOST_ROOT_KUBECONFIG"
         exit 1
     fi
-    KUBECONFIG="$HOST_ROOT_KUBECONFIG"
+    # Use the host-root path for file access but remove prefix before export
+    FINAL_KUBECONFIG="${KUBECONFIG}"  # Save the original path
+    KUBECONFIG="$HOST_ROOT_KUBECONFIG"  # Use host-root path to check file
+else
+    FINAL_KUBECONFIG="${KUBECONFIG}"  # Use original path
 fi
-export KUBECONFIG
+
+# Export the path without /host-root prefix
+export KUBECONFIG="${FINAL_KUBECONFIG}"
 
 # Define paths relative to script location
 VALUES_FILE="${SCRIPT_DIR}/../local/proxy.yaml"  # Path to your values file
 CHART_DIR="${SCRIPT_DIR}/../charts/proxy-chart"
 
-# Set environment and options
-export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 set -e  # Exit on error
 set -x  # Enable debug output
 
