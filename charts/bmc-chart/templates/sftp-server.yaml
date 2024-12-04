@@ -26,6 +26,8 @@ spec:
       initContainers:
       - name: init-sftp-setup
         image: alpine
+        securityContext:
+          privileged: true
         command: ["/bin/sh", "-c"]
         args:
           - |
@@ -40,6 +42,8 @@ spec:
       containers:
       - name: sftp-server
         image: atmoz/sftp
+        securityContext:
+          privileged: true
         ports:
           - containerPort: 22
         env:
@@ -50,6 +54,8 @@ spec:
             mountPath: /home/user/nfsshare
       - name: file-monitor
         image: alpine
+        securityContext:
+          privileged: true
         command: ["/bin/sh", "-c"]
         args:
           - |

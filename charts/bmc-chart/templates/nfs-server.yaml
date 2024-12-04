@@ -3,41 +3,37 @@ kind: DaemonSet
 metadata:
   name: nfs-server
   labels:
-    app: nfs
+    app: nfs-server
 spec:
-  replicas: 1
   selector:
     matchLabels:
-      app: nfs
+      app: nfs-server
   template:
     metadata:
       labels:
-        app: nfs
+        app: nfs-server
     spec:
-      nodeSelector:
-        node-role.kubernetes.io/master: "true"
-      tolerations:
-      - key: node-role.kubernetes.io/control-plane
-        operator: Exists
-        effect: NoSchedule
-      - key: node-role.kubernetes.io/master
-        operator: Exists
-        effect: NoSchedule
       containers:
       - name: nfs-server
         image: itsthenetwork/nfs-server-alpine
         securityContext:
           privileged: true
+          capabilities:
+            add:
+              - SYS_ADMIN
         ports:
           - containerPort: 2049
         volumeMounts:
           - name: nfs-volume
             mountPath: /nfsshare
+            mountPropagation: Bidirectional
         env:
           - name: SHARED_DIRECTORY
             value: "/nfsshare"
           - name: NFS_VERSION
             value: "4"
+          - name: PERMITTED_HOSTS
+            value: "*"
       volumes:
       - name: nfs-volume
         hostPath:
@@ -50,7 +46,7 @@ metadata:
   name: nfs-service
 spec:
   selector:
-    app: nfs
+    app: nfs-server
   ports:
     - name: nfs
       port: 2049
