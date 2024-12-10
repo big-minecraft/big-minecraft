@@ -28,22 +28,25 @@ spec:
         image: alpine
         securityContext:
           privileged: true
+          runAsUser: 0
         command: ["/bin/sh", "-c"]
         args:
           - |
             echo "Setting up SFTP directory..."
             mkdir -p /home/user/nfsshare;
-            chown 1001:1001 /home/user/nfsshare;
-            chmod 755 /home/user/nfsshare;
+            chown -R 1001:1001 /home/user/nfsshare;
+            chmod -R 777 /home/user/nfsshare;
             echo "SFTP directory setup complete."
         volumeMounts:
           - name: sftp-volume
             mountPath: /home/user/nfsshare
+            mountPropagation: HostToContainer
       containers:
       - name: sftp-server
         image: atmoz/sftp
         securityContext:
           privileged: true
+          runAsUser: 0
         ports:
           - containerPort: 22
         env:
@@ -52,10 +55,12 @@ spec:
         volumeMounts:
           - name: sftp-volume
             mountPath: /home/user/nfsshare
+            mountPropagation: HostToContainer
       - name: file-monitor
         image: alpine
         securityContext:
           privileged: true
+          runAsUser: 0
         command: ["/bin/sh", "-c"]
         args:
           - |
@@ -81,6 +86,7 @@ spec:
         volumeMounts:
           - name: sftp-volume
             mountPath: /home/user/nfsshare
+            mountPropagation: HostToContainer
       volumes:
       - name: sftp-volume
         hostPath:

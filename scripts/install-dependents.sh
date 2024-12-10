@@ -58,10 +58,17 @@ if ! helm plugin list | grep -q "diff"; then
     curl -L "https://github.com/databus23/helm-diff/releases/download/${HELM_DIFF_VERSION}/helm-diff-linux-amd64.tgz" | tar xz -C "$PLUGIN_DIR"
 fi
 
+# Install kubectl-node_shell
+echo "Installing kubectl-node_shell"
+curl -LO https://github.com/kvaps/kubectl-node-shell/raw/master/kubectl-node_shell
+chmod +x ./kubectl-node_shell
+sudo mv ./kubectl-node_shell /usr/local/bin/kubectl-node_shell
+
 # Verify installations
 echo -e "\nVerifying installations:"
 echo "Kubectl: $(kubectl version --client | grep 'Client Version:' | cut -d' ' -f3)"
 echo "Helm: $(helm version --short)"
 echo "Helmfile: $(helmfile -v)"
 echo "Helm-diff: $(helm plugin list | grep diff)"
+echo "kubectl-node_shell: $(kubectl-node_shell --help)"
 echo "Installation complete!"

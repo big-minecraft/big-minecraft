@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: minecraft-nfs-mounter
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      app: minecraft-nfs-mounter
+  template:
+    metadata:
+      labels:
+        app: minecraft-nfs-mounter
+    spec:
+      serviceAccountName: kubectl-sa
+      nodeSelector:
+        node-role.kubernetes.io/master: "true"
+      containers:
+        - name: nfs-mounter
+          image: alpine:latest
+          securityContext:
+            privileged: true
+            runAsUser: 0
+          command:
+            - /bin/sh
+            - -c
+            - |
+              # Install kubectl-node_shell
+              curl -LO https://github.com/kvaps/kubectl-node-shell/raw/master/kubectl-node_shell
+              chmod +x ./kubectl-node_shell
+              mv ./kubectl-node_shell /usr/local/bin/kubectl-node_shell
+
+              # Install dependencies and mount NFS
+              apk add --no-cache bash kubectl
+              bash /scripts/nfs-mount.sh
+          volumeMounts:
+            - name: host-mount-dir
+              mountPath: /mnt/nfsshare
+            - name: host-scripts
+              mountPath: /scripts
+      volumes:
+        - name: host-mount-dir
+          hostPath:
+            path: /mnt/nfsshare
+            type: Directory
+        - name: host-scripts
+          hostPath:
+            path: {{ .Values.global.bmcPath }}/scripts
+            type: Directory

@@ -1,7 +1,7 @@
 .idea/
 .DS_Store
-.local/
-.pv/
+pv/
+local/
 
 nuke.sh
 scripts/Dockerfile
