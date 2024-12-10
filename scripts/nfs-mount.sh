@@ -89,17 +89,17 @@ mount_nfs_volume() {
     local pod_ip=$1
     local node_name=$2
     local mount_point="$CONTROL_PLANE_BASE_MOUNT_DIR/$node_name"
-    # Check if already mounted
-    if grep -q "$mount_point" /proc/mounts; then
-        log_message "NFS server $pod_ip (Node: $node_name) is already mounted at $mount_point"
-        return 0
-    fi
-    # Create mount directory if not exists
-    mkdir -p "$mount_point"
 
-    # Determine master node
+    # Check if already mounted on the master node
     local master_node
     master_node=$(kubectl get nodes -l node-role.kubernetes.io/master="true" -o jsonpath='{.items[0].metadata.name}')
+    if kubectl node-shell "$master_node" -- grep -q "$mount_point" /proc/mounts; then
+        log_message "NFS server $pod_ip (Master Node) is already mounted at $mount_point"
+        return 0
+    fi
+
+    # Create mount directory if not exists
+    mkdir -p "$mount_point"
 
     # Attempt to mount from the master node
     kubectl node-shell "$master_node" -- mount -t nfs -o "$MOUNT_OPTIONS" "$pod_ip:$NFS_EXPORT_PATH" "$mount_point"
@@ -112,5 +112,6 @@ mount_nfs_volume() {
         return 1
     fi
 }
+
 
 main_nfs_discovery
