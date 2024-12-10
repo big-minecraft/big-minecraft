@@ -3,7 +3,7 @@ name: example-gamemode
 
 # Which node in the cluster this persistent gamemode will "live" on. Do not change this value without first
 # moving the gamemode's files to the new node.
-dedicated-node: worker
+dedicatedNode: worker
 
 queuing:
   # Whether or not this server should be used for initial connections. (AKA Lobby Servers)

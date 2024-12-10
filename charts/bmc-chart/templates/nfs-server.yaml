@@ -13,6 +13,7 @@ spec:
       labels:
         app: nfs-server
     spec:
+      serviceAccountName: kubectl-sa
       containers:
       - name: nfs-server
         image: itsthenetwork/nfs-server-alpine
@@ -34,6 +35,29 @@ spec:
             value: "4"
           - name: PERMITTED_HOSTS
             value: "*"
+      initContainers:
+      - name: label-master
+        image: alpine:latest
+        command:
+          - sh
+          - -c
+          - |
+            echo "TEST"
+            echo "$POD_NAME"
+            apk add --no-cache bash kubectl
+
+            NODE_NAME=$(kubectl get pod "$POD_NAME" -o jsonpath='{.spec.nodeName}')
+            echo "Node Name:"
+            echo "$NODE_NAME"
+            
+            if [[ $(kubectl get node "$NODE_NAME" -o jsonpath='{.metadata.labels.node-role\.kubernetes\.io/master}') == "true" ]]; then
+              kubectl label pod "$POD_NAME" master-nfs=true --overwrite
+            fi
+        env:
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
       volumes:
       - name: nfs-volume
         hostPath:
@@ -47,6 +71,7 @@ metadata:
 spec:
   selector:
     app: nfs-server
+    master-nfs: "true"
   ports:
     - name: nfs
       port: 2049

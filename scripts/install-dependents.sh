@@ -1,19 +1,15 @@
 #!/bin/bash
 set -e
-
 # Version constants
 CURL_VERSION="v8.10.1"
 HELM_VERSION="v3.16.2"
 HELMFILE_VERSION="v0.158.0"
 HELM_DIFF_VERSION="v3.9.11"
 KUBECTL_VERSION="v1.29.2"
-
 command_exists() {
     command -v "$1" >/dev/null 2>&1
 }
-
-echo "Starting installation of helm tools and kubectl"
-
+echo "Starting installation of helm tools, kubectl, and nfs-common"
 # Install curl
 if ! command_exists curl; then
     echo "Installing curl"
@@ -21,7 +17,6 @@ if ! command_exists curl; then
     chmod +x /usr/local/bin/curl
     export PATH="/usr/local/bin:$PATH"
 fi
-
 # Install kubectl
 if ! command_exists kubectl; then
     echo "Installing kubectl"
@@ -29,7 +24,6 @@ if ! command_exists kubectl; then
     chmod +x kubectl
     mv kubectl /usr/local/bin/
 fi
-
 # Install helm
 if ! command_exists helm; then
     echo "Installing helm"
@@ -37,7 +31,6 @@ if ! command_exists helm; then
     mv linux-amd64/helm /usr/local/bin/
     rm -rf linux-amd64
 fi
-
 # Install helmfile
 if ! command_exists helmfile; then
     echo "Installing helmfile"
@@ -49,7 +42,6 @@ if ! command_exists helmfile; then
     cd - > /dev/null
     rm -rf "$TMP_DIR"
 fi
-
 # Install helm-diff
 if ! helm plugin list | grep -q "diff"; then
     echo "Installing helm-diff plugin"
@@ -57,13 +49,17 @@ if ! helm plugin list | grep -q "diff"; then
     mkdir -p "$PLUGIN_DIR"
     curl -L "https://github.com/databus23/helm-diff/releases/download/${HELM_DIFF_VERSION}/helm-diff-linux-amd64.tgz" | tar xz -C "$PLUGIN_DIR"
 fi
-
 # Install kubectl-node_shell
 echo "Installing kubectl-node_shell"
 curl -LO https://github.com/kvaps/kubectl-node-shell/raw/master/kubectl-node_shell
 chmod +x ./kubectl-node_shell
 mv ./kubectl-node_shell /usr/local/bin/kubectl-node_shell
-
+# Install nfs-common
+if ! command_exists mount.nfs; then
+    echo "Installing nfs-common"
+    apt-get update
+    apt-get install -y nfs-common
+fi
 # Verify installations
 echo -e "\nVerifying installations:"
 echo "Kubectl: $(kubectl version --client | grep 'Client Version:' | cut -d' ' -f3)"
@@ -71,4 +67,5 @@ echo "Helm: $(helm version --short)"
 echo "Helmfile: $(helmfile -v)"
 echo "Helm-diff: $(helm plugin list | grep diff)"
 echo "kubectl-node_shell: $(kubectl-node_shell --help)"
+echo "NFS Common: $(dpkg -s nfs-common | grep Version)"
 echo "Installation complete!"
