@@ -42,6 +42,7 @@ spec:
         command: ["/bin/bash", "-c"]
         args:
           - |
+            umask 000
             cd {{ .Values.volume.mountPath }}
             if [ ! -f "./{{ .Values.server.jarName }}" ]; then
               echo "Jar file not found! Check your gamemode configuration file."
