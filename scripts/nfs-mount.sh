@@ -11,6 +11,7 @@ LOG_FILE="/var/log/minecraft-nfs-mounter.log"
 INTERVAL=5  # Seconds between discovery/recovery cycles
 
 declare -A mounted_ips
+mkdir -p $CONTROL_PLANE_BASE_MOUNT_DIR
 
 log_message() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
