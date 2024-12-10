@@ -6,7 +6,7 @@ metadata:
     app: {{ .Values.name }}
     chart: "{{ .Chart.Name }}-{{ .Chart.Version }}"
 spec:
-  replicas: {{ .Values.scaling.minInstances }}
+  replicas: 1
   selector:
     matchLabels:
       app: {{ .Values.name }}
@@ -16,22 +16,25 @@ spec:
         app: {{ .Values.name }}
         kyriji.dev/enable-server-discovery: "true"
         kyriji.dev/enable-panel-discovery: "true"
+        kyriji.dev/gamemode-type: "persistent"
 
         kyriji.dev/initial-server: "{{ .Values.queuing.initialServer }}"
-        kyriji.dev/queue-strategy: "{{ .Values.queuing.queueStrategy }}"
+        kyriji.dev/queue-strategy: "FILL"
 
-        kyriji.dev/scale-strategy: "{{ .Values.scaling.scaleStrategy }}"
+        kyriji.dev/scale-strategy: "THRESHOLD"
         kyriji.dev/max-players: "{{ .Values.scaling.maxPlayers }}"
-        kyriji.dev/min-instances: "{{ .Values.scaling.minInstances }}"
-        kyriji.dev/max-instances: "{{ .Values.scaling.maxInstances }}"
-        kyriji.dev/scale-up-threshold: "{{ .Values.scaling.scaleUpThreshold }}"
-        kyriji.dev/scale-down-threshold: "{{ .Values.scaling.scaleDownThreshold }}"
-        kyriji.dev/scale-up-cooldown: "{{ .Values.scaling.scaleUpCooldown }}"
-        kyriji.dev/scale-down-cooldown: "{{ .Values.scaling.scaleDownCooldown }}"
-        kyriji.dev/scale-up-limit: "{{ .Values.scaling.scaleUpLimit }}"
-        kyriji.dev/scale-down-limit: "{{ .Values.scaling.scaleDownLimit }}"
+        kyriji.dev/min-instances: "1"
+        kyriji.dev/max-instances: "1"
+        kyriji.dev/scale-up-threshold: "0"
+        kyriji.dev/scale-down-threshold: "0"
+        kyriji.dev/scale-up-cooldown: "0"
+        kyriji.dev/scale-down-cooldown: "0"
+        kyriji.dev/scale-up-limit: "1"
+        kyriji.dev/scale-down-limit: "1"
 
     spec:
+      nodeSelector:
+        kubernetes.io/hostname: "{{ .Values.dedicatedNode }}"
       terminationGracePeriodSeconds: 2
       containers:
       - name: mc
@@ -68,5 +71,5 @@ spec:
       volumes:
       - name: local-volume
         hostPath:
-          path: /mnt/local/gamemodes/{{ .Values.volume.dataDirectory }}
+          path: /mnt/nfsshare/gamemodes/{{ .Values.volume.dataDirectory }}
           type: Directory

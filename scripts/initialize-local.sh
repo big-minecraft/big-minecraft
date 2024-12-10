@@ -20,6 +20,11 @@ mkdir -p "${LOCAL_DIR}"
 
 # Create gamemodes directory if it doesn't exist
 mkdir -p "${LOCAL_DIR}/gamemodes"
+mkdir -p "${LOCAL_DIR}/gamemodes/persistent"
+mkdir -p "${LOCAL_DIR}/gamemodes/non-persistent"
+
+
+
 
 # Copy specific files from defaults to local
 echo "Copying selected files from ${DEFAULTS_DIR} to ${LOCAL_DIR}"
