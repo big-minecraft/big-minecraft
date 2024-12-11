@@ -59,10 +59,10 @@ main_nfs_discovery() {
             pod_ip="${pod_info#*:}"
 
             # Skip master nodes
-            if is_master_node "$node_name"; then
-                log_message "SKIPPING master node: $node_name (IP: $pod_ip)"
-                continue
-            fi
+#            if is_master_node "$node_name"; then
+#                log_message "SKIPPING master node: $node_name (IP: $pod_ip)"
+#                continue
+#            fi
 
             if [[ -n "${mounted_ips[$pod_ip]}" ]]; then
                 log_message "Skipping already mounted NFS server: $pod_ip (Node: $node_name)"
