@@ -14,6 +14,13 @@ spec:
       labels:
         app: mariadb
     spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node-role.kubernetes.io/master
+                    operator: Exists
       containers:
       - name: mariadb
         image: mariadb:latest
@@ -21,13 +28,32 @@ spec:
         - containerPort: 3306
         env:
         - name: MYSQL_ROOT_PASSWORD
-          value: "admin"
+          value: {{ .Values.global.mariaDBPassword }}
         - name: MYSQL_DATABASE
           value: "bmc"
-        - name: MYSQL_USER
-          value: "bmc"
-        - name: MYSQL_PASSWORD
-          value: "bmc"
+        - name: MYSQL_ROOT_HOST
+          value: "%"
+        volumeMounts:
+        - name: mariadb-storage
+          mountPath: /var/lib/mysql
+        - name: init-script
+          mountPath: /docker-entrypoint-initdb.d
+      volumes:
+      - name: mariadb-storage
+        hostPath:
+          path: /data/mariadb
+          type: DirectoryOrCreate
+      - name: init-script
+        configMap:
+          name: mariadb-init-script
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mariadb-init-script
+data:
+  init.sql: |
+    FLUSH PRIVILEGES;
 ---
 apiVersion: v1
 kind: Service

@@ -1,7 +1,7 @@
 environments:
   default:
     values:
-      - values/global.yaml
+      - local/global-config.yaml
 ---
 repositories:
   - name: metallb
@@ -65,3 +65,6 @@ releases:
           k8sDashboardDomain: {{ .Environment.Values.k8sDashboardDomain }}
           loadBalancerIP: {{ .Environment.Values.loadBalancerIP }}
           inviteCode: {{ .Environment.Values.inviteCode }}
+          mariaDBPassword: {{ .Environment.Values.mariaDBPassword }}
+          clusterConfigPath: {{ .Environment.Values.clusterConfigPath }}
+          bmcPath: {{ .Environment.Values.bmcPath }}

@@ -1,33 +1,29 @@
-# Ensure this remains the same as the gamemode's name
+# Ensure this remains the same as the gamemode's name.
 name: example-gamemode
 
-# Whether or not this server should be used for initial connections. (AKA Lobby Servers)
-initialServer: 'true'
+# Which node in the cluster this persistent gamemode will "live" on. Do not change this value without first
+# moving the gamemode's files to the new node.
+dedicatedNode: worker
 
-# The minimum number of instances this gamemode can have
-minimumInstances: 2
+queuing:
+  # Whether or not this server should be used for initial connections. (AKA Lobby Servers)
+  initialServer: 'true'
 
-# The maximum number of players per instance
-maxPlayers: 10
-
-# The strategy to use when placing players in instances.
-#
-# FILL - Try to completely fill one instance before sending players to another
-#
-# SPREAD - Try to evenly spread players between all available instances
-queueStrategy: FILL
+scaling:
+  # The maximum number of players on this server
+  maxPlayers: 10
 
 server:
-  # Change this if you need to use a different java version
+  # Change this if you need to use a different java version.
   image: openjdk:21-jdk-slim
 
-  # This is the name of your jarfile located in the base gamemode directory
+  # This is the name of your jarfile located in the base gamemode directory.
   jarName: server.jar
 
-  # Include any JVM options
+  # Include any JVM options.
   jvmOpts: ""
 
-  # Include any JVM args
+  # Include any JVM args.
   args: "nogui"
 
   # Do not change this unless you know what you're doing. All internal servers should be able to run on the same port.

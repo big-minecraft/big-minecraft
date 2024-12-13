@@ -1,20 +1,19 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: nfs-sftp-server
+  name: sftp-server
   labels:
-    app: nfs-sftp
+    app: sftp
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: nfs-sftp
+      app: sftp
   template:
     metadata:
       labels:
-        app: nfs-sftp
+        app: sftp
     spec:
-      # Updated nodeSelector to match K3s control plane label
       nodeSelector:
         node-role.kubernetes.io/master: "true"
       tolerations:
@@ -27,44 +26,41 @@ spec:
       initContainers:
       - name: init-sftp-setup
         image: alpine
+        securityContext:
+          privileged: true
+          runAsUser: 0
         command: ["/bin/sh", "-c"]
         args:
           - |
             echo "Setting up SFTP directory..."
             mkdir -p /home/user/nfsshare;
-            chown 1001:1001 /home/user/nfsshare;
-            chmod 755 /home/user/nfsshare;
+            chown -R 1001:1001 /home/user/nfsshare;
+            chmod -R 777 /home/user/nfsshare;
             echo "SFTP directory setup complete."
         volumeMounts:
-          - name: nfs-volume
+          - name: sftp-volume
             mountPath: /home/user/nfsshare
+            mountPropagation: HostToContainer
       containers:
-      - name: nfs-server
-        image: itsthenetwork/nfs-server-alpine
-        securityContext:
-          privileged: true
-        ports:
-          - containerPort: 2049
-        volumeMounts:
-          - name: nfs-volume
-            mountPath: /nfsshare
-        env:
-          - name: SHARED_DIRECTORY
-            value: "/nfsshare"
-          - name: NFS_VERSION
-            value: "4"
       - name: sftp-server
         image: atmoz/sftp
+        securityContext:
+          privileged: true
+          runAsUser: 0
         ports:
           - containerPort: 22
         env:
           - name: SFTP_USERS
             value: "user:password:1001:1001"
         volumeMounts:
-          - name: nfs-volume
+          - name: sftp-volume
             mountPath: /home/user/nfsshare
+            mountPropagation: HostToContainer
       - name: file-monitor
         image: alpine
+        securityContext:
+          privileged: true
+          runAsUser: 0
         command: ["/bin/sh", "-c"]
         args:
           - |
@@ -88,10 +84,11 @@ spec:
               redis-cli -h $REDIS_HOST -p $REDIS_PORT PUBLISH file_changes "$MESSAGE" || echo "Failed to publish message to Redis"
             done
         volumeMounts:
-          - name: nfs-volume
+          - name: sftp-volume
             mountPath: /home/user/nfsshare
+            mountPropagation: HostToContainer
       volumes:
-      - name: nfs-volume
+      - name: sftp-volume
         hostPath:
           path: /mnt/nfsshare
           type: DirectoryOrCreate
@@ -99,15 +96,11 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: nfs-sftp-service
+  name: sftp-service
 spec:
   selector:
-    app: nfs-sftp
+    app: sftp
   ports:
-    - name: nfs
-      port: 2049
-      targetPort: 2049
-      nodePort: 30000
     - name: sftp
       port: 22
       targetPort: 22

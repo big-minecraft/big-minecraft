@@ -16,7 +16,7 @@ def run_backup_script():
     backup_script = """
     mkdir -p /mnt/local  # Create local backup directory, if not exists
     apk add --no-cache nfs-utils rsync;
-    mount -o nolock,vers=4 nfs-sftp-service:/ /mnt/pv || { echo "Mount failed"; exit 1; }
+    mount -o nolock,vers=4 nfs-service:/ /mnt/pv || { echo "Mount failed"; exit 1; }
     ls /mnt;
 
     rm -rf /mnt/local/*;  # Delete everything in /mnt/local if it exists

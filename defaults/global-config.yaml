@@ -1,0 +1,7 @@
+panelDomain: panel.wiji.dev
+k8sDashboardDomain: k8s.wiji.dev    
+loadBalancerIP: 5.78.123.236
+inviteCode: XXXXXXXXX
+mariaDBPassword: XXXXXXXX
+clusterConfigPath: /etc/rancher/k3s/k3s.yaml
+bmcPath: /var/lib/baremetal

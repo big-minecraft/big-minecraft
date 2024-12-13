@@ -6,7 +6,7 @@ metadata:
     app: {{ .Values.name }}
     chart: "{{ .Chart.Name }}-{{ .Chart.Version }}"
 spec:
-  replicas: {{ .Values.minimumInstances }}
+  replicas: 1
   selector:
     matchLabels:
       app: {{ .Values.name }}
@@ -16,10 +16,25 @@ spec:
         app: {{ .Values.name }}
         kyriji.dev/enable-server-discovery: "true"
         kyriji.dev/enable-panel-discovery: "true"
-        kyriji.dev/initial-server: "{{ .Values.initialServer }}"
-        kyriji.dev/queue-strategy: "{{ .Values.queueStrategy }}"
-        kyriji.dev/max-players: "{{ .Values.maxPlayers }}"
+        kyriji.dev/gamemode-type: "persistent"
+
+        kyriji.dev/initial-server: "{{ .Values.queuing.initialServer }}"
+        kyriji.dev/queue-strategy: "FILL"
+
+        kyriji.dev/scale-strategy: "THRESHOLD"
+        kyriji.dev/max-players: "{{ .Values.scaling.maxPlayers }}"
+        kyriji.dev/min-instances: "1"
+        kyriji.dev/max-instances: "1"
+        kyriji.dev/scale-up-threshold: "0"
+        kyriji.dev/scale-down-threshold: "0"
+        kyriji.dev/scale-up-cooldown: "0"
+        kyriji.dev/scale-down-cooldown: "0"
+        kyriji.dev/scale-up-limit: "1"
+        kyriji.dev/scale-down-limit: "1"
+
     spec:
+      nodeSelector:
+        kubernetes.io/hostname: "{{ .Values.dedicatedNode }}"
       terminationGracePeriodSeconds: 2
       containers:
       - name: mc
@@ -27,9 +42,10 @@ spec:
         command: ["/bin/bash", "-c"]
         args:
           - |
+            umask 000
             cd {{ .Values.volume.mountPath }}
             if [ ! -f "./{{ .Values.server.jarName }}" ]; then
-              echo "server.jar not found!"
+              echo "Jar file not found! Check your gamemode configuration file."
               ls -la ./
               exit 1
             fi
@@ -56,5 +72,5 @@ spec:
       volumes:
       - name: local-volume
         hostPath:
-          path: /mnt/local/gamemodes/{{ .Values.volume.dataDirectory }}
+          path: /mnt/nfsshare/gamemodes/{{ .Values.volume.dataDirectory }}
           type: Directory

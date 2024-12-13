@@ -112,6 +112,12 @@ spec:
           env:
             - name: INITIAL_INVITE_CODE
               value: {{ .Values.global.inviteCode }}
+            - name: PANEL_HOST
+              value: {{ .Values.global.panelDomain }}
+            - name: MARIADB_PASSWORD
+              value: {{ .Values.global.mariaDBPassword }}
+            - name: BMC_PATH
+              value: {{ .Values.global.bmcPath }}
           volumeMounts:
             - name: app-source
               mountPath: /usr/src/app
