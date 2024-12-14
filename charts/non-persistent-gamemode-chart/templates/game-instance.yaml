@@ -4,6 +4,7 @@ metadata:
   name: {{ .Values.name }}
   labels:
     app: {{ .Values.name }}
+    cadvisor: "true"
     chart: "{{ .Chart.Name }}-{{ .Chart.Version }}"
 spec:
   replicas: {{ .Values.scaling.minInstances }}
@@ -14,6 +15,7 @@ spec:
     metadata:
       labels:
         app: {{ .Values.name }}
+        cadvisor: "true"
         kyriji.dev/enable-server-discovery: "true"
         kyriji.dev/enable-panel-discovery: "true"
         kyriji.dev/gamemode-type: "non-persistent"
@@ -66,8 +68,40 @@ spec:
           limits:
             memory: {{ .Values.resources.limits.memory }}
             cpu: {{ .Values.resources.limits.cpu }}
+
+      - name: cadvisor
+        image: gcr.io/cadvisor/cadvisor:v0.47.0
+        ports:
+        - containerPort: 8080
+          name: cadvisor
+        labels:
+          app: cadvisor
+        volumeMounts:
+          - name: docker-sock
+            mountPath: /var/run/docker.sock
+          - name: rootfs
+            mountPath: /rootfs
+          - name: proc
+            mountPath: /proc
+          - name: sys
+            mountPath: /sys
+          - name: local-volume
+            mountPath: /mnt/local/gamemodes/{{ .Values.volume.dataDirectory }}
+
       volumes:
       - name: local-volume
         hostPath:
           path: /mnt/local/gamemodes/{{ .Values.volume.dataDirectory }}
           type: Directory
+      - name: docker-sock
+        hostPath:
+          path: /var/run/docker.sock
+      - name: rootfs
+        hostPath:
+          path: /
+      - name: proc
+        hostPath:
+          path: /proc
+      - name: sys
+        hostPath:
+          path: /sys
