@@ -18,7 +18,7 @@ spec:
         cadvisor: "true"
         kyriji.dev/enable-server-discovery: "true"
         kyriji.dev/enable-panel-discovery: "true"
-        kyriji.dev/gamemode-type: "non-persistent"
+        kyriji.dev/deployment-type: "non-persistent"
 
         kyriji.dev/initial-server: "{{ .Values.queuing.initialServer }}"
         kyriji.dev/queue-strategy: "{{ .Values.queuing.queueStrategy }}"
@@ -44,7 +44,7 @@ spec:
           - |
             cd {{ .Values.volume.mountPath }}
             if [ ! -f "./{{ .Values.server.jarName }}" ]; then
-              echo "Jar file not found! Check your gamemode configuration file."
+              echo "Jar file not found! Check your deployment configuration file."
               ls -la ./
               exit 1
             fi
@@ -86,12 +86,12 @@ spec:
           - name: sys
             mountPath: /sys
           - name: local-volume
-            mountPath: /mnt/local/gamemodes/{{ .Values.volume.dataDirectory }}
+            mountPath: /mnt/local/deployments/{{ .Values.volume.dataDirectory }}
 
       volumes:
       - name: local-volume
         hostPath:
-          path: /mnt/local/gamemodes/{{ .Values.volume.dataDirectory }}
+          path: /mnt/local/deployments/{{ .Values.volume.dataDirectory }}
           type: Directory
       - name: docker-sock
         hostPath:

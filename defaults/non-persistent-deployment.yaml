@@ -1,5 +1,5 @@
-# Ensure this remains the same as the gamemode's name.
-name: example-gamemode
+# Ensure this remains the same as the deployment's name.
+name: example-deployment
 
 queuing:
   # Whether or not this server should be used for initial connections. (AKA Lobby Servers)
@@ -23,22 +23,22 @@ scaling:
    # The maximum number of players per instance.
   maxPlayers: 10
 
-  # The minimum number of instances this gamemode can have.
+  # The minimum number of instances this deployment can have.
   minInstances: 2
 
-  # The maximum number of instances this gamemode can have. Use "unlimited" to remove this limit.
+  # The maximum number of instances this deployment can have. Use "unlimited" to remove this limit.
   maxInstances: 10
 
-  # The number of player per instance in the gamemode that triggers a scale-up
+  # The number of player per instance in the deployment that triggers a scale-up
   scaleUpThreshold: 5
 
-  # The number of player per instance in the gamemode that triggers a scale-down
+  # The number of player per instance in the deployment that triggers a scale-down
   scaleDownThreshold: 2
 
-  # How often the gamemode can be scaled up in seconds.
+  # How often the deployment can be scaled up in seconds.
   scaleUpCooldown: 60
 
-  # How often the gamemode can be scaled down in seconds.
+  # How often the deployment can be scaled down in seconds.
   scaleDownCooldown: 120
 
   # The maximum number of instances that can be started in a scale-up cycle.
@@ -52,7 +52,7 @@ server:
   # Change this if you need to use a different java version.
   image: openjdk:21-jdk-slim
 
-  # This is the name of your jarfile located in the base gamemode directory.
+  # This is the name of your jarfile located in the base deployment directory.
   jarName: server.jar
 
   # Include any JVM options.
@@ -72,7 +72,7 @@ server:
       value: "1.20.2"
 
 volume:
-  # The directory to pull the server's data from. By default this is set to the folder that is automatically created for the gamemode.
+  # The directory to pull the server's data from. By default this is set to the folder that is automatically created for the deployment.
   dataDirectory: minestom
 
   # Where the contents of the aformentioned data directory is copied to internally. There is no real reason to change this.

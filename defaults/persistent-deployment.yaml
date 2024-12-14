@@ -1,8 +1,8 @@
-# Ensure this remains the same as the gamemode's name.
-name: example-gamemode
+# Ensure this remains the same as the deployment's name.
+name: example-deployment
 
-# Which node in the cluster this persistent gamemode will "live" on. Do not change this value without first
-# moving the gamemode's files to the new node.
+# Which node in the cluster this persistent deployment will "live" on. Do not change this value without first
+# moving the deployment's files to the new node.
 dedicatedNode: worker
 
 queuing:
@@ -17,7 +17,7 @@ server:
   # Change this if you need to use a different java version.
   image: openjdk:21-jdk-slim
 
-  # This is the name of your jarfile located in the base gamemode directory.
+  # This is the name of your jarfile located in the base deployment directory.
   jarName: server.jar
 
   # Include any JVM options.
@@ -37,7 +37,7 @@ server:
       value: "1.20.2"
 
 volume:
-  # The directory to pull the server's data from. By default this is set to the folder that is automatically created for the gamemode.
+  # The directory to pull the server's data from. By default this is set to the folder that is automatically created for the deployment.
   dataDirectory: minestom
 
   # Where the contents of the aformentioned data directory is copied to internally. There is no real reason to change this.

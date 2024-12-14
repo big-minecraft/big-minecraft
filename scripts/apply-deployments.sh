@@ -49,28 +49,28 @@ if ! command_exists helmfile; then
 fi
 
 # Define the paths relative to the script location
-NON_PERSISTENT_VALUES_DIR="${SCRIPT_DIR}/../local/gamemodes/non-persistent"
-PERSISTENT_VALUES_DIR="${SCRIPT_DIR}/../local/gamemodes/persistent"
-NON_PERSISTENT_CHART_DIR="${SCRIPT_DIR}/../charts/non-persistent-gamemode-chart"
-PERSISTENT_CHART_DIR="${SCRIPT_DIR}/../charts/persistent-gamemode-chart"
+NON_PERSISTENT_VALUES_DIR="${SCRIPT_DIR}/../local/deployments/non-persistent"
+PERSISTENT_VALUES_DIR="${SCRIPT_DIR}/../local/deployments/persistent"
+NON_PERSISTENT_CHART_DIR="${SCRIPT_DIR}/../charts/non-persistent-deployment-chart"
+PERSISTENT_CHART_DIR="${SCRIPT_DIR}/../charts/persistent-deployment-chart"
 
-# Function to process and deploy gamemodes
-deploy_gamemodes() {
+# Function to process and deploy deployments
+deploy_deployments() {
     local values_dir="$1"
     local chart_dir="$2"
     local deployment_type="$3"
 
-    # Get a list of currently deployed gamemodes for this type
-    DEPLOYED_GAMEMODES=$(kubectl get deployments -n default -o jsonpath="{.items[?(@.spec.template.metadata.labels.kyriji\\.dev/gamemode-type==\"$deployment_type\")].metadata.name}")
+    # Get a list of currently deployed deployments for this type
+    DEPLOYED_DEPLOYMENTS=$(kubectl get deployments -n default -o jsonpath="{.items[?(@.spec.template.metadata.labels.kyriji\\.dev/deployment-type==\"$deployment_type\")].metadata.name}")
 
-    # Get a list of gamemode files (without extension) in the values directory
-    AVAILABLE_GAMEMODES=$(find "${values_dir}" -type f \( -name "*.yaml" -o -name "*.yml" \) | xargs -n1 basename | sed 's/\.[^.]*$//')
+    # Get a list of deployment files (without extension) in the values directory
+    AVAILABLE_DEPLOYMENTS=$(find "${values_dir}" -type f \( -name "*.yaml" -o -name "*.yml" \) | xargs -n1 basename | sed 's/\.[^.]*$//')
 
-    # Loop through deployed gamemodes and delete any that no longer have a corresponding values file
-    for gamemode in $DEPLOYED_GAMEMODES; do
-        if ! echo "$AVAILABLE_GAMEMODES" | grep -q "^$gamemode$"; then
-            echo "Deleting removed $deployment_type gamemode: $gamemode"
-            helm uninstall "$gamemode" --namespace default
+    # Loop through deployed deployments and delete any that no longer have a corresponding values file
+    for deployment in $DEPLOYED_DEPLOYMENTS; do
+        if ! echo "$AVAILABLE_DEPLOYMENTS" | grep -q "^$deployment$"; then
+            echo "Deleting removed $deployment_type deployment: $deployment"
+            helm uninstall "$deployment" --namespace default
         fi
     done
 
@@ -78,42 +78,42 @@ deploy_gamemodes() {
     for values_file in "${values_dir}"/*.{yaml,yml}; do
         [ -f "$values_file" ] || continue  # Skip if no matches
 
-        # Extract the gamemode name from the filename
-        gamemode=$(basename "$values_file" .${values_file##*.})
-        echo "Processing $deployment_type gamemode: $gamemode"
+        # Extract the deployment name from the filename
+        deployment=$(basename "$values_file" .${values_file##*.})
+        echo "Processing $deployment_type deployment: $deployment"
 
         # Debug: Show the values that will be used
         echo "Values file contents:"
         cat "$values_file"
 
         # Deploy using Helm
-        echo "Deploying $gamemode..."
-        helm upgrade --install "$gamemode" "${chart_dir}" \
+        echo "Deploying $deployment..."
+        helm upgrade --install "$deployment" "${chart_dir}" \
             --values "$values_file" \
             --namespace default \
-            --set "gamemode.type=$deployment_type" \
+            --set "deployment.type=$deployment_type" \
             --debug \
             --dry-run  # First do a dry run to see what would be created
 
         # If dry run succeeds, do the actual deployment
-        helm upgrade --install "$gamemode" "${chart_dir}" \
+        helm upgrade --install "$deployment" "${chart_dir}" \
             --values "$values_file" \
             --namespace default \
-            --set "gamemode.type=$deployment_type"
+            --set "deployment.type=$deployment_type"
 
         # Verify deployment
         echo "Verifying $deployment_type deployment..."
-        kubectl get deployment "$gamemode" -n default -o yaml
+        kubectl get deployment "$deployment" -n default -o yaml
     done
 }
 
-# Deploy non-persistent gamemodes
-echo "Deploying Non-Persistent Gamemodes:"
-deploy_gamemodes "$NON_PERSISTENT_VALUES_DIR" "$NON_PERSISTENT_CHART_DIR" "non-persistent"
+# Deploy non-persistent deployments
+echo "Deploying Non-Persistent Deployments:"
+deploy_deployments "$NON_PERSISTENT_VALUES_DIR" "$NON_PERSISTENT_CHART_DIR" "non-persistent"
 
-# Deploy persistent gamemodes
-echo "Deploying Persistent Gamemodes:"
-deploy_gamemodes "$PERSISTENT_VALUES_DIR" "$PERSISTENT_CHART_DIR" "persistent"
+# Deploy persistent deployments
+echo "Deploying Persistent Deployments:"
+deploy_deployments "$PERSISTENT_VALUES_DIR" "$PERSISTENT_CHART_DIR" "persistent"
 
 # Show final state
 echo "Final Helm releases:"
@@ -122,4 +122,4 @@ helm list --namespace default
 echo "Final Kubernetes deployments:"
 kubectl get deployments -n default -o wide
 
-echo "Deployment of all gamemodes completed successfully."
+echo "Deployment of all deployments completed successfully."
