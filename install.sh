@@ -69,13 +69,14 @@ generate_invite_code() {
 }
 
 # Generate random MariaDB password
-generate_mariadb_password() {
+generate_password() {
     openssl rand -base64 32 | tr -dc 'a-zA-Z0-9!@#$%^&*()' | head -c 20
 }
 
 # Always generate new strings
 invite_code=$(generate_invite_code)
-mariadb_password=$(generate_mariadb_password)
+mariadb_password=$(generate_password)
+mongodb_password=$(generate_password)
 
 # Create or update local/global-config.yaml
 cat > local/global-config.yaml << EOF
@@ -84,6 +85,7 @@ k8sDashboardDomain: $k8s_dashboard_domain
 loadBalancerIP: $ip_address
 inviteCode: $invite_code
 mariaDBPassword: $mariadb_password
+mongoDBPassword: $mongodb_password
 clusterConfigPath: $KUBECONFIG
 bmcPath: $bmc_path
 EOF

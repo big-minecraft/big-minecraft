@@ -66,5 +66,6 @@ releases:
           loadBalancerIP: {{ .Environment.Values.loadBalancerIP }}
           inviteCode: {{ .Environment.Values.inviteCode }}
           mariaDBPassword: {{ .Environment.Values.mariaDBPassword }}
+          mongoDBPassword: {{ .Environment.Values.mongoDBPassword }}
           clusterConfigPath: {{ .Environment.Values.clusterConfigPath }}
           bmcPath: {{ .Environment.Values.bmcPath }}
