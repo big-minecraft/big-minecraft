@@ -38,7 +38,7 @@ spec:
     spec:
       nodeSelector:
         kubernetes.io/hostname: "{{ .Values.dedicatedNode }}"
-      terminationGracePeriodSeconds: 200
+      terminationGracePeriodSeconds: 60
       containers:
       - name: mc
         image: {{ .Values.server.image }}
