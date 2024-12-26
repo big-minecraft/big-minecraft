@@ -7,8 +7,9 @@ HELM_VERSION="v3.16.2"
 HELMFILE_VERSION="v0.158.0"
 HELM_DIFF_VERSION="v3.9.11"
 KUBECTL_VERSION="v1.29.2"
-NFS_UTILS_VERSION="2.6.4"  # Added NFS utils version
+NFS_UTILS_VERSION="2.6.4"
 
+# Function to check if a command exists
 command_exists() {
     command -v "$1" >/dev/null 2>&1
 }
@@ -18,9 +19,14 @@ echo "Starting installation of helm tools, kubectl, and nfs-utils"
 # Install curl
 if ! command_exists curl; then
     echo "Installing curl"
-    wget "https://github.com/moparisthebest/static-curl/releases/download/${CURL_VERSION}/curl-amd64" -O /usr/local/bin/curl
-    chmod +x /usr/local/bin/curl
-    export PATH="/usr/local/bin:$PATH"
+    if command_exists apt-get; then
+        apt-get update && apt-get install -y curl || true
+    fi
+    if ! command_exists curl; then
+        wget "https://github.com/moparisthebest/static-curl/releases/download/${CURL_VERSION}/curl-amd64" -O /usr/local/bin/curl
+        chmod +x /usr/local/bin/curl
+        export PATH="/usr/local/bin:$PATH"
+    fi
 fi
 
 # Install kubectl
@@ -65,34 +71,12 @@ curl -LO https://github.com/kvaps/kubectl-node-shell/raw/master/kubectl-node_she
 chmod +x ./kubectl-node_shell
 mv ./kubectl-node_shell /usr/local/bin/kubectl-node_shell
 
-# Install NFS utilities from source
+# Install NFS common
 if ! command_exists mount.nfs; then
-    echo "Installing NFS utilities"
-    TMP_DIR=$(mktemp -d)
-    cd "$TMP_DIR"
-
-    # Install dependencies needed for compilation
-    echo "Downloading NFS utilities source"
-    curl -L "https://www.kernel.org/pub/linux/utils/nfs-utils/${NFS_UTILS_VERSION}/nfs-utils-${NFS_UTILS_VERSION}.tar.xz" | tar xJ
-
-    cd "nfs-utils-${NFS_UTILS_VERSION}"
-
-    # Configure and build from source
-    ./configure --prefix=/usr \
-                --sysconfdir=/etc \
-                --sbindir=/sbin \
-                --disable-nfsv4 \
-                --disable-gss
-    make
-    make install
-
-    # Cleanup
-    cd - > /dev/null
-    rm -rf "$TMP_DIR"
-
-    # Create required directories and files
-    mkdir -p /var/lib/nfs/rpc_pipefs
-    mkdir -p /var/lib/nfs/v4recovery
+    echo "Installing NFS common"
+    if command_exists apt-get; then
+        apt-get update && apt-get install -y nfs-common || true
+    fi
 fi
 
 # Verify installations
