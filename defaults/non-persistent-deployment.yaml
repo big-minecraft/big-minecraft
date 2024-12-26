@@ -2,7 +2,7 @@
 name: example-deployment
 
 queuing:
-  # Whether or not this server should be used for initial connections. (AKA Lobby Servers)
+  # Whether or not this deployment should be used for initial connections. (AKA Lobby Servers)
   initialServer: 'true'
 
   # The strategy to use when placing players in instances.
@@ -11,6 +11,14 @@ queuing:
   #
   # SPREAD - Try to evenly spread players between all available instances.
   queueStrategy: FILL
+
+  # Whether or not this deployment needs to tell BMC when it is in a queueable state.
+  #
+  # If enabled, you are responsible for setting each instance's state to RUNNING using BMC API to allow queuing.
+  # If disabled, each instance will be instantly queueable, potentially before it has finished booting.
+  # It is recommended you enable this if you have the capability/knowledge to run your own code on each instance.
+  requireStartupConfirmation: 'false'
+
 
 scaling:
   # The strategy to use when deciding when to scale up or down instances.

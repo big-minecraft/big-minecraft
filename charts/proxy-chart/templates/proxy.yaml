@@ -29,7 +29,7 @@ spec:
         kyriji.dev/scale-up-limit: "{{ .Values.scaling.scaleUpLimit }}"
         kyriji.dev/scale-down-limit: "{{ .Values.scaling.scaleDownLimit }}"
     spec:
-      terminationGracePeriodSeconds: 2
+      terminationGracePeriodSeconds: 60
       serviceAccountName: kubectl-sa
       containers:
         - name: mc

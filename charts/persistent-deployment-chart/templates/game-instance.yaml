@@ -21,6 +21,7 @@ spec:
         kyriji.dev/deployment-type: "persistent"
 
         kyriji.dev/initial-server: "{{ .Values.queuing.initialServer }}"
+        kyriji.dev/require-startup-confirmation: "{{ .Values.queuing.requireStartupConfirmation }}"
         kyriji.dev/queue-strategy: "FILL"
 
         kyriji.dev/scale-strategy: "THRESHOLD"
@@ -37,7 +38,7 @@ spec:
     spec:
       nodeSelector:
         kubernetes.io/hostname: "{{ .Values.dedicatedNode }}"
-      terminationGracePeriodSeconds: 2
+      terminationGracePeriodSeconds: 60
       containers:
       - name: mc
         image: {{ .Values.server.image }}

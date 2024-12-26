@@ -22,6 +22,7 @@ spec:
 
         kyriji.dev/initial-server: "{{ .Values.queuing.initialServer }}"
         kyriji.dev/queue-strategy: "{{ .Values.queuing.queueStrategy }}"
+        kyriji.dev/require-startup-confirmation: "{{ .Values.queuing.requireStartupConfirmation }}"
 
         kyriji.dev/scale-strategy: "{{ .Values.scaling.scaleStrategy }}"
         kyriji.dev/max-players: "{{ .Values.scaling.maxPlayers }}"
@@ -35,7 +36,7 @@ spec:
         kyriji.dev/scale-down-limit: "{{ .Values.scaling.scaleDownLimit }}"
 
     spec:
-      terminationGracePeriodSeconds: 2
+      terminationGracePeriodSeconds: 60
       containers:
       - name: mc
         image: {{ .Values.server.image }}
