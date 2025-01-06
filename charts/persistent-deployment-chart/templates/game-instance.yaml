@@ -52,8 +52,28 @@ spec:
               ls -la ./
               exit 1
             fi
+
+
+            # Create control file - server should run when this exists
+            touch /tmp/should_run
+
+            # Create and maintain input pipe
+            rm -f /tmp/server_input
             mkfifo /tmp/server_input
-            tail -f /tmp/server_input | java {{ .Values.server.jvmOpts | default "" }} -jar ./{{ .Values.server.jarName }} {{ .Values.server.args | default "nogui" }}
+
+            while true; do
+              if [ -f /tmp/should_run ]; then
+                echo "Starting Minecraft server..."
+                # Start server with input pipe
+                tail -f /tmp/server_input | java {{ .Values.server.jvmOpts | default "" }} -jar ./{{ .Values.server.jarName }} {{ .Values.server.args | default "nogui" }}
+
+                # If we get here, either the server crashed or was stopped
+                sleep 1
+              else
+                # Server should not be running, wait and check again
+                sleep 5
+              fi
+            done
         volumeMounts:
           - name: local-volume
             mountPath: {{ .Values.volume.mountPath | default "/minecraft" }}

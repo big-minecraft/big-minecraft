@@ -6,18 +6,21 @@ NAMESPACE="default"   # The namespace to deploy to
 
 # Get the directory where the script is located, resolving symlinks
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+
 # Read KUBECONFIG from global-config.yaml
 CONFIG_FILE="${SCRIPT_DIR}/../local/global-config.yaml"
 if [ ! -f "$CONFIG_FILE" ]; then
     echo "Error: global-config.yaml not found at $CONFIG_FILE"
     exit 1
 fi
+
 # Extract clusterConfigPath from global-config.yaml
 KUBECONFIG=$(grep "clusterConfigPath:" "$CONFIG_FILE" | awk '{print $2}' | tr -d '"')
 if [ -z "$KUBECONFIG" ]; then
     echo "Error: clusterConfigPath not found in global-config.yaml"
     exit 1
 fi
+
 # Try original path first, then prepend /host-root if not found
 if [ ! -f "$KUBECONFIG" ]; then
     HOST_ROOT_KUBECONFIG="/host-root${KUBECONFIG}"
@@ -36,7 +39,8 @@ fi
 export KUBECONFIG="${FINAL_KUBECONFIG}"
 
 # Define paths relative to script location
-VALUES_FILE="${SCRIPT_DIR}/../local/proxy.yaml"  # Path to your values file
+VALUES_FILE="${SCRIPT_DIR}/../local/proxy.yaml"  # Default values file
+DISABLED_VALUES_FILE="${SCRIPT_DIR}/../local/disabled-proxy.yaml"  # Check for disabled version
 CHART_DIR="${SCRIPT_DIR}/../charts/proxy-chart"
 
 set -e  # Exit on error
@@ -59,7 +63,22 @@ if [ ! -d "${CHART_DIR}/templates" ]; then
     mkdir -p "${CHART_DIR}/templates"
 fi
 
-# Check if values file exists
+# Check if disabled version exists
+if [ -f "${DISABLED_VALUES_FILE}" ]; then
+    echo "Found disabled version of proxy deployment (${DISABLED_VALUES_FILE})"
+
+    # Check if the deployment exists and needs to be removed
+    if helm status "${RELEASE_NAME}" -n "${NAMESPACE}" &>/dev/null; then
+        echo "Removing disabled deployment ${RELEASE_NAME}..."
+        helm uninstall "${RELEASE_NAME}" --namespace "${NAMESPACE}"
+        echo "Deployment ${RELEASE_NAME} has been removed as it is marked as disabled"
+    else
+        echo "Deployment ${RELEASE_NAME} is already removed (marked as disabled)"
+    fi
+    exit 0
+fi
+
+# Check if regular values file exists
 if [ ! -f "${VALUES_FILE}" ]; then
     echo "Values file not found at ${VALUES_FILE}"
     echo "Current directory: $(pwd)"
@@ -90,6 +109,8 @@ kubectl get deployment "${RELEASE_NAME}" -n $NAMESPACE -o yaml
 # Show final state
 echo "Final Helm releases:"
 helm list --namespace $NAMESPACE
+
 echo "Final Kubernetes deployments:"
 kubectl get deployments -n $NAMESPACE -o wide
-echo "Deployment completed successfully."
+
+echo "Deployment completed successfully."   
