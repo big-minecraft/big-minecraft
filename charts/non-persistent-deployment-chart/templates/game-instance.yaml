@@ -43,7 +43,15 @@ spec:
         command: ["/bin/bash", "-c"]
         args:
           - |
-            cd {{ .Values.volume.mountPath }}
+            # Create pod-local directory for server files
+            POD_LOCAL_DIR="/tmp/minecraft-server"
+            mkdir -p "$POD_LOCAL_DIR"
+
+            # Copy all files from shared volume to pod-local directory
+            echo "Copying server files to pod-local directory..."
+            cp -r {{ .Values.volume.mountPath }}/* "$POD_LOCAL_DIR/"
+
+            cd "$POD_LOCAL_DIR"
             if [ ! -f "./{{ .Values.server.jarName }}" ]; then
               echo "Jar file not found! Check your deployment configuration file."
               ls -la ./
@@ -73,6 +81,9 @@ spec:
         volumeMounts:
           - name: local-volume
             mountPath: {{ .Values.volume.mountPath | default "/minecraft" }}
+            readOnly: true  # Make the shared volume read-only since we're copying from it
+          - name: tmp
+            mountPath: /tmp
         ports:
         - containerPort: {{ .Values.server.port | default 25565 }}
           name: minecraft
@@ -113,6 +124,8 @@ spec:
         hostPath:
           path: /mnt/local/deployments/{{ .Values.volume.dataDirectory }}
           type: Directory
+      - name: tmp
+        emptyDir: {}  # Add an emptyDir volume for pod-local storage
       - name: docker-sock
         hostPath:
           path: /var/run/docker.sock
