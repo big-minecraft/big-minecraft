@@ -43,6 +43,12 @@ spec:
         command: ["/bin/bash", "-c"]
         args:
           - |
+
+            # Install redis-cli if it's not already installed
+            if ! command -v redis-cli &> /dev/null; then
+              apt-get update &> /dev/null && apt-get install -y redis-tools &> /dev/null
+            fi
+
             # Create pod-local directory for server files
             POD_LOCAL_DIR="/tmp/minecraft-server"
             mkdir -p "$POD_LOCAL_DIR"
@@ -65,6 +71,12 @@ spec:
             rm -f /tmp/server_input
             mkfifo /tmp/server_input
 
+            # Function to send Redis notification
+            send_redis_notification() {
+              local message="{\"server\": \"$HOSTNAME\", \"event\": \"shutdown\", \"timestamp\": \"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\"}"
+              redis-cli -h {{ .Values.server.redis.host }} -p {{ .Values.server.redis.port }} PUBLISH server-status "$message" &> /dev/null
+            }
+
             while true; do
               if [ -f /tmp/should_run ]; then
                 echo "Starting Minecraft server..."
@@ -73,6 +85,8 @@ spec:
 
                 # If we get here, either the server crashed or was stopped
                 sleep 1
+                # Send Redis notification
+                send_redis_notification
               else
                 # Server should not be running, wait and check again
                 sleep 5
@@ -92,6 +106,10 @@ spec:
         - name: {{ .name }}
           value: {{ .value | quote }}
         {{- end }}
+        - name: REDIS_HOST
+          value: {{ .Values.server.redis.host | quote }}
+        - name: REDIS_PORT
+          value: {{ .Values.server.redis.port | quote }}
         resources:
           requests:
             memory: {{ .Values.resources.requests.memory }}

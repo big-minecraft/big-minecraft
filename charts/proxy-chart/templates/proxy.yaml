@@ -37,6 +37,11 @@ spec:
           command: ["/bin/bash", "-c"]
           args:
             - |
+              # Install redis-cli if it's not already installed
+              if ! command -v redis-cli &> /dev/null; then
+                apt-get update &> /dev/null && apt-get install -y redis-tools &> /dev/null
+              fi
+
               cd /minecraft
               if [ ! -f "./{{ .Values.server.jarName }}" ]; then
                 echo "Jar file not found! Check your proxy configuration file."
@@ -51,6 +56,12 @@ spec:
               rm -f /tmp/server_input
               mkfifo /tmp/server_input
 
+              # Function to send Redis notification
+              send_redis_notification() {
+                local message="{\"server\": \"$HOSTNAME\", \"event\": \"shutdown\", \"timestamp\": \"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\"}"
+                redis-cli -h {{ .Values.server.redis.host }} -p {{ .Values.server.redis.port }} PUBLISH server-status "$message" &> /dev/null
+              }
+
               while true; do
                 if [ -f /tmp/should_run ]; then
                   echo "Starting Minecraft server..."
@@ -58,6 +69,8 @@ spec:
                   tail -f /tmp/server_input | java {{ .Values.server.jvmOpts | default "" }} -jar ./{{ .Values.server.jarName }} {{ .Values.server.args | default "nogui" }}
 
                   # If we get here, either the server crashed or was stopped
+                  # Send Redis notification
+                  send_redis_notification
                   sleep 1
                 else
                   # Server should not be running, wait and check again
@@ -75,6 +88,10 @@ spec:
           - name: {{ .name }}
             value: {{ .value | quote }}
           {{- end }}
+          - name: REDIS_HOST
+            value: {{ .Values.server.redis.host | quote }}
+          - name: REDIS_PORT
+            value: {{ .Values.server.redis.port | quote }}
           resources:
             requests:
               memory: {{ .Values.resources.requests.memory }}
@@ -109,7 +126,7 @@ spec:
             type: Directory
         - name: docker-sock
           hostPath:
-          path: /var/run/docker.sock
+            path: /var/run/docker.sock
         - name: rootfs
           hostPath:
             path: /
