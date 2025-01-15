@@ -184,14 +184,14 @@ spec:
       http:
         paths:
           - path: /api/(.*)
-            pathType: Prefix
+            pathType: ImplementationSpecific
             backend:
               service:
                 name: fullstack-service
                 port:
                   number: 3002
           - path: /(.*)
-            pathType: Prefix
+            pathType: ImplementationSpecific
             backend:
               service:
                 name: fullstack-service
