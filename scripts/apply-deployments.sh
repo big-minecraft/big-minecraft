@@ -63,8 +63,8 @@ deploy_deployments() {
     # Get a list of currently deployed deployments for this type
     DEPLOYED_DEPLOYMENTS=$(kubectl get deployments -n default -o jsonpath="{.items[?(@.spec.template.metadata.labels.kyriji\\.dev/deployment-type==\"$deployment_type\")].metadata.name}")
 
-    # Get a list of deployment files (without extension) in the values directory
-    AVAILABLE_DEPLOYMENTS=$(find "${values_dir}" -type f \( -name "*.yaml" -o -name "*.yml" \) | xargs -n1 basename | sed 's/\.[^.]*$//')
+    # Get a list of deployment files (without extension and with 'disabled-' prefix removed)
+    AVAILABLE_DEPLOYMENTS=$(find "${values_dir}" -type f \( -name "*.yaml" -o -name "*.yml" \) | xargs -n1 basename | sed -e 's/\.[^.]*$//' -e 's/^disabled-//')
 
     # Loop through deployed deployments and delete any that no longer have a corresponding values file
     for deployment in $DEPLOYED_DEPLOYMENTS; do
@@ -78,8 +78,16 @@ deploy_deployments() {
     for values_file in "${values_dir}"/*.{yaml,yml}; do
         [ -f "$values_file" ] || continue  # Skip if no matches
 
-        # Extract the deployment name from the filename
-        deployment=$(basename "$values_file" .${values_file##*.})
+        # Extract the deployment name from the filename and remove 'disabled-' prefix if present
+        original_deployment=$(basename "$values_file" .${values_file##*.})
+        deployment=${original_deployment#disabled-}
+
+        # Skip processing if the original filename started with 'disabled-'
+        if [[ "$original_deployment" == disabled-* ]]; then
+            echo "Skipping disabled deployment: $deployment"
+            continue
+        fi
+
         echo "Processing $deployment_type deployment: $deployment"
 
         # Debug: Show the values that will be used

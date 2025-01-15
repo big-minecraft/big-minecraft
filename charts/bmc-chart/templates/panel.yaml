@@ -116,6 +116,8 @@ spec:
               value: {{ .Values.global.panelDomain }}
             - name: MARIADB_PASSWORD
               value: {{ .Values.global.mariaDBPassword }}
+            - name: MONGO_INITDB_ROOT_PASSWORD
+              value: {{ .Values.global.mongoDBPassword }}
             - name: BMC_PATH
               value: {{ .Values.global.bmcPath }}
           volumeMounts:
@@ -182,14 +184,14 @@ spec:
       http:
         paths:
           - path: /api/(.*)
-            pathType: Prefix
+            pathType: ImplementationSpecific
             backend:
               service:
                 name: fullstack-service
                 port:
                   number: 3002
           - path: /(.*)
-            pathType: Prefix
+            pathType: ImplementationSpecific
             backend:
               service:
                 name: fullstack-service

@@ -57,6 +57,12 @@ server:
     - name: VERSION
       value: "1.20.2"
 
+  # The redis endpoint used to relay power actions internally.
+  redis:
+    host: redis-service
+    port: 6379
+
+
 # Set recource limits per instance. "Mi" refers to megabytes, and "m" refers to micro-cpus.
 resources:
   requests:

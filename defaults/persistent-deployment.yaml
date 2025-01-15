@@ -21,6 +21,7 @@ scaling:
   # The maximum number of players on this server
   maxPlayers: 10
 
+
 server:
   # Change this if you need to use a different java version.
   image: openjdk:21-jdk-slim
@@ -44,12 +45,19 @@ server:
     - name: VERSION
       value: "1.20.2"
 
+  # The redis endpoint used to relay power actions internally.
+  redis:
+    host: redis-service
+    port: 6379
+
+
 volume:
   # The directory to pull the server's data from. By default this is set to the folder that is automatically created for the deployment.
   dataDirectory: minestom
 
   # Where the contents of the aformentioned data directory is copied to internally. There is no real reason to change this.
   mountPath: /minecraft
+
 
 # Set recource limits per instance. "Mi" refers to megabytes, and "m" refers to micro-cpus.
 resources:

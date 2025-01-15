@@ -43,17 +43,61 @@ spec:
         command: ["/bin/bash", "-c"]
         args:
           - |
-            cd {{ .Values.volume.mountPath }}
+
+            # Install redis-cli if it's not already installed
+            if ! command -v redis-cli &> /dev/null; then
+              apt-get update &> /dev/null && apt-get install -y redis-tools &> /dev/null
+            fi
+
+            # Create pod-local directory for server files
+            POD_LOCAL_DIR="/tmp/minecraft-server"
+            mkdir -p "$POD_LOCAL_DIR"
+
+            # Copy all files from shared volume to pod-local directory
+            echo "Copying server files to pod-local directory..."
+            cp -r {{ .Values.volume.mountPath }}/* "$POD_LOCAL_DIR/"
+
+            cd "$POD_LOCAL_DIR"
             if [ ! -f "./{{ .Values.server.jarName }}" ]; then
               echo "Jar file not found! Check your deployment configuration file."
               ls -la ./
               exit 1
             fi
+
+            # Create control file - server should run when this exists
+            touch /tmp/should_run
+
+            # Create and maintain input pipe
+            rm -f /tmp/server_input
             mkfifo /tmp/server_input
-            tail -f /tmp/server_input | java {{ .Values.server.jvmOpts | default "" }} -jar ./{{ .Values.server.jarName }} {{ .Values.server.args | default "nogui" }}
+
+            # Function to send Redis notification
+            send_redis_notification() {
+              local message="{\"server\": \"$HOSTNAME\", \"event\": \"shutdown\", \"timestamp\": \"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\"}"
+              redis-cli -h {{ .Values.server.redis.host }} -p {{ .Values.server.redis.port }} PUBLISH server-status "$message" &> /dev/null
+            }
+
+            while true; do
+              if [ -f /tmp/should_run ]; then
+                echo "Starting Minecraft server..."
+                # Start server with input pipe
+                tail -f /tmp/server_input | java {{ .Values.server.jvmOpts | default "" }} -jar ./{{ .Values.server.jarName }} {{ .Values.server.args | default "nogui" }}
+
+                # If we get here, either the server crashed or was stopped
+                sleep 1
+                # Send Redis notification
+                send_redis_notification
+              else
+                # Server should not be running, wait and check again
+                sleep 5
+              fi
+            done
         volumeMounts:
           - name: local-volume
             mountPath: {{ .Values.volume.mountPath | default "/minecraft" }}
+            readOnly: true  # Make the shared volume read-only since we're copying from it
+          - name: tmp
+            mountPath: /tmp
         ports:
         - containerPort: {{ .Values.server.port | default 25565 }}
           name: minecraft
@@ -62,6 +106,10 @@ spec:
         - name: {{ .name }}
           value: {{ .value | quote }}
         {{- end }}
+        - name: REDIS_HOST
+          value: {{ .Values.server.redis.host | quote }}
+        - name: REDIS_PORT
+          value: {{ .Values.server.redis.port | quote }}
         resources:
           requests:
             memory: {{ .Values.resources.requests.memory }}
@@ -94,6 +142,8 @@ spec:
         hostPath:
           path: /mnt/local/deployments/{{ .Values.volume.dataDirectory }}
           type: Directory
+      - name: tmp
+        emptyDir: {}  # Add an emptyDir volume for pod-local storage
       - name: docker-sock
         hostPath:
           path: /var/run/docker.sock
