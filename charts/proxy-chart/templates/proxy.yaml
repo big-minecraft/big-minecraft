@@ -42,7 +42,15 @@ spec:
                 apt-get update &> /dev/null && apt-get install -y redis-tools &> /dev/null
               fi
 
-              cd /minecraft
+              # Create pod-local directory for server files
+              POD_LOCAL_DIR="/tmp/minecraft-server"
+              mkdir -p "$POD_LOCAL_DIR"
+
+              # Copy all files from shared volume to pod-local directory
+              echo "Copying server files to pod-local directory..."
+              cp -r /minecraft/* "$POD_LOCAL_DIR/"
+
+              cd "$POD_LOCAL_DIR"
               if [ ! -f "./{{ .Values.server.jarName }}" ]; then
                 echo "Jar file not found! Check your proxy configuration file."
                 ls -la ./
