@@ -71,3 +71,4 @@ releases:
           mongoDBPassword: {{ .Environment.Values.mongoDBPassword }}
           clusterConfigPath: {{ .Environment.Values.clusterConfigPath }}
           bmcPath: {{ .Environment.Values.bmcPath }}
+          environment: {{ .Environment.Values.environment }}
