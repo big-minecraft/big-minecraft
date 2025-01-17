@@ -71,8 +71,8 @@ spec:
   ports:
     - port: 9090
       targetPort: 9090
-      {{- if eq .Values.environment "development" }}
+      {{- if eq .Values.global.environment "development" }}
       nodePort: 30090
       {{- end }}
       protocol: TCP
-  type: {{ ternary "NodePort" "ClusterIP" (eq .Values.environment "development") }}
+  type: {{ ternary "NodePort" "ClusterIP" (eq .Values.global.environment "development") }}
