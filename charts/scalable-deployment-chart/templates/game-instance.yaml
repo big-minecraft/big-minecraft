@@ -18,7 +18,7 @@ spec:
         cadvisor: "true"
         kyriji.dev/enable-server-discovery: "true"
         kyriji.dev/enable-panel-discovery: "true"
-        kyriji.dev/deployment-type: "non-persistent"
+        kyriji.dev/deployment-type: "scalable"
 
         kyriji.dev/initial-server: "{{ .Values.queuing.initialServer }}"
         kyriji.dev/queue-strategy: "{{ .Values.queuing.queueStrategy }}"

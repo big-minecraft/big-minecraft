@@ -21,10 +21,7 @@ mkdir -p "${LOCAL_DIR}"
 # Create deployments directory if it doesn't exist
 mkdir -p "${LOCAL_DIR}/deployments"
 mkdir -p "${LOCAL_DIR}/deployments/persistent"
-mkdir -p "${LOCAL_DIR}/deployments/non-persistent"
-
-
-
+mkdir -p "${LOCAL_DIR}/deployments/scalable"
 
 # Copy specific files from defaults to local
 echo "Copying selected files from ${DEFAULTS_DIR} to ${LOCAL_DIR}"

@@ -49,9 +49,9 @@ if ! command_exists helmfile; then
 fi
 
 # Define the paths relative to the script location
-NON_PERSISTENT_VALUES_DIR="${SCRIPT_DIR}/../local/deployments/non-persistent"
+NON_PERSISTENT_VALUES_DIR="${SCRIPT_DIR}/../local/deployments/scalable"
 PERSISTENT_VALUES_DIR="${SCRIPT_DIR}/../local/deployments/persistent"
-NON_PERSISTENT_CHART_DIR="${SCRIPT_DIR}/../charts/non-persistent-deployment-chart"
+NON_PERSISTENT_CHART_DIR="${SCRIPT_DIR}/../charts/scalable-deployment-chart"
 PERSISTENT_CHART_DIR="${SCRIPT_DIR}/../charts/persistent-deployment-chart"
 
 # Function to process and deploy deployments
@@ -115,9 +115,9 @@ deploy_deployments() {
     done
 }
 
-# Deploy non-persistent deployments
-echo "Deploying Non-Persistent Deployments:"
-deploy_deployments "$NON_PERSISTENT_VALUES_DIR" "$NON_PERSISTENT_CHART_DIR" "non-persistent"
+# Deploy scalable deployments
+echo "Deploying Scalable Deployments:"
+deploy_deployments "$NON_PERSISTENT_VALUES_DIR" "$NON_PERSISTENT_CHART_DIR" "scalable"
 
 # Deploy persistent deployments
 echo "Deploying Persistent Deployments:"
