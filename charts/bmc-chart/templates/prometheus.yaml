@@ -66,11 +66,13 @@ metadata:
   labels:
     app: prometheus
 spec:
-  type: NodePort
+  selector:
+    app: prometheus
   ports:
     - port: 9090
       targetPort: 9090
+      {{- if eq .Values.global.environment "development" }}
       nodePort: 30090
+      {{- end }}
       protocol: TCP
-  selector:
-    app: prometheus
+  type: {{ ternary "NodePort" "ClusterIP" (eq .Values.global.environment "development") }}

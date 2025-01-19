@@ -76,5 +76,8 @@ spec:
     - name: nfs
       port: 2049
       targetPort: 2049
+      {{- if eq .Values.global.environment "development" }}
       nodePort: 30000
-  type: NodePort
+      {{- end }}
+  type: {{ ternary "NodePort" "ClusterIP" (eq .Values.global.environment "development") }}
+

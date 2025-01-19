@@ -104,5 +104,7 @@ spec:
     - name: sftp
       port: 22
       targetPort: 22
+      {{- if eq .Values.global.environment "development" }}
       nodePort: 30022
-  type: NodePort
+      {{- end }}
+  type: {{ ternary "NodePort" "ClusterIP" (eq .Values.global.environment "development") }}

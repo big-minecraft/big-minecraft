@@ -6,3 +6,4 @@ mariaDBPassword: XXXXXXXX
 mongoDBPassword: XXXXXXXX
 clusterConfigPath: /etc/rancher/k3s/k3s.yaml
 bmcPath: /var/lib/baremetal
+environment: development
