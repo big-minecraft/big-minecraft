@@ -59,7 +59,6 @@ spec:
               exit 1
             fi
 
-
             # Create control file - server should run when this exists
             touch /tmp/should_run
 
