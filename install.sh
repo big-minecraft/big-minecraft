@@ -43,6 +43,16 @@ if [ -z "$KUBECONFIG" ]; then
 fi
 export KUBECONFIG
 
+# auto export for user shell sessions
+if ! grep -q "export KUBECONFIG=$KUBECONFIG" /etc/profile.d/k8s.sh 2>/dev/null; then
+    echo "export KUBECONFIG=$KUBECONFIG" >> /etc/profile.d/k8s.sh
+fi
+
+# auto export for root shell sessions
+if ! grep -q "export KUBECONFIG=$KUBECONFIG" /root/.bashrc 2>/dev/null; then
+    echo "export KUBECONFIG=$KUBECONFIG" >> /root/.bashrc
+fi
+
 # Initialize local directory
 "$SCRIPT_DIR/scripts/initialize-local.sh"
 
