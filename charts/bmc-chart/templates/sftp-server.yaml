@@ -14,6 +14,9 @@ spec:
       labels:
         app: sftp
     spec:
+      securityContext:
+        runAsUser: 1001  # Run as a non-root user
+        fsGroup: 1001     # Apply group permissions to volumes
       nodeSelector:
         node-role.kubernetes.io/master: "true"
       tolerations:
@@ -27,26 +30,23 @@ spec:
       - name: init-sftp-setup
         image: alpine
         securityContext:
-          privileged: true
-          runAsUser: 0
+          runAsUser: 1001   # Avoid root, run as user 1001
         command: ["/bin/sh", "-c"]
         args:
           - |
             echo "Setting up SFTP directory..."
-            mkdir -p /home/user/nfsshare;
-            chown -R 1001:1001 /home/user/nfsshare;
-            chmod -R 777 /home/user/nfsshare;
-            echo "SFTP directory setup complete."
+            # Create the directory in a user-writable location (e.g., /home/user/sftp)
+            mkdir -p /home/user/sftp
+            echo "Directory created at /home/user/sftp"
         volumeMounts:
           - name: sftp-volume
-            mountPath: /home/user/nfsshare
+            mountPath: /home/user/sftp
             mountPropagation: HostToContainer
       containers:
       - name: sftp-server
         image: atmoz/sftp
         securityContext:
-          privileged: true
-          runAsUser: 0
+          runAsUser: 1001   # Run the container as user 1001 instead of root
         ports:
           - containerPort: 22
         env:
@@ -54,18 +54,17 @@ spec:
             value: "user:password:1001:1001"
         volumeMounts:
           - name: sftp-volume
-            mountPath: /home/user/nfsshare
+            mountPath: /home/user/sftp
             mountPropagation: HostToContainer
       - name: file-monitor
         image: alpine
         securityContext:
-          privileged: true
-          runAsUser: 0
+          runAsUser: 1001   # Run file-monitor container as user 1001
         command: ["/bin/sh", "-c"]
         args:
           - |
             apk add --no-cache inotify-tools redis
-            SFTP_DIR="/home/user/nfsshare"
+            SFTP_DIR="/home/user/sftp"
             REDIS_HOST="redis-service"
             REDIS_PORT=6379
             echo "Monitoring directory: $SFTP_DIR"
@@ -85,12 +84,12 @@ spec:
             done
         volumeMounts:
           - name: sftp-volume
-            mountPath: /home/user/nfsshare
+            mountPath: /home/user/sftp
             mountPropagation: HostToContainer
       volumes:
       - name: sftp-volume
         hostPath:
-          path: /mnt/nfsshare
+          path: /mnt/sftp
           type: DirectoryOrCreate
 ---
 apiVersion: v1

@@ -120,6 +120,8 @@ spec:
               value: {{ .Values.global.mongoDBPassword }}
             - name: BMC_PATH
               value: {{ .Values.global.bmcPath }}
+            - name: ENVIRONMENT
+              value: {{ .Values.global.environment }}
           volumeMounts:
             - name: app-source
               mountPath: /usr/src/app

@@ -125,7 +125,7 @@ deploy_deployments "$PERSISTENT_VALUES_DIR" "$PERSISTENT_CHART_DIR" "persistent"
 
 # Show final state
 echo "Final Helm releases:"
-AVAILABLE_DEPLOYMENTS
+
 echo "Final Kubernetes deployments:"
 kubectl get deployments -n default -o wide
 
