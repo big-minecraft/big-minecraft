@@ -114,6 +114,8 @@ spec:
               value: {{ .Values.global.inviteCode }}
             - name: PANEL_HOST
               value: {{ .Values.global.panelDomain }}
+            - name: K8S_DASHBOARD_HOST
+              value: {{ .Values.global.k8sDashboardDomain }}
             - name: MARIADB_PASSWORD
               value: {{ .Values.global.mariaDBPassword }}
             - name: MONGO_INITDB_ROOT_PASSWORD
