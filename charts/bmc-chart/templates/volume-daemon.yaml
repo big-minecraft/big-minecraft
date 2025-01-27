@@ -1,35 +1,135 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: file-sync-script
+data:
+  nfs_sync_listener.py: |
+    import redis
+    import subprocess
+    import os
+    import threading
+    import time
+
+    # Global variables for debounce mechanism
+    last_sync_time = 0
+    debounce_lock = threading.Lock()
+    DEBOUNCE_TIME = 5  # Debounce time in seconds
+    sync_thread = None
+
+    def run_sync_operation():
+        print(f"Running NFS to local sync operation!")
+
+        sync_script = """
+        mkdir -p /mnt/local  # Create local directory if it doesn't exist
+        apk add --no-cache nfs-utils rsync;
+        mount -o nolock,vers=4 nfs-service:/ /mnt/pv || { echo "Mount failed"; exit 1; }
+        ls /mnt;
+        rm -rf /mnt/local/*;  # Clear local directory before sync
+        rsync -av --exclude '/mnt/local' /mnt/pv/ /mnt/local/;
+        """
+        # Use subprocess to run the script
+        process = subprocess.Popen(['/bin/sh', '-c', sync_script], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        stdout, stderr = process.communicate()
+        if process.returncode != 0:
+            print(f"Error during sync operation: {stderr.decode()}")
+        else:
+            print(f"Sync operation output: {stdout.decode()}")
+
+    def debounce_sync():
+        global last_sync_time, sync_thread
+        while True:
+            current_time = time.time()
+            # If enough time has passed since the last event, run the sync
+            with debounce_lock:
+                if current_time - last_sync_time >= DEBOUNCE_TIME:
+                    print("Debounced - running sync operation")
+                    run_sync_operation()
+                    last_sync_time = 0  # Reset the event timer after running the sync
+                    sync_thread = None
+                    return
+            time.sleep(1)  # Sleep for a second and check again
+
+    def reset_debounce_timer():
+        global last_sync_time, sync_thread
+        with debounce_lock:
+            last_sync_time = time.time()
+        # Start the sync thread if it's not already running
+        if sync_thread is None:
+            sync_thread = threading.Thread(target=debounce_sync)
+            sync_thread.start()
+
+    def main():
+        # Run an initial sync when the script starts
+        run_sync_operation()
+
+        # Connect to Redis
+        r = redis.Redis(host='redis-service', port=6379, decode_responses=True)
+        pubsub = r.pubsub()
+        pubsub.subscribe('file_changes')
+        print("Listening for file change messages...")
+
+        try:
+            for message in pubsub.listen():
+                if message['type'] == 'message':
+                    print(f"Received message: {message['data']}")
+                    reset_debounce_timer()  # Reset the debounce timer on each received message
+        except KeyboardInterrupt:
+            print("Listener stopped.")
+        finally:
+            if sync_thread is not None:
+                sync_thread.join()  # Ensure the sync thread finishes before exiting
+            pubsub.close()
+
+    if __name__ == "__main__":
+        main()
+
+---
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  name: pv-backup
+  name: nfs-local-sync
   labels:
-    app: pv-backup
+    app: nfs-local-sync
 spec:
   selector:
     matchLabels:
-      app: pv-backup
+      app: nfs-local-sync
   template:
     metadata:
       labels:
-        app: pv-backup
+        app: nfs-local-sync
     spec:
       containers:
-      - name: pv-backup-container
-        image: wiji1/volume-daemon:latest
+      - name: sync-container
+        image: python:3.11-slim
+        command: ["/bin/bash", "-c"]
+        args:
+          - |
+            apt-get update && \
+            apt-get install -y nfs-common rsync && \
+            apt-get clean && \
+            rm -rf /var/lib/apt/lists/* && \
+            pip install redis && \
+            python /scripts/nfs_sync_listener.py
         securityContext:
           privileged: true
         volumeMounts:
-        - name: pv-storage
-          mountPath: /mnt/pv  # This will be mounted directly to NFS on the host
-        - name: local-backup
-          mountPath: /mnt/local  # This will be on the host node
+        - name: nfs-volume
+          mountPath: /mnt/pv
+        - name: local-volume
+          mountPath: /mnt/local
+        - name: sync-script
+          mountPath: /scripts
       volumes:
-      - name: pv-storage
+      - name: nfs-volume
         hostPath:
-          path: /mnt/pv  # This is the host path for NFS mounts
-          type: DirectoryOrCreate  # Create the directory if it does not exist
-      - name: local-backup
+          path: /mnt/pv
+          type: DirectoryOrCreate
+      - name: local-volume
         hostPath:
-          path: /mnt/local  # This is the host path for local backups
-          type: DirectoryOrCreate  # Create the directory if it does not exist
+          path: /mnt/local
+          type: DirectoryOrCreate
+      - name: sync-script
+        configMap:
+          name: file-sync-script
       restartPolicy: Always
