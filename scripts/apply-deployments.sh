@@ -51,8 +51,10 @@ fi
 # Define the paths relative to the script location
 NON_PERSISTENT_VALUES_DIR="${SCRIPT_DIR}/../local/deployments/scalable"
 PERSISTENT_VALUES_DIR="${SCRIPT_DIR}/../local/deployments/persistent"
+PROCESS_VALUES_DIR="${SCRIPT_DIR}/../local/deployments/process"
 NON_PERSISTENT_CHART_DIR="${SCRIPT_DIR}/../charts/scalable-deployment-chart"
 PERSISTENT_CHART_DIR="${SCRIPT_DIR}/../charts/persistent-deployment-chart"
+PROCESS_CHART_DIR="${SCRIPT_DIR}/../charts/process-chart"
 
 # Function to process and deploy deployments
 deploy_deployments() {
@@ -122,6 +124,10 @@ deploy_deployments "$NON_PERSISTENT_VALUES_DIR" "$NON_PERSISTENT_CHART_DIR" "sca
 # Deploy persistent deployments
 echo "Deploying Persistent Deployments:"
 deploy_deployments "$PERSISTENT_VALUES_DIR" "$PERSISTENT_CHART_DIR" "persistent"
+
+# Deploy process deployments
+echo "Deploying Process Deployments:"
+deploy_deployments "$PROCESS_VALUES_DIR" "$PROCESS_CHART_DIR" "process"
 
 # Show final state
 echo "Final Helm releases:"

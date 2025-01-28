@@ -1,0 +1,107 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.name }}
+  labels:
+    app: {{ .Values.name }}
+    cadvisor: "true"
+    chart: "{{ .Chart.Name }}-{{ .Chart.Version }}"
+spec:
+  replicas: {{ .Values.scaling.minInstances }}
+  selector:
+    matchLabels:
+      app: {{ .Values.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.name }}
+        cadvisor: "true"
+        kyriji.dev/enable-server-discovery: "true"
+        kyriji.dev/enable-panel-discovery: "true"
+        kyriji.dev/deployment-type: "process"
+
+    spec:
+      terminationGracePeriodSeconds: 3
+      containers:
+      - name: process
+        image: {{ .Values.server.image }}
+        command: ["/bin/bash", "-c"]
+        args:
+          - |
+
+            # # Install redis-cli if it's not already installed
+            # if ! command -v redis-cli &> /dev/null; then
+            #   apt-get update &> /dev/null && apt-get install -y redis-tools &> /dev/null
+            # fi
+
+            # # Create pod-local directory for server files
+            # POD_LOCAL_DIR="/tmp/minecraft-server"
+            # mkdir -p "$POD_LOCAL_DIR"
+
+            # # Copy all files from shared volume to pod-local directory
+            # echo "Copying server files to pod-local directory..."
+            # cp -r {{ .Values.volume.mountPath }}/* "$POD_LOCAL_DIR/"
+
+            # cd "$POD_LOCAL_DIR"
+            # if [ ! -f "./{{ .Values.server.jarName }}" ]; then
+            #   echo "Jar file not found! Check your deployment configuration file."
+            #   ls -la ./
+            #   exit 1
+            # fi
+
+            # # Create control file - server should run when this exists
+            # touch /tmp/should_run
+
+            # # Create and maintain input pipe
+            # rm -f /tmp/server_input
+            # mkfifo /tmp/server_input
+
+            # # Function to send Redis notification
+            # send_redis_notification() {
+            #   local message="{\"server\": \"$HOSTNAME\", \"event\": \"shutdown\", \"timestamp\": \"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\"}"
+            #   redis-cli -h {{ .Values.server.redis.host }} -p {{ .Values.server.redis.port }} PUBLISH server-status "$message" &> /dev/null
+            # }
+
+            # while true; do
+            #   if [ -f /tmp/should_run ]; then
+            #     echo "Starting Minecraft server..."
+            #     # Start server with input pipe
+            #     tail -f /tmp/server_input | java {{ .Values.server.jvmOpts | default "" }} -jar ./{{ .Values.server.jarName }} {{ .Values.server.args | default "nogui" }}
+
+            #     # If we get here, either the server crashed or was stopped
+            #     sleep 1
+            #     # Send Redis notification
+            #     send_redis_notification
+            #   else
+            #     # Server should not be running, wait and check again
+            #     sleep 5
+            #   fi
+            # done
+        env:
+        {{- range .Values.server.env }}
+        - name: {{ .name }}
+          value: {{ .value | quote }}
+        {{- end }}
+        resources:
+          requests:
+            memory: {{ .Values.resources.requests.memory }}
+            cpu: {{ .Values.resources.requests.cpu }}
+          limits:
+            memory: {{ .Values.resources.limits.memory }}
+            cpu: {{ .Values.resources.limits.cpu }}
+
+      volumes:
+      - name: tmp
+        emptyDir: {}  # Add an emptyDir volume for pod-local storage
+      - name: docker-sock
+        hostPath:
+          path: /var/run/docker.sock
+      - name: rootfs
+        hostPath:
+          path: /
+      - name: proc
+        hostPath:
+          path: /proc
+      - name: sys
+        hostPath:
+          path: /sys
