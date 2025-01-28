@@ -24,7 +24,7 @@ spec:
       terminationGracePeriodSeconds: 3
       containers:
       - name: process
-        image: {{ .Values.server.image }}
+        image: {{ .Values.process.image }}
         command: ["/bin/bash", "-c"]
         args:
           - |
@@ -78,7 +78,7 @@ spec:
             #   fi
             # done
         env:
-        {{- range .Values.server.env }}
+        {{- range .Values.process.env }}
         - name: {{ .name }}
           value: {{ .value | quote }}
         {{- end }}
