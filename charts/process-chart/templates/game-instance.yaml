@@ -7,7 +7,7 @@ metadata:
     cadvisor: "true"
     chart: "{{ .Chart.Name }}-{{ .Chart.Version }}"
 spec:
-  replicas: {{ .Values.scaling.minInstances }}
+  replicas: 1
   selector:
     matchLabels:
       app: {{ .Values.name }}
