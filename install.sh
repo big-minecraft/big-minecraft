@@ -10,7 +10,7 @@ fi
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 # Set full permissions (rwx) recursively for the script directory
-chmod -R 777 "$SCRIPT_DIR"
+#chmod -R 777 "$SCRIPT_DIR"
 
 # Function to find kubernetes config path
 find_kube_config() {
