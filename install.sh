@@ -98,6 +98,7 @@ mariaDBPassword: $mariadb_password
 mongoDBPassword: $mongodb_password
 clusterConfigPath: $KUBECONFIG
 bmcPath: $bmc_path
+environment: production
 EOF
 
 echo "Created local/global-config.yaml with:"
