@@ -12,43 +12,59 @@ data:
     import logging
     from redis.exceptions import TimeoutError, ConnectionError
 
-    # Configure logging
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s'
     )
 
-    # Global variables
     last_sync_time = 0
     debounce_lock = threading.Lock()
     DEBOUNCE_TIME = 5
     sync_thread = None
     is_mounted = False
 
-    def check_mount_status():
+    def verify_mount():
+        """Verify NFS mount is working and accessible"""
         try:
-            result = subprocess.run(
+            # Check if mount point exists
+            if not os.path.exists('/mnt/pv'):
+                logging.error("Mount point /mnt/pv does not exist")
+                return False
+
+            # Check if we can list directory contents
+            try:
+                contents = os.listdir('/mnt/pv')
+                logging.info(f"NFS contents: {contents}")
+            except Exception as e:
+                logging.error(f"Cannot list NFS directory: {e}")
+                return False
+
+            # Check mount status
+            process = subprocess.run(
                 "mount | grep '/mnt/pv'",
                 shell=True,
                 capture_output=True,
                 text=True
             )
-            return result.returncode == 0
+            if process.returncode != 0:
+                logging.error("NFS not in mount list")
+                return False
+
+            logging.info("Mount verification successful")
+            return True
+
         except Exception as e:
-            logging.error(f"Error checking mount status: {e}")
+            logging.error(f"Mount verification failed: {e}")
             return False
 
     def setup_nfs():
         global is_mounted
 
-        logging.info("Checking NFS setup...")
+        logging.info("Setting up NFS...")
 
-        if check_mount_status():
-            logging.info("NFS is already mounted")
-            is_mounted = True
-            return True
+        # Unmount if already mounted
+        subprocess.run("umount -f /mnt/pv 2>/dev/null", shell=True)
 
-        logging.info("Setting up NFS mount...")
         setup_script = """
         mkdir -p /mnt/local /mnt/pv
         apk add --no-cache nfs-utils rsync
@@ -58,31 +74,35 @@ data:
             process = subprocess.run(
                 ['/bin/sh', '-c', setup_script],
                 capture_output=True,
-                text=True,
-                timeout=30
+                text=True
             )
             if process.returncode != 0:
                 logging.error(f"Setup failed: {process.stderr}")
                 return False
 
-            mount_cmd = "mount -o nolock,vers=4 nfs-service:/ /mnt/pv"
+            # Mount NFS with more detailed options
+            mount_cmd = "mount -v -t nfs -o vers=4,nolock nfs-service:/ /mnt/pv"
             process = subprocess.run(
                 ['/bin/sh', '-c', mount_cmd],
                 capture_output=True,
-                text=True,
-                timeout=30
+                text=True
             )
+            logging.info(f"Mount output: {process.stdout}")
+            if process.stderr:
+                logging.error(f"Mount stderr: {process.stderr}")
+
             if process.returncode != 0:
-                logging.error(f"Mount failed: {process.stderr}")
+                logging.error("Mount failed")
+                return False
+
+            # Verify mount
+            if not verify_mount():
+                logging.error("Mount verification failed")
                 return False
 
             is_mounted = True
-            logging.info("NFS setup completed successfully")
             return True
 
-        except subprocess.TimeoutExpired:
-            logging.error("Setup/mount operation timed out")
-            return False
         except Exception as e:
             logging.error(f"Unexpected error during setup: {e}")
             return False
@@ -90,23 +110,20 @@ data:
     def run_sync_operation():
         logging.info("Starting sync operation")
 
-        if not check_mount_status():
-            logging.warning("NFS not mounted, attempting to remount")
+        if not verify_mount():
+            logging.warning("Mount verification failed, attempting remount")
             if not setup_nfs():
                 logging.error("Failed to setup NFS, skipping sync")
                 return False
 
-        # Ensure rsync is installed
+        # List contents before sync
         try:
-            subprocess.run(
-                "which rsync || apk add --no-cache rsync",
-                shell=True,
-                check=True,
-                capture_output=True
-            )
-        except subprocess.CalledProcessError as e:
-            logging.error(f"Failed to install rsync: {e}")
-            return False
+            nfs_contents = os.listdir('/mnt/pv')
+            local_contents = os.listdir('/mnt/local')
+            logging.info(f"Pre-sync NFS contents: {nfs_contents}")
+            logging.info(f"Pre-sync local contents: {local_contents}")
+        except Exception as e:
+            logging.error(f"Error listing contents: {e}")
 
         sync_script = """
         rsync -av --delete --exclude '/mnt/local' /mnt/pv/ /mnt/local/ --stats
@@ -123,10 +140,19 @@ data:
             if process.returncode != 0:
                 logging.error(f"Sync operation failed: {process.stderr}")
                 return False
-            else:
-                logging.info("Sync operation completed successfully")
-                logging.debug(f"Sync details: {process.stdout}")
-                return True
+
+            # List contents after sync
+            try:
+                nfs_contents = os.listdir('/mnt/pv')
+                local_contents = os.listdir('/mnt/local')
+                logging.info(f"Post-sync NFS contents: {nfs_contents}")
+                logging.info(f"Post-sync local contents: {local_contents}")
+            except Exception as e:
+                logging.error(f"Error listing contents after sync: {e}")
+
+            logging.info("Sync operation completed")
+            logging.info(f"Sync details: {process.stdout}")
+            return True
 
         except subprocess.TimeoutExpired:
             logging.error("Sync operation timed out")
