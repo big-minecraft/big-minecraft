@@ -10,6 +10,7 @@ data:
     import threading
     import time
     import logging
+    from redis.exceptions import TimeoutError, ConnectionError
 
     # Configure logging
     logging.basicConfig(
@@ -25,7 +26,6 @@ data:
     is_mounted = False
 
     def check_mount_status():
-        """Check if the NFS mount is still active"""
         try:
             result = subprocess.run(
                 "mount | grep '/mnt/pv'",
@@ -43,7 +43,6 @@ data:
 
         logging.info("Checking NFS setup...")
 
-        # Check if already mounted
         if check_mount_status():
             logging.info("NFS is already mounted")
             is_mounted = True
@@ -66,7 +65,6 @@ data:
                 logging.error(f"Setup failed: {process.stderr}")
                 return False
 
-            # Try to mount NFS
             mount_cmd = "mount -o nolock,vers=4 nfs-service:/ /mnt/pv"
             process = subprocess.run(
                 ['/bin/sh', '-c', mount_cmd],
@@ -92,14 +90,24 @@ data:
     def run_sync_operation():
         logging.info("Starting sync operation")
 
-        # Verify mount status before sync
         if not check_mount_status():
             logging.warning("NFS not mounted, attempting to remount")
             if not setup_nfs():
                 logging.error("Failed to setup NFS, skipping sync")
                 return False
 
-        # Use rsync with detailed logging
+        # Ensure rsync is installed
+        try:
+            subprocess.run(
+                "which rsync || apk add --no-cache rsync",
+                shell=True,
+                check=True,
+                capture_output=True
+            )
+        except subprocess.CalledProcessError as e:
+            logging.error(f"Failed to install rsync: {e}")
+            return False
+
         sync_script = """
         rsync -av --delete --exclude '/mnt/local' /mnt/pv/ /mnt/local/ --stats
         """
@@ -109,7 +117,7 @@ data:
                 ['/bin/sh', '-c', sync_script],
                 capture_output=True,
                 text=True,
-                timeout=300  # 5-minute timeout for large syncs
+                timeout=300
             )
 
             if process.returncode != 0:
@@ -126,6 +134,47 @@ data:
         except Exception as e:
             logging.error(f"Unexpected error during sync: {e}")
             return False
+
+    def handle_redis_connection():
+        while True:
+            try:
+                logging.info("Connecting to Redis...")
+                r = redis.Redis(
+                    host='redis-service',
+                    port=6379,
+                    decode_responses=True,
+                    socket_timeout=5,
+                    socket_keepalive=True,
+                    health_check_interval=30
+                )
+
+                pubsub = r.pubsub(ignore_subscribe_messages=True)
+                pubsub.subscribe('file_changes')
+                logging.info("Successfully connected to Redis and subscribed to file_changes")
+
+                while True:
+                    try:
+                        message = pubsub.get_message(timeout=1.0)
+                        if message and message['type'] == 'message':
+                            logging.info(f"Received message: {message['data']}")
+                            reset_debounce_timer()
+                    except TimeoutError:
+                        # This is expected, just continue
+                        continue
+                    except Exception as e:
+                        logging.error(f"Error processing message: {e}")
+                        raise
+
+            except (ConnectionError, TimeoutError) as e:
+                logging.error(f"Redis connection error: {e}")
+                logging.info("Retrying in 5 seconds...")
+                time.sleep(5)
+                continue
+            except Exception as e:
+                logging.error(f"Unexpected error: {e}")
+                logging.info("Retrying in 5 seconds...")
+                time.sleep(5)
+                continue
 
     def debounce_sync():
         global last_sync_time, sync_thread
@@ -150,14 +199,13 @@ data:
 
         if sync_thread is None or not sync_thread.is_alive():
             sync_thread = threading.Thread(target=debounce_sync)
-            sync_thread.daemon = True  # Make thread daemon so it exits when main thread exits
+            sync_thread.daemon = True
             sync_thread.start()
             logging.info("Started new sync thread")
 
     def main():
         logging.info("Starting NFS sync service")
 
-        # Initial setup and sync
         if not setup_nfs():
             logging.error("Initial setup failed, exiting...")
             return
@@ -165,47 +213,7 @@ data:
         if not run_sync_operation():
             logging.error("Initial sync failed, but continuing to listen for changes...")
 
-        # Connect to Redis with retry logic
-        max_retries = 5
-        retry_delay = 5
-
-        for attempt in range(max_retries):
-            try:
-                logging.info(f"Attempting to connect to Redis (attempt {attempt + 1}/{max_retries})")
-                r = redis.Redis(
-                    host='redis-service',
-                    port=6379,
-                    decode_responses=True,
-                    socket_timeout=5
-                )
-                r.ping()  # Test the connection
-
-                pubsub = r.pubsub()
-                pubsub.subscribe('file_changes')
-                logging.info("Successfully connected to Redis and subscribed to file_changes")
-
-                # Main message loop
-                for message in pubsub.listen():
-                    if message['type'] == 'message':
-                        logging.info(f"Received message: {message['data']}")
-                        reset_debounce_timer()
-
-                break  # Exit retry loop if successful
-
-            except redis.ConnectionError as e:
-                logging.error(f"Redis connection error: {e}")
-                if attempt < max_retries - 1:
-                    logging.info(f"Retrying in {retry_delay} seconds...")
-                    time.sleep(retry_delay)
-                else:
-                    logging.error("Max retries reached, exiting...")
-                    return
-
-            except Exception as e:
-                logging.error(f"Unexpected error in main loop: {e}")
-                return
-
-        logging.info("Service stopped")
+        handle_redis_connection()
 
     if __name__ == "__main__":
         main()
@@ -232,6 +240,7 @@ spec:
         command: ["/bin/sh", "-c"]
         args:
           - |
+            apk add --no-cache rsync nfs-utils && \
             pip install redis && \
             python /scripts/nfs_sync_listener.py
         securityContext:
