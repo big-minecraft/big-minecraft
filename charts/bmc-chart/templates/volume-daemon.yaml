@@ -15,51 +15,78 @@ data:
     debounce_lock = threading.Lock()
     DEBOUNCE_TIME = 5  # Debounce time in seconds
     sync_thread = None
+    is_mounted = False
+
+    def setup_nfs():
+        global is_mounted
+        if is_mounted:
+            return True
+
+        print("Setting up NFS mount...")
+        setup_script = """
+        mkdir -p /mnt/local /mnt/pv
+        apk add --no-cache nfs-utils rsync
+        """
+        process = subprocess.run(['/bin/sh', '-c', setup_script], capture_output=True, text=True)
+        if process.returncode != 0:
+            print(f"Setup failed: {process.stderr}")
+            return False
+
+        # Try to mount NFS
+        mount_cmd = "mount -o nolock,vers=4 nfs-service:/ /mnt/pv"
+        process = subprocess.run(['/bin/sh', '-c', mount_cmd], capture_output=True, text=True)
+        if process.returncode != 0:
+            print(f"Mount failed: {process.stderr}")
+            return False
+
+        is_mounted = True
+        return True
 
     def run_sync_operation():
         print(f"Running NFS to local sync operation!")
 
+        if not setup_nfs():
+            print("Failed to setup NFS, skipping sync")
+            return
+
+        # Use rsync with --delete to ensure local directory exactly matches source
         sync_script = """
-        mkdir -p /mnt/local  # Create local directory if it doesn't exist
-        apk add --no-cache nfs-utils rsync;
-        mount -o nolock,vers=4 nfs-service:/ /mnt/pv || { echo "Mount failed"; exit 1; }
-        ls /mnt;
-        rm -rf /mnt/local/*;  # Clear local directory before sync
-        rsync -av --exclude '/mnt/local' /mnt/pv/ /mnt/local/;
+        rsync -av --delete --exclude '/mnt/local' /mnt/pv/ /mnt/local/
         """
-        # Use subprocess to run the script
-        process = subprocess.Popen(['/bin/sh', '-c', sync_script], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        stdout, stderr = process.communicate()
+
+        process = subprocess.run(['/bin/sh', '-c', sync_script], capture_output=True, text=True)
         if process.returncode != 0:
-            print(f"Error during sync operation: {stderr.decode()}")
+            print(f"Error during sync operation: {process.stderr}")
         else:
-            print(f"Sync operation output: {stdout.decode()}")
+            print(f"Sync operation completed successfully: {process.stdout}")
 
     def debounce_sync():
         global last_sync_time, sync_thread
         while True:
             current_time = time.time()
-            # If enough time has passed since the last event, run the sync
             with debounce_lock:
                 if current_time - last_sync_time >= DEBOUNCE_TIME:
                     print("Debounced - running sync operation")
                     run_sync_operation()
-                    last_sync_time = 0  # Reset the event timer after running the sync
+                    last_sync_time = 0
                     sync_thread = None
                     return
-            time.sleep(1)  # Sleep for a second and check again
+            time.sleep(1)
 
     def reset_debounce_timer():
         global last_sync_time, sync_thread
         with debounce_lock:
             last_sync_time = time.time()
-        # Start the sync thread if it's not already running
         if sync_thread is None:
             sync_thread = threading.Thread(target=debounce_sync)
             sync_thread.start()
 
     def main():
-        # Run an initial sync when the script starts
+        # Initial setup and sync
+        if not setup_nfs():
+            print("Initial setup failed, exiting...")
+            return
+
         run_sync_operation()
 
         # Connect to Redis
@@ -72,12 +99,12 @@ data:
             for message in pubsub.listen():
                 if message['type'] == 'message':
                     print(f"Received message: {message['data']}")
-                    reset_debounce_timer()  # Reset the debounce timer on each received message
+                    reset_debounce_timer()
         except KeyboardInterrupt:
             print("Listener stopped.")
         finally:
             if sync_thread is not None:
-                sync_thread.join()  # Ensure the sync thread finishes before exiting
+                sync_thread.join()
             pubsub.close()
 
     if __name__ == "__main__":
@@ -101,14 +128,10 @@ spec:
     spec:
       containers:
       - name: sync-container
-        image: python:3.11-slim
-        command: ["/bin/bash", "-c"]
+        image: python:3.11-alpine  # Changed to alpine for better compatibility with apk
+        command: ["/bin/sh", "-c"]
         args:
           - |
-            apt-get update && \
-            apt-get install -y nfs-common rsync && \
-            apt-get clean && \
-            rm -rf /var/lib/apt/lists/* && \
             pip install redis && \
             python /scripts/nfs_sync_listener.py
         securityContext:

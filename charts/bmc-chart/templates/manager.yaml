@@ -15,26 +15,15 @@ spec:
         app: manager
     spec:
       serviceAccountName: kubectl-sa
-      initContainers:
-      - name: copy-jar
-        image: alpine:3.19
-        command: ['sh', '-c', 'cp /mnt/local/system/manager/bmc-manager.jar /app/']
-        volumeMounts:
-        - name: local-volume
-          mountPath: /mnt/local/system/manager
-        - name: app-volume
-          mountPath: /app
       containers:
       - name: manager
         image: eclipse-temurin:21-jdk
-        command: ["java", "-jar", "/app/bmc-manager.jar"]
+        command: ["java", "-jar", "/mnt/local/system/manager/bmc-manager.jar"]
         volumeMounts:
-        - name: app-volume
-          mountPath: /app
+          - name: local-volume
+            mountPath: /mnt/local/system/manager
       volumes:
       - name: local-volume
         hostPath:
           path: /mnt/local/system/manager
           type: Directory
-      - name: app-volume
-        emptyDir: {}
