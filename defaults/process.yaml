@@ -3,15 +3,13 @@ name: example-deployment
 
 
 process:
-  # Change this if you need to use a different java version.
+  # Change this if you need to use a different image.
   image: alpine
 
-  # Optional ENV variables. These example ones have no real effect and are just for demonstration.
+  # Optional ENV variables.
   env:
     - name: EXAMPLE
       value: "TRUE"
-    - name: VERSION
-      value: "1.20.2"
 
 
 # Set recource limits per instance. "Mi" refers to megabytes, and "m" refers to micro-cpus.

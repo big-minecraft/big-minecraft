@@ -25,11 +25,6 @@ spec:
       containers:
       - name: process
         image: {{ .Values.process.image }}
-        command: ["/bin/bash", "-c"]
-        args:
-          - |
-
-            # bash script
         env:
         {{- range .Values.process.env }}
         - name: {{ .name }}

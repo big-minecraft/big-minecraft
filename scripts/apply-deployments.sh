@@ -8,8 +8,9 @@ if [ ! -f "$CONFIG_FILE" ]; then
     echo "Error: global-config.yaml not found at $CONFIG_FILE"
     exit 1
 fi
+
 # Extract clusterConfigPath from global-config.yaml
-KUBECONFIG=$(grep "clusterConfigPath:" "$CONFIG_FILE" | awk '{print $2}' | tr -d '"')
+KUBECONFIG=$(grep "^clusterConfigPath:" "$CONFIG_FILE" | awk '{print $2}' | tr -d '"')
 if [ -z "$KUBECONFIG" ]; then
     echo "Error: clusterConfigPath not found in global-config.yaml"
     exit 1
