@@ -101,16 +101,7 @@ mount_nfs_volume() {
     if [ $? -eq 0 ]; then
         log_message "Successfully mounted NFS from $pod_ip (Node: $node_name) to $mount_point"
         mounted_ips["$pod_ip"]=1
-
-        # Apply chmod after successful mount
-        log_message "Applying permissions to mounted directory"
-        kubectl node-shell "$master_node" -- chmod -R 777 "$CONTROL_PLANE_BASE_MOUNT_DIR"
-        if [ $? -eq 0 ]; then
-            log_message "Successfully applied permissions to $CONTROL_PLANE_BASE_MOUNT_DIR"
-        else
-            log_message "Failed to apply permissions to $CONTROL_PLANE_BASE_MOUNT_DIR"
-        fi
-
+        
         return 0
     else
         log_message "FAILED to mount NFS from $pod_ip (Node: $node_name)"

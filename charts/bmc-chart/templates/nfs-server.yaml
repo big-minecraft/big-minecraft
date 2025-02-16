@@ -36,19 +36,28 @@ spec:
           - name: PERMITTED_HOSTS
             value: "*"
       initContainers:
+      - name: setup-acl
+        image: alpine:latest
+        securityContext:
+          privileged: true
+        command:
+          - sh
+          - -c
+          - |
+            apk add --no-cache acl
+            setfacl -R -m u::rwx,g::rwx,o::rwx /nfsshare
+            setfacl -R -d -m u::rwx,g::rwx,o::rwx /nfsshare
+        volumeMounts:
+          - name: nfs-volume
+            mountPath: /nfsshare
       - name: label-master
         image: alpine:latest
         command:
           - sh
           - -c
           - |
-            echo "TEST"
-            echo "$POD_NAME"
             apk add --no-cache bash kubectl
-
             NODE_NAME=$(kubectl get pod "$POD_NAME" -o jsonpath='{.spec.nodeName}')
-            echo "Node Name:"
-            echo "$NODE_NAME"
             
             if [[ $(kubectl get node "$NODE_NAME" -o jsonpath='{.metadata.labels.node-role\.kubernetes\.io/master}') == "true" ]]; then
               kubectl label pod "$POD_NAME" master-nfs=true --overwrite
@@ -80,4 +89,3 @@ spec:
       nodePort: 30000
       {{- end }}
   type: {{ ternary "NodePort" "ClusterIP" (eq .Values.global.environment "development") }}
-

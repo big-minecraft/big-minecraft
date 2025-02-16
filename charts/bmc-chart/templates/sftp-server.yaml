@@ -33,9 +33,6 @@ spec:
         args:
           - |
             echo "Setting up SFTP directory..."
-            mkdir -p /home/user/nfsshare;
-            chown -R 1001:1001 /home/user/nfsshare;
-            chmod -R 777 /home/user/nfsshare;
             echo "SFTP directory setup complete."
         volumeMounts:
           - name: sftp-volume
