@@ -63,52 +63,52 @@ spec:
             - name: app-source
               mountPath: /usr/src/app
       containers:
-        - name: react-container
-          image: node:18-alpine
-          securityContext:
-            runAsUser: 0
-            runAsGroup: 0
-          workingDir: /usr/src/app/client
-          command:
-            - sh
-            - -c
-            - |
-              cd /usr/src/app/client && \
-              export NODE_ENV=development && \
-              export PUBLIC_URL=/ && \
-              export WDS_SOCKET_PORT=0 && \
-              export BROWSER=none && \
-              npm install && \
-              npm run start
-          ports:
-            - containerPort: 3000
-          env:
-            - name: DANGEROUSLY_DISABLE_HOST_CHECK
-              value: "true"
-          volumeMounts:
-            - name: app-source
-              mountPath: /usr/src/app
-            - name: host-root
-              mountPath: /host-root
-              readOnly: false
+        # - name: react-container
+        #   image: node:18-alpine
+        #   securityContext:
+        #     runAsUser: 0
+        #     runAsGroup: 0
+        #   workingDir: /usr/src/app/client
+        #   command:
+        #     - sh
+        #     - -c
+        #     - |
+        #       cd /usr/src/app/client && \
+        #       export NODE_ENV=development && \
+        #       export PUBLIC_URL=/ && \
+        #       export WDS_SOCKET_PORT=0 && \
+        #       export BROWSER=none && \
+        #       npm install && \
+        #       npm run start
+        #   ports:
+        #     - containerPort: 3000
+        #   env:
+        #     - name: DANGEROUSLY_DISABLE_HOST_CHECK
+        #       value: "true"
+        #   volumeMounts:
+        #     - name: app-source
+        #       mountPath: /usr/src/app
+        #     - name: host-root
+        #       mountPath: /host-root
+        #       readOnly: false
 
         - name: node-container
           image: node:18-alpine
           securityContext:
             runAsUser: 0
             runAsGroup: 0
-          workingDir: /usr/src/app/server
+          workingDir: /usr/src/app
           command:
             - sh
             - -c
             - |
               apk add --no-cache bash && \
-              cd /usr/src/app/server && \
-              export NODE_ENV=production && \
+              cd /usr/src/app && \
+              # export NODE_ENV=production && \
               npm install && \
               npm run start
           ports:
-            - containerPort: 3001
+            - containerPort: 3000
           env:
             - name: INITIAL_INVITE_CODE
               value: {{ .Values.global.inviteCode }}
