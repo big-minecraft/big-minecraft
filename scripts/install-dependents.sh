@@ -14,19 +14,13 @@ command_exists() {
     command -v "$1" >/dev/null 2>&1
 }
 
-echo "Starting installation of helm tools, kubectl, and nfs-utils"
+echo "Starting installation of dependencies"
 
 # Install curl
 if ! command_exists curl; then
-    echo "Installing curl"
-    if command_exists apt-get; then
-        apt-get update && apt-get install -y curl || true
-    fi
-    if ! command_exists curl; then
-        wget "https://github.com/moparisthebest/static-curl/releases/download/${CURL_VERSION}/curl-amd64" -O /usr/local/bin/curl
-        chmod +x /usr/local/bin/curl
-        export PATH="/usr/local/bin:$PATH"
-    fi
+    wget "https://github.com/moparisthebest/static-curl/releases/download/${CURL_VERSION}/curl-amd64" -O /usr/local/bin/curl
+    chmod +x /usr/local/bin/curl
+    export PATH="/usr/local/bin:$PATH"
 fi
 
 # Install kubectl
@@ -66,16 +60,20 @@ if ! helm plugin list | grep -q "diff"; then
 fi
 
 # Install kubectl-node_shell
-echo "Installing kubectl-node_shell"
-curl -LO https://github.com/kvaps/kubectl-node-shell/raw/master/kubectl-node_shell
-chmod +x ./kubectl-node_shell
-mv ./kubectl-node_shell /usr/local/bin/kubectl-node_shell
+if ! command_exists kubectl-node_shell; then
+    echo "Installing kubectl-node_shell"
+    curl -LO https://github.com/kvaps/kubectl-node-shell/raw/master/kubectl-node_shell
+    chmod +x ./kubectl-node_shell
+    mv ./kubectl-node_shell /usr/local/bin/kubectl-node_shell
+fi
 
 # Install NFS common
 if ! command_exists mount.nfs; then
     echo "Installing NFS common"
     if command_exists apt-get; then
         apt-get update && apt-get install -y nfs-common || true
+    else
+        echo "warning: apt not found, skipping nfs-common installation"
     fi
 fi
 
@@ -85,6 +83,10 @@ echo "Kubectl: $(kubectl version --client | grep 'Client Version:' | cut -d' ' -
 echo "Helm: $(helm version --short)"
 echo "Helmfile: $(helmfile -v)"
 echo "Helm-diff: $(helm plugin list | grep diff)"
-echo "kubectl-node_shell: $(kubectl-node_shell --help)"
-echo "NFS Utils: $(mount.nfs -V 2>&1 | head -n1)"
+echo "kubectl-node_shell: $(command -v kubectl-node_shell || echo 'Not Found')"
+echo "NFS Utils: $(
+    apt list --installed 2>/dev/null | grep -q "nfs-common" &&
+    apt list --installed 2>/dev/null | grep "nfs-common" | cut -d'/' -f1 ||
+    echo "Not Found"
+)"
 echo "Installation complete!"
