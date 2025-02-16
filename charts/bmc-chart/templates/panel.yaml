@@ -1,18 +1,18 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: fullstack-app
+  name: panel
   labels:
     {{- include "common.labels" . | nindent 4 }}
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: fullstack-app
+      app: panel
   template:
     metadata:
       labels:
-        app: fullstack-app
+        app: panel
     spec:
       serviceAccountName: kubectl-sa
       affinity:
@@ -63,36 +63,7 @@ spec:
             - name: app-source
               mountPath: /usr/src/app
       containers:
-        # - name: react-container
-        #   image: node:18-alpine
-        #   securityContext:
-        #     runAsUser: 0
-        #     runAsGroup: 0
-        #   workingDir: /usr/src/app/client
-        #   command:
-        #     - sh
-        #     - -c
-        #     - |
-        #       cd /usr/src/app/client && \
-        #       export NODE_ENV=development && \
-        #       export PUBLIC_URL=/ && \
-        #       export WDS_SOCKET_PORT=0 && \
-        #       export BROWSER=none && \
-        #       npm install && \
-        #       npm run start
-        #   ports:
-        #     - containerPort: 3000
-        #   env:
-        #     - name: DANGEROUSLY_DISABLE_HOST_CHECK
-        #       value: "true"
-        #   volumeMounts:
-        #     - name: app-source
-        #       mountPath: /usr/src/app
-        #     - name: host-root
-        #       mountPath: /host-root
-        #       readOnly: false
-
-        - name: node-container
+        - name: panel
           image: node:18-alpine
           securityContext:
             runAsUser: 0
@@ -134,14 +105,14 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: fullstack-service
+  name: panel-service
   labels:
     {{- include "common.labels" . | nindent 4 }}
   annotations:
     nginx.ingress.kubernetes.io/rewrite-target: /api$1
 spec:
   selector:
-    app: fullstack-app
+    app: panel
   ports:
     - name: app
       protocol: TCP
@@ -152,7 +123,7 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: fullstack-ingress
+  name: panel-ingress
   annotations:
     nginx.ingress.kubernetes.io/proxy-body-size: "64m"
     nginx.ingress.kubernetes.io/proxy-connect-timeout: "15"
@@ -163,9 +134,7 @@ metadata:
     nginx.ingress.kubernetes.io/connection-upgrade: "true"
     nginx.ingress.kubernetes.io/upgrade: "websocket"
     nginx.ingress.kubernetes.io/use-regex: "true"
-    # Add cert-manager annotations
-    cert-manager.io/cluster-issuer: "letsencrypt-prod"  # Use your ClusterIssuer name
-    # Force SSL
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
     nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
 spec:
@@ -173,7 +142,7 @@ spec:
   tls:
   - hosts:
     - {{ .Values.global.panelDomain }}
-    secretName: fullstack-tls-secret  # cert-manager will create this secret
+    secretName: panel-tls-secret  # cert-manager will create this secret
   rules:
     - host: {{ .Values.global.panelDomain }}
       http:
@@ -182,7 +151,7 @@ spec:
             pathType: ImplementationSpecific
             backend:
               service:
-                name: fullstack-service
+                name: panel-service
                 port:
                   number: 443
 ---
@@ -217,9 +186,7 @@ spec:
     email: your-email@contact.com  # Replace with your email
     server: https://acme-v02.api.letsencrypt.org/directory
     privateKeySecretRef:
-      # Name of a secret used to store the ACME account private key
       name: letsencrypt-prod-private-key
-    # Add a single challenge solver, HTTP01 using nginx
     solvers:
     - http01:
         ingress:
