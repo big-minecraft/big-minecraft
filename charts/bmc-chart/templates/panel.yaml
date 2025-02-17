@@ -52,7 +52,7 @@ spec:
             - |
               mkdir -p /tmp/source
               mkdir -p /usr/src/app
-              curl -L -o /tmp/source/app.tar.gz https://api.github.com/repos/BigMinecraftFramework/bmc-panel/tarball/main && \
+              curl -L -o /tmp/source/app.tar.gz https://api.github.com/repos/BigMinecraftFramework/bmc-panel/tarball/{{ .Values.global.panelBranch }} && \
               cd /tmp/source && \
               tar -xzf app.tar.gz && \
               EXTRACTED_DIR=$(ls -d */ | head -n 1) && \
