@@ -75,9 +75,8 @@ spec:
             - |
               apk add --no-cache bash && \
               cd /usr/src/app && \
-              # export NODE_ENV=development && \
               npm install && \
-              npm run start
+              npm run dev
           ports:
             - containerPort: 3000
           env:
