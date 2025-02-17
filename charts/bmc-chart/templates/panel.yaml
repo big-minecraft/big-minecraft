@@ -75,7 +75,7 @@ spec:
             - |
               apk add --no-cache bash && \
               cd /usr/src/app && \
-              # export NODE_ENV=production && \
+              # export NODE_ENV=development && \
               npm install && \
               npm run start
           ports:
