@@ -17,7 +17,7 @@ spec:
         app: proxy
         cadvisor: "true"
         kyriji.dev/enable-panel-discovery: "true"
-        kyriji.dev/deployment-type: "prodddxy"
+        kyriji.dev/deployment-type: "proxy"
 
         kyriji.dev/scale-strategy: "{{ .Values.scaling.scaleStrategy }}"
         kyriji.dev/max-players: "{{ .Values.scaling.maxPlayers }}"
