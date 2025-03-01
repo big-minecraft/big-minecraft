@@ -17,6 +17,7 @@ spec:
         app: proxy
         cadvisor: "true"
         kyriji.dev/enable-panel-discovery: "true"
+        kyriji.dev/enable-server-discovery: "true"
         kyriji.dev/deployment-type: "persistent"
 
         kyriji.dev/scale-strategy: "{{ .Values.scaling.scaleStrategy }}"
