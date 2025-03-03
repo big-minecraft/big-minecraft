@@ -87,7 +87,7 @@ server:
 
 volume:
   # The directory to pull the server's data from. By default this is set to the folder that is automatically created for the deployment.
-  dataDirectory: minestom
+  dataDirectory: temp
 
   # Where the contents of the aformentioned data directory is copied to internally. There is no real reason to change this.
   mountPath: /minecraft
