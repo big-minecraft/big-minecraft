@@ -16,7 +16,7 @@ spec:
       labels:
         app: {{ .Values.name }}
         cadvisor: "true"
-        kyriji.dev/enable-server-discovery: "false"
+        kyriji.dev/enable-server-discovery: "true"
         kyriji.dev/enable-panel-discovery: "true"
         kyriji.dev/deployment-type: "process"
 
