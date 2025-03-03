@@ -16,9 +16,24 @@ spec:
       labels:
         app: {{ .Values.name }}
         cadvisor: "true"
-        kyriji.dev/enable-server-discovery: "true"
+        kyriji.dev/enable-server-discovery: "false"
         kyriji.dev/enable-panel-discovery: "true"
         kyriji.dev/deployment-type: "process"
+
+        kyriji.dev/initial-server: "false"
+        kyriji.dev/require-startup-confirmation: "false"
+        kyriji.dev/queue-strategy: "FILL"
+
+        kyriji.dev/scale-strategy: "THRESHOLD"
+        kyriji.dev/max-players: "0"
+        kyriji.dev/min-instances: "1"
+        kyriji.dev/max-instances: "1"
+        kyriji.dev/scale-up-threshold: "0"
+        kyriji.dev/scale-down-threshold: "0"
+        kyriji.dev/scale-up-cooldown: "0"
+        kyriji.dev/scale-down-cooldown: "0"
+        kyriji.dev/scale-up-limit: "1"
+        kyriji.dev/scale-down-limit: "1"
 
     spec:
       terminationGracePeriodSeconds: 3
