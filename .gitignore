@@ -5,3 +5,4 @@ local/
 
 nuke.sh
 scripts/Dockerfile
+backups/
