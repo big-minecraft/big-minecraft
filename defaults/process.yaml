@@ -12,6 +12,11 @@ process:
       value: "TRUE"
 
 
+volume:
+  # The directory to pull the server's data from. By default this is set to the folder that is automatically created for the deployment.
+  dataDirectory: "temp"
+
+
 # Set recource limits per instance. "Mi" refers to megabytes, and "m" refers to micro-cpus.
 resources:
   requests:

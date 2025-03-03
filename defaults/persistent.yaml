@@ -1,16 +1,13 @@
 # Ensure this remains the same as the deployment's name.
 name: example-deployment
 
-queuing:
-  # Whether or not this deployment should be used for initial connections. (AKA Lobby Servers)
-  initialServer: 'true'
+# Which node in the cluster this persistent deployment will "live" on. Do not change this value without first
+# moving the deployment's files to the new node.
+dedicatedNode: worker
 
-  # The strategy to use when placing players in instances.
-  #
-  # FILL - Try to completely fill one instance before sending players to another.
-  #
-  # SPREAD - Try to evenly spread players between all available instances.
-  queueStrategy: FILL
+queuing:
+  # Whether or not this server should be used for initial connections. (AKA Lobby Servers)
+  initialServer: 'true'
 
   # Whether or not this deployment needs to tell BMC when it is in a queueable state.
   #
@@ -21,39 +18,8 @@ queuing:
 
 
 scaling:
-  # The strategy to use when deciding when to scale up or down instances.
-  #
-  # THESHOLD - Scale up/down based on defined threshold values in the config.
-  #
-  # TREND - Automatically use queueing trends to decide when to scale up/down.
-  scaleStrategy: THRESHOLD
-
-   # The maximum number of players per instance.
+  # The maximum number of players on this server
   maxPlayers: 10
-
-  # The minimum number of instances this deployment can have.
-  minInstances: 2
-
-  # The maximum number of instances this deployment can have. Use "unlimited" to remove this limit.
-  maxInstances: 10
-
-  # The number of player per instance in the deployment that triggers a scale-up
-  scaleUpThreshold: 5
-
-  # The number of player per instance in the deployment that triggers a scale-down
-  scaleDownThreshold: 2
-
-  # How often the deployment can be scaled up in seconds.
-  scaleUpCooldown: 60
-
-  # How often the deployment can be scaled down in seconds.
-  scaleDownCooldown: 120
-
-  # The maximum number of instances that can be started in a scale-up cycle.
-  scaleUpLimit: 1
-
-  # The maximum number of instances that can be stopped in a scale-down cycle.
-  scaleDownLimit: 1
 
 
 server:
@@ -87,7 +53,7 @@ server:
 
 volume:
   # The directory to pull the server's data from. By default this is set to the folder that is automatically created for the deployment.
-  dataDirectory: minestom
+  dataDirectory: temp
 
   # Where the contents of the aformentioned data directory is copied to internally. There is no real reason to change this.
   mountPath: /minecraft

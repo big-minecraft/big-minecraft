@@ -17,6 +17,7 @@ spec:
         app: proxy
         cadvisor: "true"
         kyriji.dev/enable-panel-discovery: "true"
+        kyriji.dev/enable-server-discovery: "true"
         kyriji.dev/deployment-type: "proxy"
 
         kyriji.dev/scale-strategy: "{{ .Values.scaling.scaleStrategy }}"
@@ -33,115 +34,123 @@ spec:
       terminationGracePeriodSeconds: 60
       serviceAccountName: kubectl-sa
       containers:
-        - name: mc
-          image: {{ .Values.server.image }}
-          command: ["/bin/bash", "-c"]
-          args:
-            - |
-              # Install redis-cli if it's not already installed
-              if ! command -v redis-cli &> /dev/null; then
-                apt-get update &> /dev/null && apt-get install -y redis-tools &> /dev/null
+      - name: mc
+        image: {{ .Values.server.image }}
+        command: ["/bin/bash", "-c"]
+        args:
+          - |
+
+            # Install redis-cli if it's not already installed
+            if ! command -v redis-cli &> /dev/null; then
+              apt-get update &> /dev/null && apt-get install -y redis-tools &> /dev/null
+            fi
+
+            # Create pod-local directory for server files
+            POD_LOCAL_DIR="/tmp/minecraft-server"
+            mkdir -p "$POD_LOCAL_DIR"
+
+            # Copy all files from shared volume to pod-local directory
+            echo "Copying server files to pod-local directory..."
+            cp -r {{ .Values.volume.mountPath }}/* "$POD_LOCAL_DIR/"
+
+            cd "$POD_LOCAL_DIR"
+            if [ ! -f "./{{ .Values.server.jarName }}" ]; then
+              echo "Jar file not found! Check your proxy configuration file."
+              ls -la ./
+              exit 1
+            fi
+
+            # Create control file - server should run when this exists
+            touch /tmp/should_run
+
+            # Create and maintain input pipe
+            rm -f /tmp/server_input
+            mkfifo /tmp/server_input
+
+            # Function to send Redis notification
+            send_redis_notification() {
+              local message="{\"server\": \"$HOSTNAME\", \"deployment\": \"$DEPLOYMENT_NAME\", \"event\": \"shutdown\", \"timestamp\": \"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\"}"
+              redis-cli -h {{ .Values.server.redis.host }} -p {{ .Values.server.redis.port }} PUBLISH server-status "$message" &> /dev/null
+            }
+
+            while true; do
+              if [ -f /tmp/should_run ]; then
+                echo "Starting Minecraft server..."
+                # Start server with input pipe
+                tail -f /tmp/server_input | java {{ .Values.server.jvmOpts | default "" }} -jar ./{{ .Values.server.jarName }} {{ .Values.server.args | default "nogui" }}
+
+                # If we get here, either the server crashed or was stopped
+                sleep 1
+                # Send Redis notification
+                send_redis_notification
+              else
+                # Server should not be running, wait and check again
+                sleep 5
               fi
+            done
+        volumeMounts:
+          - name: local-volume
+            mountPath: {{ .Values.volume.mountPath | default "/minecraft" }}
+            readOnly: true  # Make the shared volume read-only since we're copying from it
+          - name: tmp
+            mountPath: /tmp
+        ports:
+        - containerPort: {{ .Values.server.port | default 25565 }}
+          name: minecraft
+        env:
+        {{- range .Values.server.env }}
+        - name: {{ .name }}
+          value: {{ .value | quote }}
+        {{- end }}
+        - name: REDIS_HOST
+          value: {{ .Values.server.redis.host | quote }}
+        - name: REDIS_PORT
+          value: {{ .Values.server.redis.port | quote }}
+        - name: DEPLOYMENT_NAME
+          value: {{ .Values.name | quote }}
+        resources:
+          requests:
+            memory: {{ .Values.resources.requests.memory }}
+            cpu: {{ .Values.resources.requests.cpu }}
+          limits:
+            memory: {{ .Values.resources.limits.memory }}
+            cpu: {{ .Values.resources.limits.cpu }}
 
-              # Create pod-local directory for server files
-              POD_LOCAL_DIR="/tmp/minecraft-server"
-              mkdir -p "$POD_LOCAL_DIR"
-
-              # Copy all files from shared volume to pod-local directory
-              echo "Copying server files to pod-local directory..."
-              cp -r /minecraft/* "$POD_LOCAL_DIR/"
-
-              cd "$POD_LOCAL_DIR"
-              if [ ! -f "./{{ .Values.server.jarName }}" ]; then
-                echo "Jar file not found! Check your proxy configuration file."
-                ls -la ./
-                exit 1
-              fi
-
-              # Create control file - server should run when this exists
-              touch /tmp/should_run
-
-              # Create and maintain input pipe
-              rm -f /tmp/server_input
-              mkfifo /tmp/server_input
-
-              # Function to send Redis notification
-              send_redis_notification() {
-                local message="{\"server\": \"$HOSTNAME\", \"event\": \"shutdown\", \"timestamp\": \"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\"}"
-                redis-cli -h {{ .Values.server.redis.host }} -p {{ .Values.server.redis.port }} PUBLISH server-status "$message" &> /dev/null
-              }
-
-              while true; do
-                if [ -f /tmp/should_run ]; then
-                  echo "Starting Minecraft server..."
-                  # Start server with input pipe
-                  tail -f /tmp/server_input | java {{ .Values.server.jvmOpts | default "" }} -jar ./{{ .Values.server.jarName }} {{ .Values.server.args | default "nogui" }}
-
-                  # If we get here, either the server crashed or was stopped
-                  # Send Redis notification
-                  send_redis_notification
-                  sleep 1
-                else
-                  # Server should not be running, wait and check again
-                  sleep 5
-                fi
-              done
-          volumeMounts:
-            - name: local-volume
-              mountPath: /minecraft
-          ports:
-          - containerPort: {{ .Values.server.port | default 25565 }}
-            name: minecraft
-          env:
-          {{- range .Values.server.env }}
-          - name: {{ .name }}
-            value: {{ .value | quote }}
-          {{- end }}
-          - name: REDIS_HOST
-            value: {{ .Values.server.redis.host | quote }}
-          - name: REDIS_PORT
-            value: {{ .Values.server.redis.port | quote }}
-          resources:
-            requests:
-              memory: {{ .Values.resources.requests.memory }}
-              cpu: {{ .Values.resources.requests.cpu }}
-            limits:
-              memory: {{ .Values.resources.limits.memory }}
-              cpu: {{ .Values.resources.limits.cpu }}
-
-        - name: cadvisor
-          image: gcr.io/cadvisor/cadvisor:v0.47.0
-          ports:
-          - containerPort: 8080
-            name: cadvisor
-          labels:
-            app: cadvisor
-          volumeMounts:
-            - name: docker-sock
-              mountPath: /var/run/docker.sock
-            - name: rootfs
-              mountPath: /rootfs
-            - name: proc
-              mountPath: /proc
-            - name: sys
-              mountPath: /sys
-            - name: local-volume
-              mountPath: /mnt/local/system/proxy
+      - name: cadvisor
+        image: gcr.io/cadvisor/cadvisor:v0.47.0
+        ports:
+        - containerPort: 8080
+          name: cadvisor
+        labels:
+          app: cadvisor
+        volumeMounts:
+          - name: docker-sock
+            mountPath: /var/run/docker.sock
+          - name: rootfs
+            mountPath: /rootfs
+          - name: proc
+            mountPath: /proc
+          - name: sys
+            mountPath: /sys
+          - name: local-volume
+            mountPath: /mnt/local/deployments/{{ .Values.volume.dataDirectory }}
 
       volumes:
-        - name: local-volume
-          hostPath:
-            path: /mnt/local/system/proxy
-            type: Directory
-        - name: docker-sock
-          hostPath:
-            path: /var/run/docker.sock
-        - name: rootfs
-          hostPath:
-            path: /
-        - name: proc
-          hostPath:
-            path: /proc
-        - name: sys
-          hostPath:
-            path: /sys
+      - name: local-volume
+        hostPath:
+          path: /mnt/local/deployments/{{ .Values.volume.dataDirectory }}
+          type: Directory
+      - name: tmp
+        emptyDir: {}  # Add an emptyDir volume for pod-local storage
+      - name: docker-sock
+        hostPath:
+          path: /var/run/docker.sock
+      - name: rootfs
+        hostPath:
+          path: /
+      - name: proc
+        hostPath:
+          path: /proc
+      - name: sys
+        hostPath:
+          path: /sys
