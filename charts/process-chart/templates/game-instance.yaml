@@ -52,7 +52,22 @@ spec:
           limits:
             memory: {{ .Values.resources.limits.memory }}
             cpu: {{ .Values.resources.limits.cpu }}
-
+      - name: cadvisor
+        image: gcr.io/cadvisor/cadvisor:v0.47.0
+        ports:
+        - containerPort: 8080
+          name: cadvisor
+        labels:
+          app: cadvisor
+        volumeMounts:
+          - name: docker-sock
+            mountPath: /var/run/docker.sock
+          - name: rootfs
+            mountPath: /rootfs
+          - name: proc
+            mountPath: /proc
+          - name: sys
+            mountPath: /sys
       volumes:
       - name: tmp
         emptyDir: {}  # Add an emptyDir volume for pod-local storage
