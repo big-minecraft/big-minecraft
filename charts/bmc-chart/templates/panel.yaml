@@ -91,7 +91,7 @@ spec:
             - name: MONGO_INITDB_ROOT_PASSWORD
               value: {{ .Values.global.mongoDBPassword }}
             - name: BMC_PATH
-              value: {{ .Values.global.bmcPath | cat "/host-root/" }}
+              value: {{ printf "/host-root/%s" .Values.global.bmcPath }}
             - name: ENVIRONMENT
               value: {{ .Values.global.environment }}
           volumeMounts:
