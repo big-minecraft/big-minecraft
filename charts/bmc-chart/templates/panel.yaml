@@ -30,9 +30,9 @@ spec:
           operator: "Exists"
           effect: "NoSchedule"
       volumes:
-        - name: app-source
-          emptyDir:
-            medium: Memory
+        # - name: app-source
+        #   emptyDir:
+        #     medium: Memory
         - name: host-root
           hostPath:
             path: /
@@ -41,44 +41,44 @@ spec:
           emptyDir: {}
       securityContext:
         fsGroup: 1000
-      initContainers:
-        - name: fetch-source
-          image: curlimages/curl:latest
-          securityContext:
-            runAsUser: 0
-          command:
-            - sh
-            - -c
-            - |
-              mkdir -p /tmp/source
-              mkdir -p /usr/src/app
-              curl -L -o /tmp/source/app.tar.gz https://api.github.com/repos/BigMinecraftFramework/bmc-panel/tarball/{{ .Values.global.panelBranch }} && \
-              cd /tmp/source && \
-              tar -xzf app.tar.gz && \
-              EXTRACTED_DIR=$(ls -d */ | head -n 1) && \
-              cp -r /tmp/source/$EXTRACTED_DIR/* /usr/src/app/ && \
-              chown -R 1000:1000 /usr/src/app && \
-              chmod -R 755 /usr/src/app
-          volumeMounts:
-            - name: app-source
-              mountPath: /usr/src/app
+      # initContainers:
+      #   - name: fetch-source
+      #     image: curlimages/curl:latest
+      #     securityContext:
+      #       runAsUser: 0
+      #     command:
+      #       - sh
+      #       - -c
+      #       - |
+      #         mkdir -p /tmp/source
+      #         mkdir -p /usr/src/app
+      #         curl -L -o /tmp/source/app.tar.gz https://api.github.com/repos/BigMinecraftFramework/bmc-panel/tarball/{{ .Values.global.panelBranch }} && \
+      #         cd /tmp/source && \
+      #         tar -xzf app.tar.gz && \
+      #         EXTRACTED_DIR=$(ls -d */ | head -n 1) && \
+      #         cp -r /tmp/source/$EXTRACTED_DIR/* /usr/src/app/ && \
+      #         chown -R 1000:1000 /usr/src/app && \
+      #         chmod -R 755 /usr/src/app
+      #     volumeMounts:
+      #       - name: app-source
+      #         mountPath: /usr/src/app
       containers:
         - name: panel
           image: node:18-alpine
           securityContext:
             runAsUser: 0
             runAsGroup: 0
-          workingDir: /usr/src/app
-          command:
-            - sh
-            - -c
-            - |
-              apk add --no-cache bash && \
-              cd /usr/src/app && \
-              npm install && \
-              npm run start
-          ports:
-            - containerPort: 3000
+          # workingDir: /usr/src/app
+          # command:
+          #   - sh
+          #   - -c
+          #   - |
+          #     apk add --no-cache bash && \
+          #     cd /usr/src/app && \
+          #     npm install && \
+          #     npm run start
+          # ports:
+          #   - containerPort: 3000
           env:
             - name: INITIAL_INVITE_CODE
               value: {{ .Values.global.inviteCode }}
@@ -95,8 +95,8 @@ spec:
             - name: ENVIRONMENT
               value: {{ .Values.global.environment }}
           volumeMounts:
-            - name: app-source
-              mountPath: /usr/src/app
+            # - name: app-source
+            #   mountPath: /usr/src/app
             - name: host-root
               mountPath: /host-root
               readOnly: false
