@@ -62,4 +62,4 @@ releases:
       - ingress-nginx/nginx-ingress
       - cert-manager/cert-manager
     values:
-      - global: {{ .Environment.Values | toYaml | nindent 8 }}
+      - global: {{ .Environment.Values | toYaml | nindent 10 }}
