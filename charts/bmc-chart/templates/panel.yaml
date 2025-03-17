@@ -50,6 +50,8 @@ spec:
               value: {{ .Values.global.inviteCode }}
             - name: PANEL_HOST
               value: {{ .Values.global.panelDomain }}
+            - name: PANEL_SECRET
+              value: {{ .Values.global.panelSecret }}
             - name: K8S_DASHBOARD_HOST
               value: {{ .Values.global.k8sDashboardDomain }}
             - name: MARIADB_PASSWORD

@@ -91,6 +91,7 @@ mongodb_password=$(generate_password)
 # Create or update local/global-config.yaml
 cat > local/global-config.yaml << EOF
 panelDomain: $panel_domain
+panelSecret: $(generate_password)
 k8sDashboardDomain: $k8s_dashboard_domain
 loadBalancerIP: $ip_address
 inviteCode: $invite_code
