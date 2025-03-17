@@ -62,13 +62,4 @@ releases:
       - ingress-nginx/nginx-ingress
       - cert-manager/cert-manager
     values:
-      - global:
-          panelDomain: {{ .Environment.Values.panelDomain }}
-          k8sDashboardDomain: {{ .Environment.Values.k8sDashboardDomain }}
-          loadBalancerIP: {{ .Environment.Values.loadBalancerIP }}
-          inviteCode: {{ .Environment.Values.inviteCode }}
-          mariaDBPassword: {{ .Environment.Values.mariaDBPassword }}
-          mongoDBPassword: {{ .Environment.Values.mongoDBPassword }}
-          clusterConfigPath: {{ .Environment.Values.clusterConfigPath }}
-          bmcPath: {{ .Environment.Values.bmcPath }}
-          environment: {{ .Environment.Values.environment }}
+      - global: {{ .Environment.Values | toYaml | nindent 8 }}
