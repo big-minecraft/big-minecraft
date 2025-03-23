@@ -22,6 +22,27 @@ data:
     DEBOUNCE_TIME = 5
     sync_thread = None
     is_mounted = False
+    redis_client = None  # Global Redis client
+
+
+    def get_redis_client():
+        """Get or create a Redis client"""
+        global redis_client
+        if redis_client is None:
+            try:
+                redis_client = redis.Redis(
+                    host='redis-service',
+                    port=6379,
+                    decode_responses=True,
+                    socket_timeout=5,
+                    socket_keepalive=True,
+                    health_check_interval=30
+                )
+            except Exception as e:
+                logging.error(f"Failed to create Redis client: {e}")
+                return None
+        return redis_client
+
 
     def verify_mount():
         """Verify NFS mount is working and accessible"""
@@ -56,6 +77,7 @@ data:
         except Exception as e:
             logging.error(f"Mount verification failed: {e}")
             return False
+
 
     def setup_nfs():
         global is_mounted
@@ -107,6 +129,33 @@ data:
             logging.error(f"Unexpected error during setup: {e}")
             return False
 
+
+    def send_sync_notification(success, details=None):
+        """Send a notification to Redis about sync status"""
+        r = get_redis_client()
+        if r is None:
+            logging.error("Failed to get Redis client for notification")
+            return False
+
+        try:
+            timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+            message = {
+                "event": "sync_completed",
+                "success": success,
+                "timestamp": timestamp
+            }
+
+            if details:
+                message["details"] = details
+
+            r.publish('sync-status', str(message))
+            logging.info(f"Published sync status to Redis: {message}")
+            return True
+        except Exception as e:
+            logging.error(f"Failed to publish sync status: {e}")
+            return False
+
+
     def run_sync_operation():
         logging.info("Starting sync operation")
 
@@ -114,6 +163,7 @@ data:
             logging.warning("Mount verification failed, attempting remount")
             if not setup_nfs():
                 logging.error("Failed to setup NFS, skipping sync")
+                send_sync_notification(False, "Failed to setup NFS mount")
                 return False
 
         # List contents before sync
@@ -139,6 +189,7 @@ data:
 
             if process.returncode != 0:
                 logging.error(f"Sync operation failed: {process.stderr}")
+                send_sync_notification(False, f"Rsync error: {process.stderr}")
                 return False
 
             # List contents after sync
@@ -150,16 +201,30 @@ data:
             except Exception as e:
                 logging.error(f"Error listing contents after sync: {e}")
 
+            # Extract some meaningful stats from rsync output
+            sync_details = {}
+            for line in process.stdout.splitlines():
+                if "files transferred" in line or "total size" in line or "speedup is" in line:
+                    key = line.split(":")[0].strip()
+                    value = line.split(":", 1)[1].strip()
+                    sync_details[key] = value
+
             logging.info("Sync operation completed")
             logging.info(f"Sync details: {process.stdout}")
+
+            # Send success notification with sync details
+            send_sync_notification(True, sync_details)
             return True
 
         except subprocess.TimeoutExpired:
             logging.error("Sync operation timed out")
+            send_sync_notification(False, "Sync operation timed out")
             return False
         except Exception as e:
             logging.error(f"Unexpected error during sync: {e}")
+            send_sync_notification(False, f"Unexpected error: {str(e)}")
             return False
+
 
     def handle_redis_connection():
         while True:
@@ -173,6 +238,10 @@ data:
                     socket_keepalive=True,
                     health_check_interval=30
                 )
+
+                # Set the global Redis client
+                global redis_client
+                redis_client = r
 
                 pubsub = r.pubsub(ignore_subscribe_messages=True)
                 pubsub.subscribe('file_changes')
@@ -202,6 +271,7 @@ data:
                 time.sleep(5)
                 continue
 
+
     def debounce_sync():
         global last_sync_time, sync_thread
         logging.info("Starting debounced sync")
@@ -217,6 +287,7 @@ data:
                     return
             time.sleep(1)
 
+
     def reset_debounce_timer():
         global last_sync_time, sync_thread
         with debounce_lock:
@@ -228,6 +299,7 @@ data:
             sync_thread.daemon = True
             sync_thread.start()
             logging.info("Started new sync thread")
+
 
     def main():
         logging.info("Starting NFS sync service")
@@ -241,9 +313,9 @@ data:
 
         handle_redis_connection()
 
+
     if __name__ == "__main__":
         main()
-
 ---
 apiVersion: apps/v1
 kind: DaemonSet
