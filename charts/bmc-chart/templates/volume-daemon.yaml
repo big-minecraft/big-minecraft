@@ -4,6 +4,7 @@ metadata:
   name: file-sync-script
 data:
   nfs_sync_listener.py: |
+    import json
     import redis
     import subprocess
     import os
