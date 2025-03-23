@@ -148,7 +148,7 @@ data:
             if details:
                 message["details"] = details
 
-            r.publish('sync-status', str(message))
+            r.publish('sync-status', json.dumps(message))
             logging.info(f"Published sync status to Redis: {message}")
             return True
         except Exception as e:
