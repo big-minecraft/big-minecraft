@@ -155,11 +155,19 @@ spec:
                   NOTIFICATION_SENT=1
                 fi
 
-                # If shutdown was requested, break out of the loop
-                if [ -f $SHUTDOWN_FLAG ]; then
-                  echo "Shutdown flag detected, exiting script..."
+                # ---- FIX: Reset state for next restart cycle if not shutting down ----
+                if [ ! -f $SHUTDOWN_FLAG ]; then
+                  # Server stopped without shutdown flag, it's a normal restart
+                  echo "Server stopped normally, preparing for restart..."
+                  # Reset notification flag for next cycle
+                  NOTIFICATION_SENT=0
+                  # Ensure the should_run file exists for the next cycle
+                  touch /tmp/should_run
+                else
+                  echo "Shutdown flag detected, exiting server loop..."
                   break
                 fi
+                # ---- End of fix ----
 
                 sleep 1
               else
