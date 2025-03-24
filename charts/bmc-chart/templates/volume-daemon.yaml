@@ -131,7 +131,7 @@ data:
             return False
 
 
-    def send_sync_notification(success, details=None):
+    def send_sync_notification(success):
         """Send a notification to Redis about sync status"""
         r = get_redis_client()
         if r is None:
@@ -145,9 +145,6 @@ data:
                 "success": success,
                 "timestamp": timestamp
             }
-
-            if details:
-                message["details"] = details
 
             r.publish('sync-status', json.dumps(message))
             logging.info(f"Published sync status to Redis: {message}")
@@ -202,19 +199,10 @@ data:
             except Exception as e:
                 logging.error(f"Error listing contents after sync: {e}")
 
-            # Extract some meaningful stats from rsync output
-            sync_details = {}
-            for line in process.stdout.splitlines():
-                if "files transferred" in line or "total size" in line or "speedup is" in line:
-                    key = line.split(":")[0].strip()
-                    value = line.split(":", 1)[1].strip()
-                    sync_details[key] = value
-
             logging.info("Sync operation completed")
-            logging.info(f"Sync details: {process.stdout}")
 
-            # Send success notification with sync details
-            send_sync_notification(True, sync_details)
+            # Send success notification
+            send_sync_notification(True)
             return True
 
         except subprocess.TimeoutExpired:
