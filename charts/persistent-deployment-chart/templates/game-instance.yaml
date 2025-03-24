@@ -45,7 +45,6 @@ spec:
         command: ["/bin/bash", "-c"]
         args:
           - |
-
             # Install redis-cli if it's not already installed
             if ! command -v redis-cli &> /dev/null; then
               apt-get update &> /dev/null && apt-get install -y redis-tools &> /dev/null
@@ -58,18 +57,36 @@ spec:
               exit 1
             fi
 
+            # Function to send Redis notification
+            send_redis_notification() {
+              local message="{\"server\": \"$HOSTNAME\", \"deployment\": \"$DEPLOYMENT_NAME\", \"event\": \"shutdown\", \"timestamp\": \"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\"}"
+              redis-cli -h {{ .Values.server.redis.host }} -p {{ .Values.server.redis.port }} PUBLISH server-status "$message" &> /dev/null
+            }
+
+            # SIGTERM handler for graceful shutdown
+            handle_sigterm() {
+              echo "Received SIGTERM, shutting down Minecraft server gracefully..."
+              # Remove the should_run file to prevent restart
+              rm -f /tmp/should_run
+              # Send stop command to Minecraft server
+              echo "stop" > /tmp/server_input
+              # Notify Redis about shutdown
+              send_redis_notification
+              # Wait a moment for server to process the stop command
+              sleep 5
+              # Exit the script
+              exit 0
+            }
+
+            # Set up the trap for SIGTERM
+            trap handle_sigterm SIGTERM
+
             # Create control file - server should run when this exists
             touch /tmp/should_run
 
             # Create and maintain input pipe
             rm -f /tmp/server_input
             mkfifo /tmp/server_input
-
-            # Function to send Redis notification
-            send_redis_notification() {
-              local message="{\"server\": \"$HOSTNAME\", \"deployment\": \"$DEPLOYMENT_NAME\", \"event\": \"shutdown\", \"timestamp\": \"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\"}"
-              redis-cli -h {{ .Values.server.redis.host }} -p {{ .Values.server.redis.port }} PUBLISH server-status "$message" &> /dev/null
-            }
 
             while true; do
               if [ -f /tmp/should_run ]; then
