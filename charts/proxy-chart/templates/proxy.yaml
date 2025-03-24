@@ -39,55 +39,127 @@ spec:
         command: ["/bin/bash", "-c"]
         args:
           - |
-
+          
             # Install redis-cli if it's not already installed
             if ! command -v redis-cli &> /dev/null; then
               apt-get update &> /dev/null && apt-get install -y redis-tools &> /dev/null
             fi
 
-            # Create pod-local directory for server files
-            POD_LOCAL_DIR="/tmp/minecraft-server"
-            mkdir -p "$POD_LOCAL_DIR"
-
-            # Copy all files from shared volume to pod-local directory
-            echo "Copying server files to pod-local directory..."
-            cp -r {{ .Values.volume.mountPath }}/* "$POD_LOCAL_DIR/"
-
-            cd "$POD_LOCAL_DIR"
+            cd {{ .Values.volume.mountPath }}
             if [ ! -f "./{{ .Values.server.jarName }}" ]; then
-              echo "Jar file not found! Check your proxy configuration file."
+              echo "Jar file not found! Check your deployment configuration file."
               ls -la ./
               exit 1
             fi
-
-            # Create control file - server should run when this exists
-            touch /tmp/should_run
-
-            # Create and maintain input pipe
-            rm -f /tmp/server_input
-            mkfifo /tmp/server_input
 
             # Function to send Redis notification
             send_redis_notification() {
               local message="{\"server\": \"$HOSTNAME\", \"deployment\": \"$DEPLOYMENT_NAME\", \"event\": \"shutdown\", \"timestamp\": \"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\"}"
               redis-cli -h {{ .Values.server.redis.host }} -p {{ .Values.server.redis.port }} PUBLISH server-status "$message" &> /dev/null
+              echo "Sent shutdown notification to Redis"
             }
 
-            while true; do
+            # Create a flag file to indicate if shutdown is in progress
+            SHUTDOWN_FLAG="/tmp/shutdown_in_progress"
+            rm -f $SHUTDOWN_FLAG
+
+            # Variable to track if notification was already sent
+            NOTIFICATION_SENT=0
+
+            # SIGTERM handler for graceful shutdown
+            handle_sigterm() {
+              if [ ! -f $SHUTDOWN_FLAG ]; then
+                echo "Received SIGTERM, shutting down Minecraft server gracefully..."
+                # Create shutdown flag
+                touch $SHUTDOWN_FLAG
+
+                # Send stop command to Minecraft server
+                echo "stop" >> /tmp/server_input
+
+                # Notify Redis about shutdown - only once
+                if [ $NOTIFICATION_SENT -eq 0 ]; then
+                  send_redis_notification
+                  NOTIFICATION_SENT=1
+                fi
+              fi
+              # Don't exit the script - let the server shutdown naturally
+            }
+
+            # Set up the trap for SIGTERM
+            trap handle_sigterm SIGTERM
+
+            # Create control file - server should run when this exists
+            touch /tmp/should_run
+
+            # Setup the command pipe properly
+            rm -f /tmp/server_input
+            mkfifo /tmp/server_input
+
+            # Start a background process to keep the pipe open
+            # This prevents EOF when no commands are being sent
+            (while true; do sleep 3600; done) > /tmp/server_input &
+            PIPE_KEEPER_PID=$!
+
+            while [ ! -f $SHUTDOWN_FLAG ]; do
               if [ -f /tmp/should_run ]; then
                 echo "Starting Minecraft server..."
-                # Start server with input pipe
-                tail -f /tmp/server_input | java {{ .Values.server.jvmOpts | default "" }} -jar ./{{ .Values.server.jarName }} {{ .Values.server.args | default "nogui" }}
 
-                # If we get here, either the server crashed or was stopped
+                # Use tee to fork the input - so commands from the pipe can be processed
+                # continuously while the script still runs
+                java {{ .Values.server.jvmOpts | default "" }} -jar ./{{ .Values.server.jarName }} {{ .Values.server.args | default "nogui" }} < /tmp/server_input &
+                SERVER_PID=$!
+
+                # Wait until either the server stops or a shutdown signal was received
+                while kill -0 $SERVER_PID 2>/dev/null && [ ! -f $SHUTDOWN_FLAG ]; do
+                  sleep 1
+                done
+
+                # If shutdown flag exists but server is still running, explicitly send stop command
+                if [ -f $SHUTDOWN_FLAG ] && kill -0 $SERVER_PID 2>/dev/null; then
+                  echo "Ensuring server receives stop command..."
+                  echo "stop" >> /tmp/server_input
+
+                  # Wait for server to stop with a reasonable timeout
+                  timeout=30
+                  while [ $timeout -gt 0 ] && kill -0 $SERVER_PID 2>/dev/null; do
+                    sleep 1
+                    timeout=$((timeout-1))
+                  done
+
+                  # Force kill if necessary
+                  if kill -0 $SERVER_PID 2>/dev/null; then
+                    echo "Server didn't stop gracefully, force killing process..."
+                    kill -9 $SERVER_PID 2>/dev/null || true
+                  fi
+                fi
+
+                # Clean up
+                rm -f /tmp/should_run
+
+                # If shutdown was not requested but server stopped normally,
+                # send notification only if one wasn't sent already
+                if [ ! -f $SHUTDOWN_FLAG ] && [ $NOTIFICATION_SENT -eq 0 ]; then
+                  send_redis_notification
+                  NOTIFICATION_SENT=1
+                fi
+
+                # If shutdown was requested, break out of the loop
+                if [ -f $SHUTDOWN_FLAG ]; then
+                  echo "Shutdown flag detected, exiting script..."
+                  break
+                fi
+
                 sleep 1
-                # Send Redis notification
-                send_redis_notification
               else
                 # Server should not be running, wait and check again
                 sleep 5
               fi
             done
+
+            echo "Cleanup and exit..."
+            # Kill the pipe keeper process
+            kill $PIPE_KEEPER_PID 2>/dev/null || true
+            exit 0
         volumeMounts:
           - name: local-volume
             mountPath: {{ .Values.volume.mountPath | default "/minecraft" }}
