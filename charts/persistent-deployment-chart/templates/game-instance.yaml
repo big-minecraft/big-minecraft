@@ -45,16 +45,18 @@ spec:
         command: ["/bin/bash", "-c"]
         args:
           - |
-            # Install redis-cli if it's not already installed
+            # Set up server control files
+            CONTROL_DIR="/tmp/mc_control"
+            SHOULD_RUN_FILE="${CONTROL_DIR}/should_run"
+            TERMINATION_FILE="${CONTROL_DIR}/terminating"
+            INPUT_PIPE="${CONTROL_DIR}/server_input"
+
+            # Create control directory
+            mkdir -p "${CONTROL_DIR}"
+
+            # Install redis-cli if needed
             if ! command -v redis-cli &> /dev/null; then
               apt-get update &> /dev/null && apt-get install -y redis-tools &> /dev/null
-            fi
-
-            cd {{ .Values.volume.mountPath }}
-            if [ ! -f "./{{ .Values.server.jarName }}" ]; then
-              echo "Jar file not found! Check your deployment configuration file."
-              ls -la ./
-              exit 1
             fi
 
             # Function to send Redis notification
@@ -63,46 +65,73 @@ spec:
               redis-cli -h {{ .Values.server.redis.host }} -p {{ .Values.server.redis.port }} PUBLISH server-status "$message" &> /dev/null
             }
 
-            # SIGTERM handler for graceful shutdown
+            # SIGTERM handler
             handle_sigterm() {
-              echo "Received SIGTERM, shutting down Minecraft server gracefully..."
-              # Remove the should_run file to prevent restart
-              rm -f /tmp/should_run
-              # Send stop command to Minecraft server
-              echo "stop" > /tmp/server_input
-              # Notify Redis about shutdown
-              send_redis_notification
-              # Wait a moment for server to process the stop command
-              sleep 5
-              # Exit the script
-              exit 0
+              echo "Received SIGTERM signal" > "${CONTROL_DIR}/sigterm_received"
+              # Create termination file
+              touch "${TERMINATION_FILE}"
+              # Don't exit the script - let the main loop handle termination
             }
 
-            # Set up the trap for SIGTERM
+            # Set up trap
             trap handle_sigterm SIGTERM
 
-            # Create control file - server should run when this exists
-            touch /tmp/should_run
+            cd {{ .Values.volume.mountPath }}
+            if [ ! -f "./{{ .Values.server.jarName }}" ]; then
+              echo "Jar file not found! Check your deployment configuration file."
+              ls -la ./
+              exit 1
+            fi
 
-            # Create and maintain input pipe
-            rm -f /tmp/server_input
-            mkfifo /tmp/server_input
+            # Set up control files
+            touch "${SHOULD_RUN_FILE}"
+            rm -f "${TERMINATION_FILE}"
+            rm -f "${INPUT_PIPE}"
+            mkfifo "${INPUT_PIPE}"
 
-            while true; do
-              if [ -f /tmp/should_run ]; then
-                echo "Starting Minecraft server..."
-                # Start server with input pipe
-                exec tail -f /tmp/server_input | java {{ .Values.server.jvmOpts | default "" }} -jar ./{{ .Values.server.jarName }} {{ .Values.server.args | default "nogui" }}
+            # Start server monitoring in background
+            (
+              while [ -f "${SHOULD_RUN_FILE}" ] && [ ! -f "${TERMINATION_FILE}" ]; do
+                sleep 2
+              done
 
-                # If we get here, either the server crashed or was stopped
-                # Send Redis notification
+              if [ -f "${TERMINATION_FILE}" ]; then
+                echo "Termination file detected, shutting down server..."
+                echo "stop" > "${INPUT_PIPE}"
+                # Wait for server to shut down
+                sleep 10
+                rm -f "${SHOULD_RUN_FILE}"
                 send_redis_notification
-                sleep 1
-              else
-                # Server should not be running, wait and check again
-                sleep 5
               fi
+            ) &
+
+            # Run the server
+            while [ -f "${SHOULD_RUN_FILE}" ]; do
+              echo "Starting Minecraft server..."
+
+              # If termination is requested, don't start
+              if [ -f "${TERMINATION_FILE}" ]; then
+                echo "Termination requested, not starting server"
+                break
+              fi
+
+              # Start server with input pipe
+              tail -f "${INPUT_PIPE}" | java {{ .Values.server.jvmOpts | default "" }} -jar ./{{ .Values.server.jarName }} {{ .Values.server.args | default "nogui" }}
+
+              # If termination is requested, exit loop
+              if [ -f "${TERMINATION_FILE}" ]; then
+                echo "Server terminated due to shutdown request"
+                break
+              fi
+
+              # Normal exit or crash
+              echo "Server exited, checking if restart is needed..."
+              sleep 2
             done
+
+            echo "Exiting script"
+            send_redis_notification
+            exit 0
         volumeMounts:
           - name: local-volume
             mountPath: {{ .Values.volume.mountPath | default "/minecraft" }}
