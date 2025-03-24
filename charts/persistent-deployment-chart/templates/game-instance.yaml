@@ -92,7 +92,7 @@ spec:
               if [ -f /tmp/should_run ]; then
                 echo "Starting Minecraft server..."
                 # Start server with input pipe
-                tail -f /tmp/server_input | java {{ .Values.server.jvmOpts | default "" }} -jar ./{{ .Values.server.jarName }} {{ .Values.server.args | default "nogui" }}
+                exec tail -f /tmp/server_input | java {{ .Values.server.jvmOpts | default "" }} -jar ./{{ .Values.server.jarName }} {{ .Values.server.args | default "nogui" }}
 
                 # If we get here, either the server crashed or was stopped
                 # Send Redis notification
