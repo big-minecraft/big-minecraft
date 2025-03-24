@@ -97,7 +97,6 @@ spec:
 
             # Create control file - server should run when this exists
             touch /tmp/should_run
-            NOTIFICATION_SENT=0
 
             # Setup the command pipe properly
             rm -f /tmp/server_input
@@ -141,9 +140,6 @@ spec:
                   fi
                 fi
 
-                # Clean up
-                rm -f /tmp/should_run
-
                 # If shutdown was not requested but server stopped normally,
                 # send notification only if one wasn't sent already
                 if [ ! -f $SHUTDOWN_FLAG ] && [ $NOTIFICATION_SENT -eq 0 ]; then
@@ -151,11 +147,19 @@ spec:
                   NOTIFICATION_SENT=1
                 fi
 
-                # If shutdown was requested, break out of the loop
-                if [ -f $SHUTDOWN_FLAG ]; then
-                  echo "Shutdown flag detected, exiting script..."
+                # ---- FIX: Reset state for next restart cycle if not shutting down ----
+                if [ ! -f $SHUTDOWN_FLAG ]; then
+                  # Server stopped without shutdown flag, it's a normal restart
+                  echo "Server stopped normally, preparing for restart..."
+                  # Reset notification flag for next cycle
+                  NOTIFICATION_SENT=0
+                  # Ensure the should_run file exists for the next cycle
+                  touch /tmp/should_run
+                else
+                  echo "Shutdown flag detected, exiting server loop..."
                   break
                 fi
+                # ---- End of fix ----
 
                 sleep 1
               else
