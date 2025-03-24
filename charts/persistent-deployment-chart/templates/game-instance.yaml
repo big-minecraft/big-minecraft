@@ -68,20 +68,26 @@ spec:
             SHUTDOWN_FLAG="/tmp/shutdown_in_progress"
             rm -f $SHUTDOWN_FLAG
 
+            # Variable to track if notification was already sent
+            NOTIFICATION_SENT=0
+
             # SIGTERM handler for graceful shutdown
             handle_sigterm() {
-              echo "Received SIGTERM, shutting down Minecraft server gracefully..."
-              # Create shutdown flag
-              touch $SHUTDOWN_FLAG
+              if [ ! -f $SHUTDOWN_FLAG ]; then
+                echo "Received SIGTERM, shutting down Minecraft server gracefully..."
+                # Create shutdown flag
+                touch $SHUTDOWN_FLAG
 
-              # Send stop command to Minecraft server
-              echo "stop" >> /tmp/server_input
+                # Send stop command to Minecraft server
+                echo "stop" >> /tmp/server_input
 
-              # Notify Redis about shutdown
-              send_redis_notification
-
+                # Notify Redis about shutdown - only once
+                if [ $NOTIFICATION_SENT -eq 0 ]; then
+                  send_redis_notification
+                  NOTIFICATION_SENT=1
+                fi
+              fi
               # Don't exit the script - let the server shutdown naturally
-              # This handler just sets flags and sends the stop command
             }
 
             # Set up the trap for SIGTERM
@@ -108,8 +114,6 @@ spec:
                 java {{ .Values.server.jvmOpts | default "" }} -jar ./{{ .Values.server.jarName }} {{ .Values.server.args | default "nogui" }} < /tmp/server_input &
                 SERVER_PID=$!
 
-                echo "Minecraft server started with PID: $SERVER_PID"
-
                 # Wait until either the server stops or a shutdown signal was received
                 while kill -0 $SERVER_PID 2>/dev/null && [ ! -f $SHUTDOWN_FLAG ]; do
                   sleep 1
@@ -121,11 +125,10 @@ spec:
                   echo "stop" >> /tmp/server_input
 
                   # Wait for server to stop with a reasonable timeout
-                  local timeout=30
+                  timeout=30
                   while [ $timeout -gt 0 ] && kill -0 $SERVER_PID 2>/dev/null; do
-                    echo "Waiting for server to stop... ($timeout seconds left)"
                     sleep 1
-                    ((timeout--))
+                    timeout=$((timeout-1))
                   done
 
                   # Force kill if necessary
@@ -137,8 +140,13 @@ spec:
 
                 # Clean up
                 rm -f /tmp/should_run
-                # If we get here, either the server crashed or was stopped
-                send_redis_notification
+
+                # If shutdown was not requested but server stopped normally,
+                # send notification only if one wasn't sent already
+                if [ ! -f $SHUTDOWN_FLAG ] && [ $NOTIFICATION_SENT -eq 0 ]; then
+                  send_redis_notification
+                  NOTIFICATION_SENT=1
+                fi
 
                 # If shutdown was requested, break out of the loop
                 if [ -f $SHUTDOWN_FLAG ]; then
