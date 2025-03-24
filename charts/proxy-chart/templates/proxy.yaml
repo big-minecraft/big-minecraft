@@ -34,18 +34,25 @@ spec:
       terminationGracePeriodSeconds: 60
       serviceAccountName: kubectl-sa
       containers:
-      - name: mc
+      name: mc
         image: {{ .Values.server.image }}
         command: ["/bin/bash", "-c"]
         args:
           - |
-          
             # Install redis-cli if it's not already installed
             if ! command -v redis-cli &> /dev/null; then
               apt-get update &> /dev/null && apt-get install -y redis-tools &> /dev/null
             fi
 
-            cd {{ .Values.volume.mountPath }}
+            # Create pod-local directory for server files
+            POD_LOCAL_DIR="/tmp/minecraft-server"
+            mkdir -p "$POD_LOCAL_DIR"
+
+            # Copy all files from shared volume to pod-local directory
+            echo "Copying server files to pod-local directory..."
+            cp -r {{ .Values.volume.mountPath }}/* "$POD_LOCAL_DIR/"
+
+            cd "$POD_LOCAL_DIR"
             if [ ! -f "./{{ .Values.server.jarName }}" ]; then
               echo "Jar file not found! Check your deployment configuration file."
               ls -la ./
@@ -141,13 +148,13 @@ spec:
                 if [ ! -f $SHUTDOWN_FLAG ] && [ $NOTIFICATION_SENT -eq 0 ]; then
                   send_redis_notification
                   NOTIFICATION_SENT=1
-                fi
+                       fi
 
                 # If shutdown was requested, break out of the loop
                 if [ -f $SHUTDOWN_FLAG ]; then
                   echo "Shutdown flag detected, exiting script..."
                   break
-                fi
+                       fi
 
                 sleep 1
               else
