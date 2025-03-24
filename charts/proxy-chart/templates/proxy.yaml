@@ -97,6 +97,7 @@ spec:
 
             # Create control file - server should run when this exists
             touch /tmp/should_run
+            NOTIFICATION_SENT=0
 
             # Setup the command pipe properly
             rm -f /tmp/server_input
