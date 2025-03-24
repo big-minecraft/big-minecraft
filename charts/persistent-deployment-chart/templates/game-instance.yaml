@@ -45,36 +45,10 @@ spec:
         command: ["/bin/bash", "-c"]
         args:
           - |
-            # Set up server control files
-            CONTROL_DIR="/tmp/mc_control"
-            SHOULD_RUN_FILE="${CONTROL_DIR}/should_run"
-            TERMINATION_FILE="${CONTROL_DIR}/terminating"
-            INPUT_PIPE="${CONTROL_DIR}/server_input"
-
-            # Create control directory
-            mkdir -p "${CONTROL_DIR}"
-
-            # Install redis-cli if needed
+            # Install redis-cli if it's not already installed
             if ! command -v redis-cli &> /dev/null; then
               apt-get update &> /dev/null && apt-get install -y redis-tools &> /dev/null
             fi
-
-            # Function to send Redis notification
-            send_redis_notification() {
-              local message="{\"server\": \"$HOSTNAME\", \"deployment\": \"$DEPLOYMENT_NAME\", \"event\": \"shutdown\", \"timestamp\": \"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\"}"
-              redis-cli -h {{ .Values.server.redis.host }} -p {{ .Values.server.redis.port }} PUBLISH server-status "$message" &> /dev/null
-            }
-
-            # SIGTERM handler
-            handle_sigterm() {
-              echo "Received SIGTERM signal" > "${CONTROL_DIR}/sigterm_received"
-              # Create termination file
-              touch "${TERMINATION_FILE}"
-              # Don't exit the script - let the main loop handle termination
-            }
-
-            # Set up trap
-            trap handle_sigterm SIGTERM
 
             cd {{ .Values.volume.mountPath }}
             if [ ! -f "./{{ .Values.server.jarName }}" ]; then
@@ -83,55 +57,65 @@ spec:
               exit 1
             fi
 
-            # Set up control files
-            touch "${SHOULD_RUN_FILE}"
-            rm -f "${TERMINATION_FILE}"
-            rm -f "${INPUT_PIPE}"
-            mkfifo "${INPUT_PIPE}"
+            # Function to send Redis notification
+            send_redis_notification() {
+              local message="{\"server\": \"$HOSTNAME\", \"deployment\": \"$DEPLOYMENT_NAME\", \"event\": \"shutdown\", \"timestamp\": \"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\"}"
+              redis-cli -h {{ .Values.server.redis.host }} -p {{ .Values.server.redis.port }} PUBLISH server-status "$message" &> /dev/null
+              echo "Sent shutdown notification to Redis"
+            }
 
-            # Start server monitoring in background
-            (
-              while [ -f "${SHOULD_RUN_FILE}" ] && [ ! -f "${TERMINATION_FILE}" ]; do
-                sleep 2
-              done
+            # SIGTERM handler for graceful shutdown
+            handle_sigterm() {
+              echo "Received SIGTERM, shutting down Minecraft server gracefully..."
+              # Remove the should_run file to prevent restart
+              rm -f /tmp/should_run
+              # Send stop command to Minecraft server
+              echo "stop" > /tmp/server_input
+              # Notify Redis about shutdown
+              send_redis_notification
+              # Wait for server to process the stop command
+              wait $SERVER_PID
+              echo "Server shutdown complete"
+              # Exit the script
+              exit 0
+            }
 
-              if [ -f "${TERMINATION_FILE}" ]; then
-                echo "Termination file detected, shutting down server..."
-                echo "stop" > "${INPUT_PIPE}"
-                # Wait for server to shut down
-                sleep 10
-                rm -f "${SHOULD_RUN_FILE}"
+            # Set up the trap for SIGTERM
+            trap handle_sigterm SIGTERM
+
+            # Create control file - server should run when this exists
+            touch /tmp/should_run
+
+            # Create and maintain input pipe
+            rm -f /tmp/server_input
+            mkfifo /tmp/server_input
+
+            while true; do
+              if [ -f /tmp/should_run ]; then
+                echo "Starting Minecraft server..."
+                # Start tail in background and store its PID
+                tail -f /tmp/server_input > /tmp/server_stdin &
+                TAIL_PID=$!
+
+                # Start server with input from the pipe, running in background
+                java {{ .Values.server.jvmOpts | default "" }} -jar ./{{ .Values.server.jarName }} {{ .Values.server.args | default "nogui" }} < /tmp/server_stdin &
+                SERVER_PID=$!
+
+                # Wait for the server to finish
+                wait $SERVER_PID
+
+                # Kill the tail process
+                kill $TAIL_PID 2>/dev/null || true
+
+                # If we get here, either the server crashed or was stopped
+                # Send Redis notification
                 send_redis_notification
+                sleep 1
+              else
+                # Server should not be running, wait and check again
+                sleep 5
               fi
-            ) &
-
-            # Run the server
-            while [ -f "${SHOULD_RUN_FILE}" ]; do
-              echo "Starting Minecraft server..."
-
-              # If termination is requested, don't start
-              if [ -f "${TERMINATION_FILE}" ]; then
-                echo "Termination requested, not starting server"
-                break
-              fi
-
-              # Start server with input pipe
-              tail -f "${INPUT_PIPE}" | java {{ .Values.server.jvmOpts | default "" }} -jar ./{{ .Values.server.jarName }} {{ .Values.server.args | default "nogui" }}
-
-              # If termination is requested, exit loop
-              if [ -f "${TERMINATION_FILE}" ]; then
-                echo "Server terminated due to shutdown request"
-                break
-              fi
-
-              # Normal exit or crash
-              echo "Server exited, checking if restart is needed..."
-              sleep 2
             done
-
-            echo "Exiting script"
-            send_redis_notification
-            exit 0
         volumeMounts:
           - name: local-volume
             mountPath: {{ .Values.volume.mountPath | default "/minecraft" }}
@@ -183,7 +167,7 @@ spec:
           type: Directory
       - name: docker-sock
         hostPath:
-        path: /var/run/docker.sock
+          path: /var/run/docker.sock
       - name: rootfs
         hostPath:
           path: /
