@@ -69,7 +69,7 @@ spec:
 
             # Function to send Redis notification
             send_redis_notification() {
-              local message="{\"server\": \"$HOSTNAME\", \"deployment\": \"proxy", \"event\": \"shutdown\", \"timestamp\": \"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\"}"
+              local message="{\"server\": \"$HOSTNAME\", \"deployment\": \"$DEPLOYMENT_NAME\", \"event\": \"shutdown\", \"timestamp\": \"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\"}"
               redis-cli -h {{ .Values.server.redis.host }} -p {{ .Values.server.redis.port }} PUBLISH server-status "$message" &> /dev/null
             }
 
@@ -103,9 +103,11 @@ spec:
           value: {{ .value | quote }}
         {{- end }}
         - name: REDIS_HOST
-          value: "proxy"
+          value: {{ .Values.server.redis.host | quote }}
         - name: REDIS_PORT
           value: {{ .Values.server.redis.port | quote }}
+        - name: DEPLOYMENT_NAME
+          value: "proxy"
         resources:
           requests:
             memory: {{ .Values.resources.requests.memory }}
