@@ -73,10 +73,19 @@ spec:
               echo "stop" > /tmp/server_input
               # Notify Redis about shutdown
               send_redis_notification
-              # Wait for server to process the stop command
-              wait $SERVER_PID
-              echo "Server shutdown complete"
-              # Exit the script
+              # Wait for server to finish shutting down (with timeout)
+              local timeout=30
+              while [ $timeout -gt 0 ] && kill -0 $SERVER_PID 2>/dev/null; do
+                sleep 1
+                ((timeout--))
+              done
+              # Force kill if it didn't shut down gracefully
+              if kill -0 $SERVER_PID 2>/dev/null; then
+                echo "Server didn't shut down gracefully, forcing termination"
+                kill -9 $SERVER_PID 2>/dev/null || true
+              else
+                echo "Server shutdown complete"
+              fi
               exit 0
             }
 
@@ -93,19 +102,14 @@ spec:
             while true; do
               if [ -f /tmp/should_run ]; then
                 echo "Starting Minecraft server..."
-                # Start tail in background and store its PID
-                tail -f /tmp/server_input > /tmp/server_stdin &
-                TAIL_PID=$!
 
-                # Start server with input from the pipe, running in background
-                java {{ .Values.server.jvmOpts | default "" }} -jar ./{{ .Values.server.jarName }} {{ .Values.server.args | default "nogui" }} < /tmp/server_stdin &
+                # This is the key change: use cat to feed input from the named pipe to the Java process
+                # Start cat in background to read from the pipe
+                cat /tmp/server_input | java {{ .Values.server.jvmOpts | default "" }} -jar ./{{ .Values.server.jarName }} {{ .Values.server.args | default "nogui" }} &
                 SERVER_PID=$!
 
                 # Wait for the server to finish
                 wait $SERVER_PID
-
-                # Kill the tail process
-                kill $TAIL_PID 2>/dev/null || true
 
                 # If we get here, either the server crashed or was stopped
                 # Send Redis notification
