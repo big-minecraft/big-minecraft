@@ -34,7 +34,7 @@ spec:
       terminationGracePeriodSeconds: 60
       serviceAccountName: kubectl-sa
       containers:
-      name: mc
+      - name: mc
         image: {{ .Values.server.image }}
         command: ["/bin/bash", "-c"]
         args:

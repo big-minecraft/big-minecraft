@@ -39,8 +39,8 @@ fi
 export KUBECONFIG="${FINAL_KUBECONFIG}"
 
 # Define paths relative to script location
-VALUES_FILE="${SCRIPT_DIR}/../local/proxy.yaml"  # Default values file
-DISABLED_VALUES_FILE="${SCRIPT_DIR}/../local/disabled-proxy.yaml"  # Check for disabled version
+VALUES_FILE="${SCRIPT_DIR}/../local/deployments/proxy/proxy.yaml"  # Default values file
+DISABLED_VALUES_FILE="${SCRIPT_DIR}/../local/deployments/proxy/disabled-proxy.yaml"  # Check for disabled version
 CHART_DIR="${SCRIPT_DIR}/../charts/proxy-chart"
 
 set -e  # Exit on error
