@@ -30,5 +30,7 @@ spec:
   ports:
     - port: 6379
       targetPort: 6379
+      {{- if eq .Values.global.environment "development" }}
       nodePort: 30079
-  type: NodePort
+      {{- end }}
+  type: {{ ternary "NodePort" "ClusterIP" (eq .Values.global.environment "development") }}
