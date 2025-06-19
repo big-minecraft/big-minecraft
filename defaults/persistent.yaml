@@ -62,8 +62,8 @@ volume:
 # Set recource limits per instance. "Mi" refers to megabytes, and "m" refers to micro-cpus.
 resources:
   requests:
-    memory: 256Mi
-    cpu: 250m
+    memory: 0Mi
+    cpu: 0m
   limits:
-    memory: 516Mi
-    cpu: 500m
+    memory: 0Mi
+    cpu: 0m
