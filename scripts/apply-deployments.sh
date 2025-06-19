@@ -55,27 +55,49 @@ deploy_deployments() {
     local chart_dir="$2"
     local deployment_type="$3"
 
-    # Get a list of currently deployed deployments for this type
-    DEPLOYED_DEPLOYMENTS=$(kubectl get deployments -n default -o jsonpath="{.items[?(@.spec.template.metadata.labels.kyriji\\.dev/deployment-type==\"$deployment_type\")].metadata.name}")
+    # Check if values directory exists
+    if [ ! -d "$values_dir" ]; then
+        echo "Warning: Values directory $values_dir does not exist. Skipping $deployment_type deployments."
+        return 0
+    fi
 
-    # Get a list of deployment files (without extension and with 'disabled-' prefix removed)
-    AVAILABLE_DEPLOYMENTS=$(find "${values_dir}" -type f \( -name "*.yaml" -o -name "*.yml" \) | xargs -n1 basename | sed -e 's/\.[^.]*$//' -e 's/^disabled-//')
+    # Get a list of currently deployed deployments for this type
+    DEPLOYED_DEPLOYMENTS=$(kubectl get deployments -n default -o jsonpath="{.items[?(@.spec.template.metadata.labels.kyriji\\.dev/deployment-type==\"$deployment_type\")].metadata.name}" 2>/dev/null || echo "")
+
+    # Get a list of deployment files more safely
+    AVAILABLE_DEPLOYMENTS=""
+    if find "${values_dir}" -type f \( -name "*.yaml" -o -name "*.yml" \) -print0 2>/dev/null | grep -zq .; then
+        AVAILABLE_DEPLOYMENTS=$(find "${values_dir}" -type f \( -name "*.yaml" -o -name "*.yml" \) -print0 2>/dev/null | xargs -0 -n1 basename 2>/dev/null | sed -e 's/\.[^.]*$//' -e 's/^disabled-//' | sort | uniq)
+    fi
+
+    # Debug output
+    echo "Available deployments in $values_dir:"
+    if [ -n "$AVAILABLE_DEPLOYMENTS" ]; then
+        echo "$AVAILABLE_DEPLOYMENTS"
+    else
+        echo "No deployment files found."
+        return 0
+    fi
 
     # Loop through deployed deployments and delete any that no longer have a corresponding values file
-    for deployment in $DEPLOYED_DEPLOYMENTS; do
-        if ! echo "$AVAILABLE_DEPLOYMENTS" | grep -q "^$deployment$"; then
-            echo "Deleting removed $deployment_type deployment: $deployment"
-            helm uninstall "$deployment" --namespace default
-        fi
-    done
+    if [ -n "$DEPLOYED_DEPLOYMENTS" ]; then
+        for deployment in $DEPLOYED_DEPLOYMENTS; do
+            if [ -n "$AVAILABLE_DEPLOYMENTS" ] && ! echo "$AVAILABLE_DEPLOYMENTS" | grep -q "^$deployment$"; then
+                echo "Deleting removed $deployment_type deployment: $deployment"
+                helm uninstall "$deployment" --namespace default
+            fi
+        done
+    fi
 
     # Process both .yaml and .yml files
     for values_file in "${values_dir}"/*.{yaml,yml}; do
         [ -f "$values_file" ] || continue  # Skip if no matches
 
         # Extract the deployment name from the filename and remove 'disabled-' prefix if present
-        original_deployment=$(basename "$values_file" .${values_file##*.})
-        deployment=${original_deployment#disabled-}
+        original_deployment=$(basename "$values_file")
+        # Remove file extension
+        original_deployment="${original_deployment%.*}"
+        deployment="${original_deployment#disabled-}"
 
         # Skip processing if the original filename started with 'disabled-'
         if [[ "$original_deployment" == disabled-* ]]; then
@@ -99,10 +121,15 @@ deploy_deployments() {
             --dry-run  # First do a dry run to see what would be created
 
         # If dry run succeeds, do the actual deployment
-        helm upgrade --install "$deployment" "${chart_dir}" \
+        if helm upgrade --install "$deployment" "${chart_dir}" \
             --values "$values_file" \
             --namespace default \
-            --set "deployment.type=$deployment_type"
+            --set "deployment.type=$deployment_type"; then
+            echo "Successfully deployed $deployment"
+        else
+            echo "Failed to deploy $deployment"
+            exit 1
+        fi
 
         # Verify deployment
         echo "Verifying $deployment_type deployment..."
@@ -138,6 +165,7 @@ deploy_deployments "$PROCESS_VALUES_DIR" "$PROCESS_CHART_DIR" "process"
 
 # Show final state
 echo "Final Helm releases:"
+helm list -n default
 
 echo "Final Kubernetes deployments:"
 kubectl get deployments -n default -o wide
