@@ -13,3 +13,6 @@ spec:
     - protocol: TCP
       port: 25565
       targetPort: 25565
+    - protocol: UDP
+      port: 19132
+      targetPort: 19132

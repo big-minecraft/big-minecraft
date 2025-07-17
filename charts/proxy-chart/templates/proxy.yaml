@@ -180,7 +180,10 @@ spec:
             mountPath: /tmp
         ports:
         - containerPort: {{ .Values.server.port | default 25565 }}
-          name: minecraft
+          name: java
+        - containerPort: 19132
+          name: bedrock
+          protocol: UDP
         env:
         {{- range .Values.server.env }}
         - name: {{ .name }}
