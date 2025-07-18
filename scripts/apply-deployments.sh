@@ -111,11 +111,16 @@ deploy_deployments() {
         echo "Values file contents:"
         cat "$values_file"
 
+        # Create temporary values file with global config
+        TEMP_VALUES=$(mktemp)
+        echo "global:" > "$TEMP_VALUES"
+        sed 's/^/  /' "${SCRIPT_DIR}/../local/global-config.yaml" >> "$TEMP_VALUES"
+
         # Deploy using Helm
         echo "Deploying $deployment..."
         helm upgrade --install "$deployment" "${chart_dir}" \
             --values "$values_file" \
-            --set-file "global=${SCRIPT_DIR}/../local/global-config.yaml" \
+            --values "$TEMP_VALUES" \
             --namespace default \
             --set "deployment.type=$deployment_type" \
             --debug \
@@ -124,14 +129,18 @@ deploy_deployments() {
         # If dry run succeeds, do the actual deployment
         if helm upgrade --install "$deployment" "${chart_dir}" \
             --values "$values_file" \
-            --set-file "global=${SCRIPT_DIR}/../local/global-config.yaml" \
+            --values "$TEMP_VALUES" \
             --namespace default \
             --set "deployment.type=$deployment_type"; then
             echo "Successfully deployed $deployment"
         else
             echo "Failed to deploy $deployment"
+            rm -f "$TEMP_VALUES"
             exit 1
         fi
+
+        # Clean up temporary file
+        rm -f "$TEMP_VALUES"
 
         # Verify deployment
         echo "Verifying $deployment_type deployment..."
