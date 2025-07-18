@@ -1,0 +1,22 @@
+{{- if .Values.fileServer.enabled }}
+# Headless service to enable pod-specific DNS resolution
+apiVersion: v1
+kind: Service
+metadata:
+  name: files-{{ .Values.name }}-headless
+  labels:
+    app: {{ .Values.name }}
+    component: file-server
+    chart: "{{ .Chart.Name }}-{{ .Chart.Version }}"
+    kyriji.dev/deployment-type: "scalable"
+    kyriji.dev/component: "file-server"
+spec:
+  clusterIP: None
+  selector:
+    app: {{ .Values.name }}
+  ports:
+  - port: {{ .Values.fileServer.port | default 8080 }}
+    targetPort: {{ .Values.fileServer.port | default 8080 }}
+    protocol: TCP
+    name: http
+{{- end }}

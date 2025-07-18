@@ -1,0 +1,54 @@
+# Default values for scalable-deployment-chart
+name: ""
+
+# Server configuration
+server:
+  image: ""
+  jarName: ""
+  port: 25565
+  jvmOpts: ""
+  args: "nogui"
+  env: []
+  redis:
+    host: ""
+    port: 6379
+
+# File server configuration
+fileServer:
+  enabled: false
+  port: 8080
+  maxFileSize: "100m"
+  cacheControl: "public, max-age=3600"
+
+# Scaling configuration
+scaling:
+  scaleStrategy: "THRESHOLD"
+  maxPlayers: 10
+  minInstances: 1
+  maxInstances: 5
+  scaleUpThreshold: 8
+  scaleDownThreshold: 3
+  scaleUpCooldown: 60
+  scaleDownCooldown: 120
+  scaleUpLimit: 1
+  scaleDownLimit: 1
+
+# Queuing configuration
+queuing:
+  initialServer: "true"
+  queueStrategy: "FILL"
+  requireStartupConfirmation: "false"
+
+# Volume configuration
+volume:
+  dataDirectory: ""
+  mountPath: "/minecraft"
+
+# Resource configuration
+resources:
+  requests:
+    memory: "1Gi"
+    cpu: "500m"
+  limits:
+    memory: "2Gi"
+    cpu: "1000m"

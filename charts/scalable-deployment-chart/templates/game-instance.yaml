@@ -189,6 +189,10 @@ spec:
         ports:
         - containerPort: {{ .Values.server.port | default 25565 }}
           name: minecraft
+        {{- if .Values.fileServer.enabled }}
+        - containerPort: {{ .Values.fileServer.port | default 8080 }}
+          name: file-server
+        {{- end }}
         env:
         {{- range .Values.server.env }}
         - name: {{ .name }}
