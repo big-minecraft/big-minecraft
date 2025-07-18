@@ -84,6 +84,20 @@ server:
     host: redis-service
     port: 6379
 
+# File server configuration - serves files via HTTPS
+fileServer:
+  # Enable HTTP file server for this deployment
+  enabled: false
+  
+  # Port for the file server (default: 8080)
+  port: 8080
+  
+  # Maximum file upload/download size (nginx limit)
+  maxFileSize: "100m"
+  
+  # HTTP cache control header for served files
+  cacheControl: "public, max-age=3600"
+
 
 volume:
   # The directory to pull the server's data from. By default this is set to the folder that is automatically created for the deployment.
