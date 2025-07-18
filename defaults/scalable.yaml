@@ -97,6 +97,18 @@ fileServer:
   
   # HTTP cache control header for served files
   cacheControl: "public, max-age=3600"
+  
+  # When enabled, provides FILE_SERVER_URL_TEMPLATE environment variable in pod:
+  # FILE_SERVER_URL_TEMPLATE="https://files.wiji.dev/deployment-name/{filepath}?pod=${HOSTNAME}"
+  #
+  # Usage in pod:
+  #   # Replace {filepath} with actual file path
+  #   WORLD_URL="${FILE_SERVER_URL_TEMPLATE/\{filepath\}/world.zip}"
+  #   # Results in: https://files.wiji.dev/deployment-name/world.zip?pod=pod-abc123
+  #
+  # Examples:
+  #   CONFIG_URL="${FILE_SERVER_URL_TEMPLATE/\{filepath\}/plugins/config.yml}"
+  #   MAP_URL="${FILE_SERVER_URL_TEMPLATE/\{filepath\}/worlds/world_nether.zip}"
 
 
 volume:

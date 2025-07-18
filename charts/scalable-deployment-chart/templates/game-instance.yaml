@@ -204,6 +204,10 @@ spec:
           value: {{ .Values.server.redis.port | quote }}
         - name: DEPLOYMENT_NAME
           value: {{ .Values.name | quote }}
+        {{- if .Values.fileServer.enabled }}
+        - name: FILE_SERVER_URL_TEMPLATE
+          value: "https://{{ .Values.global.filesDomain }}/{{ .Values.name }}/{filepath}?pod=${HOSTNAME}"
+        {{- end }}
         resources:
           requests:
             memory: {{ .Values.resources.requests.memory }}
