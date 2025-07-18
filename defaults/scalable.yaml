@@ -95,9 +95,6 @@ fileServer:
   # Maximum file upload/download size (nginx limit)
   maxFileSize: "100m"
   
-  # HTTP cache control header for served files
-  cacheControl: "public, max-age=3600"
-  
   # When enabled, provides FILE_SERVER_URL_TEMPLATE environment variable in pod:
   # FILE_SERVER_URL_TEMPLATE="https://files.wiji.dev/deployment-name/{filepath}?pod=${HOSTNAME}"
   #

@@ -296,14 +296,6 @@ metadata:
     {{- end }}
     # Use consistent hashing based on pod parameter to route to specific pods
     nginx.ingress.kubernetes.io/upstream-hash-by: "$arg_pod"
-    nginx.ingress.kubernetes.io/configuration-snippet: |
-      {{- if .Values.fileServer.cacheControl }}
-      add_header Cache-Control "{{ .Values.fileServer.cacheControl }}";
-      {{- end }}
-      # Extract pod parameter and validate it
-      if ($arg_pod = "") {
-        return 400 "Pod parameter required. Use ?pod=<pod-name>";
-      }
 spec:
   ingressClassName: nginx
   tls:
