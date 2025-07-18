@@ -115,6 +115,7 @@ deploy_deployments() {
         echo "Deploying $deployment..."
         helm upgrade --install "$deployment" "${chart_dir}" \
             --values "$values_file" \
+            --set-file "global=${SCRIPT_DIR}/../local/global-config.yaml" \
             --namespace default \
             --set "deployment.type=$deployment_type" \
             --debug \
@@ -123,6 +124,7 @@ deploy_deployments() {
         # If dry run succeeds, do the actual deployment
         if helm upgrade --install "$deployment" "${chart_dir}" \
             --values "$values_file" \
+            --set-file "global=${SCRIPT_DIR}/../local/global-config.yaml" \
             --namespace default \
             --set "deployment.type=$deployment_type"; then
             echo "Successfully deployed $deployment"
