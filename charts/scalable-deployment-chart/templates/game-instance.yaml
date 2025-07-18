@@ -305,6 +305,7 @@ metadata:
         return 400 "Pod parameter required. Use ?pod=<pod-name>";
       }
 spec:
+  ingressClassName: nginx
   tls:
   - hosts:
     - {{ .Values.global.filesDomain }}
