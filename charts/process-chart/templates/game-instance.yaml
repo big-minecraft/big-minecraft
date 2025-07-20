@@ -45,6 +45,9 @@ spec:
         - name: {{ .name }}
           value: {{ .value | quote }}
         {{- end }}
+        volumeMounts:
+          - name: local-volume
+            mountPath: {{ .Values.volume.mountPath | default "/minecraft" }}
         resources:
           requests:
             memory: {{ .Values.resources.requests.memory }}
@@ -68,7 +71,13 @@ spec:
             mountPath: /proc
           - name: sys
             mountPath: /sys
+          - name: local-volume
+            mountPath: /mnt/local/deployments/{{ .Values.volume.dataDirectory }}
       volumes:
+      - name: local-volume
+        hostPath:
+          path: /mnt/local/deployments/{{ .Values.volume.dataDirectory }}
+          type: Directory
       - name: tmp
         emptyDir: {}  # Add an emptyDir volume for pod-local storage
       - name: docker-sock
