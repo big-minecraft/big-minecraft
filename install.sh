@@ -64,6 +64,8 @@ echo "Please enter your panel domain (e.g., panel.example.com):"
 read panel_domain
 echo "Please enter your Kubernetes dashboard domain (e.g., k8s.example.com):"
 read k8s_dashboard_domain
+echo "Please enter your files domain (e.g., files.example.com):"
+read files_domain
 echo "Please enter your IP address (e.g., 123.456.789.0):"
 read ip_address
 
@@ -93,6 +95,7 @@ cat > local/global-config.yaml << EOF
 panelDomain: $panel_domain
 panelSecret: $(generate_password)
 k8sDashboardDomain: $k8s_dashboard_domain
+filesDomain: $files_domain
 loadBalancerIP: $ip_address
 inviteCode: $invite_code
 mariaDBPassword: $mariadb_password
@@ -105,6 +108,7 @@ EOF
 echo "Created local/global-config.yaml with:"
 echo "Panel Domain: $panel_domain"
 echo "K8s Dashboard Domain: $k8s_dashboard_domain"
+echo "Files Domain: $files_domain"
 echo "IP: $ip_address"
 echo "Invite Code: $invite_code"
 echo "MariaDB Password: $mariadb_password"
