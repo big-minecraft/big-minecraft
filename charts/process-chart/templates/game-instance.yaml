@@ -146,6 +146,8 @@ metadata:
     {{- end }}
     # Use consistent hashing based on pod parameter to route to specific pods
     nginx.ingress.kubernetes.io/upstream-hash-by: "$arg_pod"
+    # Rewrite path to remove deployment name from requests sent to pod
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
 spec:
   ingressClassName: nginx
   tls:
@@ -156,7 +158,7 @@ spec:
   - host: {{ .Values.global.filesDomain }}
     http:
       paths:
-      - path: /{{ .Values.name }}
+      - path: /{{ .Values.name }}(/|$)(.*)
         pathType: Prefix
         backend:
           service:
