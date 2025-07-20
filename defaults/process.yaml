@@ -1,7 +1,6 @@
 # Ensure this remains the same as the deployment's name.
 name: example-deployment
 
-
 process:
   # Change this if you need to use a different image.
   image: alpine
@@ -38,6 +37,9 @@ fileServer:
 volume:
   # The directory to pull the server's data from. By default this is set to the folder that is automatically created for the deployment.
   dataDirectory: "temp"
+
+  # Where the contents of the aformentioned data directory is copied to internally. There is no real reason to change this.
+  mountPath: /minecraft
 
 
 # Set recource limits per instance. "Mi" refers to megabytes, and "m" refers to micro-cpus.
