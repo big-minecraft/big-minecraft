@@ -57,6 +57,8 @@ spec:
         {{- if .Values.fileServer.enabled }}
         - name: FILE_SERVER_URL_TEMPLATE
           value: "https://{{ .Values.global.filesDomain }}/{{ .Values.name }}/{filepath}?pod=${HOSTNAME}"
+        - name: HTTP_PORT
+          value: "{{ .Values.fileServer.port | default 8080 }}"
         {{- end }}
         resources:
           requests:
