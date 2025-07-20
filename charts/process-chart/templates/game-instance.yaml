@@ -159,7 +159,7 @@ spec:
     http:
       paths:
       - path: /{{ .Values.name }}(/|$)(.*)
-        pathType: Prefix
+        pathType: ImplementationSpecific
         backend:
           service:
             name: files-{{ .Values.name }}-headless
