@@ -64,7 +64,7 @@ spec:
   ports:
     - name: app
       protocol: TCP
-      port: 443
+      port: 80
       targetPort: 3000
   type: ClusterIP
 ---

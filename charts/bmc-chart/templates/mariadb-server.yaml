@@ -20,11 +20,11 @@ spec:
         ports:
         - containerPort: 3306
         env:
-        - name: MYSQL_ROOT_PASSWORD
-          value: {{ .Values.global.mariaDBPassword }}
-        - name: MYSQL_DATABASE
+        - name: MARIADB_ROOT_PASSWORD
+          value: {{ .Values.global.mariaDB.initPassword }}
+        - name: MARIADB_DATABASE
           value: "bmc"
-        - name: MYSQL_ROOT_HOST
+        - name: MARIADB_ROOT_HOST
           value: "%"
         volumeMounts:
         - name: mariadb-storage

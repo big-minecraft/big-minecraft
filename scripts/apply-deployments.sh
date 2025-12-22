@@ -1,107 +1,92 @@
 #!/bin/bash
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 
-# Function to check if a command exists
 command_exists() {
     command -v "$1" &> /dev/null
 }
 
-if ! command_exists helm; then
-    echo "Error: Helm is not installed."
+if ! command_exists helm || ! command_exists kubectl || ! command_exists jq; then
+    echo "Missing required dependency (helm, kubectl, or jq)"
     exit 1
 fi
+
+force_purge_release() {
+    local release="$1"
+    helm uninstall "$release" -n default --wait --timeout 60s &>/dev/null || true
+    helm delete "$release" -n default &>/dev/null || true
+}
 
 deploy_resources() {
     local values_dir="$1"
     local chart_dir="$2"
     local deployment_type="$3"
 
-    if [ ! -d "$values_dir" ]; then
-        echo "Warning: Values directory $values_dir does not exist. Skipping."
-        return 0
-    fi
+    [ -d "$values_dir" ] || return 0
 
     echo "--- Category: $deployment_type ---"
 
-    # 1. Get Local Names (Current configurations)
     AVAILABLE_RELEASES=""
     for f in "${values_dir}"/*.{yaml,yml}; do
         [ -e "$f" ] || continue
-        fname=$(basename "$f")
-        name="${fname%.*}"
+        name="$(basename "$f")"
+        name="${name%.*}"
         name="${name#disabled-}"
         AVAILABLE_RELEASES="$AVAILABLE_RELEASES $name"
     done
 
-    # 2. Cleanup Phase
-    # We query for all Deployments and StatefulSets.
-    # We use a custom jsonpath to extract the Release Name from Annotations if labels are missing.
-    # We also check the Pod Template labels for your deployment-type.
-
     RAW_DATA=$(kubectl get deployments,statefulsets -n default -o json)
 
-    # Use python or a simple loop to parse the JSON for orphans
-    # This finds resources where:
-    # (Label kyriji.dev/deployment-type == category) AND (Release Name NOT in AVAILABLE_RELEASES)
-
-    DEPLOYS_TO_CHECK=$(echo "$RAW_DATA" | jq -r ".items[] |
-        select(.spec.template.metadata.labels[\"kyriji.dev/deployment-type\"] == \"$deployment_type\") |
-        .metadata.annotations[\"meta.helm.sh/release-name\"]" 2>/dev/null | sort | uniq)
+    DEPLOYS_TO_CHECK=$(echo "$RAW_DATA" | jq -r "
+        .items[]
+        | select(.spec.template.metadata.labels[\"kyriji.dev/deployment-type\"] == \"$deployment_type\")
+        | .metadata.annotations[\"meta.helm.sh/release-name\"]
+    " | sort -u)
 
     for release in $DEPLOYS_TO_CHECK; do
-        [ "$release" == "null" ] && continue
+        [ "$release" = "null" ] && continue
 
         found=false
         for available in $AVAILABLE_RELEASES; do
-            if [ "$release" = "$available" ]; then
-                found=true
-                break
-            fi
+            [ "$release" = "$available" ] && found=true
         done
 
-        # If it's on the cluster but not in the folder (or marked as disabled)
-        is_disabled=false
+        disabled=false
         if [[ -f "${values_dir}/disabled-${release}.yaml" || -f "${values_dir}/disabled-${release}.yml" ]]; then
-            is_disabled=true
+            disabled=true
         fi
 
-        if [ "$found" = false ] || [ "$is_disabled" = true ]; then
-            echo "Removing orphaned or disabled release: $release"
-            helm uninstall "$release" --namespace default --wait
+        if [ "$found" = false ] || [ "$disabled" = true ]; then
+            force_purge_release "$release"
         fi
     done
 
-    # 3. Deployment Phase
     for values_file in "${values_dir}"/*.{yaml,yml}; do
         [ -f "$values_file" ] || continue
-        filename=$(basename "$values_file")
+        filename="$(basename "$values_file")"
         [[ "$filename" == disabled-* ]] && continue
 
         release_name="${filename%.*}"
-        echo "Deploying $release_name..."
 
-        TEMP_VALUES=$(mktemp)
-        echo "global:" > "$TEMP_VALUES"
-        [ -f "${SCRIPT_DIR}/../values.yaml" ] && sed 's/^/  /' "${SCRIPT_DIR}/../values.yaml" >> "$TEMP_VALUES"
+        STATUS=$(helm status "$release_name" -n default --output json 2>/dev/null | jq -r '.info.status' || echo "missing")
 
-        # Explicitly set the label in the pod template so our script can find it next time
-        helm upgrade --install "$release_name" "${chart_dir}" \
-            --values "$values_file" \
-            --values "$TEMP_VALUES" \
-            --namespace default \
-            --set "deployment.type=$deployment_type" \
-            --set "podLabels.kyriji\.dev/deployment-type=$deployment_type"
-
-        rm -f "$TEMP_VALUES"
+        if [[ "$STATUS" != "deployed" ]]; then
+            force_purge_release "$release_name"
+            helm install "$release_name" "$chart_dir" \
+                --namespace default \
+                --values "$values_file" \
+                --values "${SCRIPT_DIR}/../values.yaml" \
+                --set "deployment.type=$deployment_type" \
+                --set "podLabels.kyriji\.dev/deployment-type=$deployment_type"
+        else
+            helm upgrade "$release_name" "$chart_dir" \
+                --namespace default \
+                --values "$values_file" \
+                --values "${SCRIPT_DIR}/../values.yaml" \
+                --set "deployment.type=$deployment_type" \
+                --set "podLabels.kyriji\.dev/deployment-type=$deployment_type"
+        fi
     done
 }
-
-# --- Execution ---
-# Note: I added a check for 'jq' which is much better at parsing the complex K8s metadata
-if ! command_exists jq; then
-    echo "This script requires 'jq'. Please install it (apt-get install jq / brew install jq)."
-    exit 1
-fi
 
 MANIFEST_ROOT="${SCRIPT_DIR}/../manifests"
 CHART_ROOT="${SCRIPT_DIR}/../chart-templates"

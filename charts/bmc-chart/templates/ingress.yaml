@@ -1,0 +1,26 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+
+metadata:
+  name: {{ include "common.name" . }}-ingress
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+  annotations:
+      cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  ingressClassName: {{ .Values.global.ingress.ingressClass }}
+  tls:
+    - hosts:
+        - {{ .Values.global.ingress.panelDomain }}
+      secretName: {{ include "common.name" . }}-tls
+  rules:
+    - host: {{ .Values.global.ingress.panelDomain }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: panel-service
+                port:
+                  number: 80
