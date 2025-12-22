@@ -15,25 +15,10 @@ spec:
         app: panel
     spec:
       serviceAccountName: kubectl-sa
-      affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-              - matchExpressions:
-                  - key: node-role.kubernetes.io/master
-                    operator: Exists
-      tolerations:
-        - key: "node-role.kubernetes.io/control-plane"
-          operator: "Exists"
-          effect: "NoSchedule"
-        - key: "node-role.kubernetes.io/master"
-          operator: "Exists"
-          effect: "NoSchedule"
       volumes:
-        - name: host-root
-          hostPath:
-            path: /
-            type: Directory
+        - name: storage
+          persistentVolumeClaim:
+            claimName: bmc-panel-storage
         - name: kube-config
           emptyDir: {}
       securityContext:
@@ -47,24 +32,22 @@ spec:
             runAsGroup: 0
           env:
             - name: INITIAL_INVITE_CODE
-              value: {{ .Values.global.inviteCode }}
+              value: {{ .Values.global.initialInviteCode }}
             - name: PANEL_HOST
-              value: {{ .Values.global.panelDomain }}
+              value: {{ .Values.global.ingress.panelDomain }}
             - name: PANEL_SECRET
               value: {{ .Values.global.panelSecret }}
             - name: K8S_DASHBOARD_HOST
               value: {{ .Values.global.k8sDashboardDomain }}
             - name: MARIADB_PASSWORD
-              value: {{ .Values.global.mariaDBPassword }}
+              value: {{ .Values.global.mariaDB.initPassword }}
             - name: MONGO_INITDB_ROOT_PASSWORD
-              value: {{ .Values.global.mongoDBPassword }}
-            - name: BMC_PATH
-              value: {{ printf "/host-root/%s" .Values.global.bmcPath }}
-            - name: ENVIRONMENT
-              value: {{ .Values.global.environment }}
+              value: {{ .Values.global.mongoDB.initPassword }}
+            - name: STORAGE_PATH
+              value: "/storage"
           volumeMounts:
-            - name: host-root
-              mountPath: /host-root
+            - name: storage
+              mountPath: /storage
               readOnly: false
 ---
 apiVersion: v1
@@ -85,74 +68,14 @@ spec:
       targetPort: 3000
   type: ClusterIP
 ---
-apiVersion: networking.k8s.io/v1
-kind: Ingress
+apiVersion: v1
+kind: PersistentVolumeClaim
 metadata:
-  name: panel-ingress
-  annotations:
-    nginx.ingress.kubernetes.io/proxy-body-size: "64m"
-    nginx.ingress.kubernetes.io/proxy-connect-timeout: "15"
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
-    nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
-    nginx.ingress.kubernetes.io/proxy-buffering: "off"
-    nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
-    nginx.ingress.kubernetes.io/connection-upgrade: "true"
-    nginx.ingress.kubernetes.io/upgrade: "websocket"
-    nginx.ingress.kubernetes.io/use-regex: "true"
-    cert-manager.io/cluster-issuer: "letsencrypt-prod"
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
-    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+ name: bmc-panel-storage
 spec:
-  ingressClassName: nginx
-  tls:
-  - hosts:
-    - {{ .Values.global.panelDomain }}
-    secretName: panel-tls-secret  # cert-manager will create this secret
-  rules:
-    - host: {{ .Values.global.panelDomain }}
-      http:
-        paths:
-          - path: /(.*)
-            pathType: ImplementationSpecific
-            backend:
-              service:
-                name: panel-service
-                port:
-                  number: 443
+ accessModes: ["ReadWriteMany"]
+ storageClassName: {{ .Values.global.storage.storageClass }}
+ resources:
+   requests:
+     storage: {{ .Values.global.storage.volumeSize.manifests }}
 ---
-apiVersion: metallb.io/v1beta1
-kind: IPAddressPool
-metadata:
-  name: default
-  namespace: metallb-system
-  labels:
-    {{- include "common.labels" . | nindent 4 }}
-spec:
-  addresses:
-    - {{ .Values.global.loadBalancerIP }}/32
-  autoAssign: true
----
-apiVersion: metallb.io/v1beta1
-kind: L2Advertisement
-metadata:
-  name: default
-  namespace: metallb-system
-spec:
-  ipAddressPools:
-    - default
----
-apiVersion: cert-manager.io/v1
-kind: ClusterIssuer
-metadata:
-  name: letsencrypt-prod
-spec:
-  acme:
-    # Email address used for ACME registration
-    email: your-email@contact.com  # Replace with your email
-    server: https://acme-v02.api.letsencrypt.org/directory
-    privateKeySecretRef:
-      name: letsencrypt-prod-private-key
-    solvers:
-    - http01:
-        ingress:
-          class: nginx

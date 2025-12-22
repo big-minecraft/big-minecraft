@@ -1,0 +1,37 @@
+environment: development
+
+initialInviteCode: cuLLgJ9LEIf
+panelSecret: QtSDzCJcBJaDhde5A0jZ
+
+loadBalancer:
+  #Options:
+  #  - metallb : requires entrypointIP
+
+  type: metallb
+  entrypointIP: 5.78.123.236
+
+ingress:
+  ingressClass: "traefik"
+  panelDomain: panel-bmc.wiji.dev
+
+storage:
+  storageClass: "nfs"
+  reclaimPolicy: "Retain"
+  volumeSize:
+    persistent: "10Gi"
+    scalable: "5Gi"
+    proxy: "5Gi"
+    process: "2Gi"
+    manifests: "1Gi"
+    mariaDB: "5Gi"
+    mongoDB: "5Gi"
+
+redis:
+  host: "redis-service"
+  port: 6379
+
+mariaDB:
+  initPassword: K46IZkZm44N95h0fparY
+
+mongoDB:
+  initPassword: QpbCcKBWfQTPVASXQmvQ

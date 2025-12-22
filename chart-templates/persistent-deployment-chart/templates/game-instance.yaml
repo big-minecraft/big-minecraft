@@ -1,5 +1,5 @@
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: {{ .Values.name }}
   labels:
@@ -11,6 +11,18 @@ spec:
   selector:
     matchLabels:
       app: {{ .Values.name }}
+  volumeClaimTemplates:
+     - metadata:
+          name: server-data
+          labels:
+            app: {{ .Values.name }}
+            kyriji.dev/deployment-type: "persistent"          
+       spec:
+         accessModes: ["ReadWriteMany"]
+         storageClassName: {{ .Values.global.storage.storageClass | default "longhorn" }}
+         resources:
+           requests:
+             storage: {{ .Values.global.storage.volumeSize.persistent | default "10Gi" }}
   template:
     metadata:
       labels:
@@ -34,11 +46,7 @@ spec:
         kyriji.dev/scale-down-cooldown: "0"
         kyriji.dev/scale-up-limit: "1"
         kyriji.dev/scale-down-limit: "1"
-
     spec:
-      nodeSelector:
-        kubernetes.io/hostname: "{{ .Values.dedicatedNode }}"
-      terminationGracePeriodSeconds: 60
       containers:
       - name: mc
         image: {{ .Values.server.image }}
@@ -174,8 +182,8 @@ spec:
             kill $PIPE_KEEPER_PID 2>/dev/null || true
             exit 0
         volumeMounts:
-          - name: local-volume
-            mountPath: {{ .Values.volume.mountPath | default "/minecraft" }}
+          - name: server-data
+            mountPath: {{ .Values.volume.mountPath }}
         ports:
         - containerPort: {{ .Values.server.port | default 25565 }}
           name: minecraft
@@ -197,40 +205,3 @@ spec:
           limits:
             memory: {{ .Values.resources.limits.memory }}
             cpu: {{ .Values.resources.limits.cpu }}
-
-      - name: cadvisor
-        image: gcr.io/cadvisor/cadvisor:v0.47.0
-        ports:
-        - containerPort: 8080
-          name: cadvisor
-        labels:
-          app: cadvisor
-        volumeMounts:
-          - name: docker-sock
-            mountPath: /var/run/docker.sock
-          - name: rootfs
-            mountPath: /rootfs
-          - name: proc
-            mountPath: /proc
-          - name: sys
-            mountPath: /sys
-          - name: local-volume
-            mountPath: /mnt/local/deployments/{{ .Values.volume.dataDirectory }}
-
-      volumes:
-      - name: local-volume
-        hostPath:
-          path: /mnt/nfsshare/deployments/{{ .Values.volume.dataDirectory }}
-          type: Directory
-      - name: docker-sock
-        hostPath:
-          path: /var/run/docker.sock
-      - name: rootfs
-        hostPath:
-          path: /
-      - name: proc
-        hostPath:
-          path: /proc
-      - name: sys
-        hostPath:
-          path: /sys

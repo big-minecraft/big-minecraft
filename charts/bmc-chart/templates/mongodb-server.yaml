@@ -14,17 +14,6 @@ spec:
       labels:
         app: mongodb
     spec:
-      affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-            - matchExpressions:
-              - key: node-role.kubernetes.io/master
-                operator: Exists
-      tolerations:
-      - key: node-role.kubernetes.io/master
-        operator: Exists
-        effect: NoSchedule
       containers:
       - name: mongodb
         image: mongo:6.0
@@ -34,15 +23,14 @@ spec:
         - name: MONGO_INITDB_ROOT_USERNAME
           value: "admin"
         - name: MONGO_INITDB_ROOT_PASSWORD
-          value: {{ .Values.global.mongoDBPassword }}
+          value: {{ .Values.global.mongoDB.initPassword }}
         volumeMounts:
         - name: mongodb-data
           mountPath: /data/db
       volumes:
       - name: mongodb-data
-        hostPath:
-          path: /data/mongodb
-          type: DirectoryOrCreate
+        persistentVolumeClaim:
+          claimName: mongodb-pvc
 ---
 apiVersion: v1
 kind: Service
@@ -57,3 +45,14 @@ spec:
       targetPort: 27017
       nodePort: 30017
   type: NodePort
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mongodb-pvc
+spec:
+  accessModes: ["ReadWriteMany"]
+  storageClassName: {{ .Values.global.storage.storageClass }}
+  resources:
+    requests:
+      storage: {{ .Values.global.storage.volumeSize.mongoDB }}

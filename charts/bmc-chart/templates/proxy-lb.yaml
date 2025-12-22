@@ -4,7 +4,7 @@ metadata:
   name: proxy-lb
   annotations:
     metallb.universe.tf/allow-shared-ip: "shared-ip-key"
-    metallb.universe.tf/loadBalancerIPs: "{{ .Values.global.loadBalancerIP }}"
+    metallb.universe.tf/loadBalancerIPs: "{{ .Values.global.ingress.entrypointIP }}"
 spec:
   type: LoadBalancer
   selector:

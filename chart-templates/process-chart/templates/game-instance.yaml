@@ -34,9 +34,7 @@ spec:
         kyriji.dev/scale-down-cooldown: "0"
         kyriji.dev/scale-up-limit: "1"
         kyriji.dev/scale-down-limit: "1"
-
     spec:
-      terminationGracePeriodSeconds: 3
       containers:
       - name: process
         image: {{ .Values.process.image }}
@@ -66,43 +64,26 @@ spec:
           limits:
             memory: {{ .Values.resources.limits.memory }}
             cpu: {{ .Values.resources.limits.cpu }}
-      - name: cadvisor
-        image: gcr.io/cadvisor/cadvisor:v0.47.0
-        ports:
-        - containerPort: 8080
-          name: cadvisor
-        labels:
-          app: cadvisor
-        volumeMounts:
-          - name: docker-sock
-            mountPath: /var/run/docker.sock
-          - name: rootfs
-            mountPath: /rootfs
-          - name: proc
-            mountPath: /proc
-          - name: sys
-            mountPath: /sys
-          - name: local-volume
-            mountPath: /mnt/local/deployments/{{ .Values.volume.dataDirectory }}
       volumes:
       - name: local-volume
-        hostPath:
-          path: /mnt/local/deployments/{{ .Values.volume.dataDirectory }}
-          type: Directory
+        persistentVolumeClaim:
+          claimName: bmc-process-{{ .Values.name }}
       - name: tmp
-        emptyDir: {}  # Add an emptyDir volume for pod-local storage
-      - name: docker-sock
-        hostPath:
-          path: /var/run/docker.sock
-      - name: rootfs
-        hostPath:
-          path: /
-      - name: proc
-        hostPath:
-          path: /proc
-      - name: sys
-        hostPath:
-          path: /sys
+        emptyDir: {}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: bmc-process-{{ .Values.name }}
+  labels:
+    app: {{ .Values.name }}
+    kyriji.dev/deployment-type: "process"
+spec:
+  accessModes: ["ReadWriteMany"]
+  storageClassName: {{ .Values.global.storage.storageClass | default "longhorn" }}
+  resources:
+    requests:
+      storage: {{ .Values.global.storage.volumeSize.process | default "2Gi" }}
 ---
 {{- if .Values.fileServer.enabled }}
 # Headless service to enable pod-specific DNS resolution

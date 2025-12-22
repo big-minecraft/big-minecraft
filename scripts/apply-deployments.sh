@@ -43,12 +43,6 @@ if ! command_exists helm; then
     exit 1
 fi
 
-# Check if Helmfile is installed
-if ! command_exists helmfile; then
-    echo "Helmfile is not installed. Please install it by following the instructions at https://github.com/roboll/helmfile#installation"
-    exit 1
-fi
-
 # Function to process and deploy deployments
 deploy_deployments() {
     local values_dir="$1"

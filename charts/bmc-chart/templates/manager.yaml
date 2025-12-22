@@ -17,13 +17,9 @@ spec:
       serviceAccountName: kubectl-sa
       containers:
       - name: manager
-        image: eclipse-temurin:21-jdk
-        command: ["java", "-jar", "/mnt/local/system/manager/bmc-manager.jar"]
-        volumeMounts:
-          - name: local-volume
-            mountPath: /mnt/local/system/manager
-      volumes:
-      - name: local-volume
-        hostPath:
-          path: /mnt/local/system/manager
-          type: Directory
+        image: kyrokrypt/bmc-manager:latest
+        env:
+          - name: REDIS_HOST
+            value: {{ .Values.global.redis.host }}
+          - name: REDIS_PORT
+            value: {{ .Values.global.redis.port | quote }}
