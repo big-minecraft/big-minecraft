@@ -2,7 +2,7 @@
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 
 command_exists() {
-    command -v "$1" &> /dev/null
+    command -v "$1" &>/dev/null
 }
 
 if ! command_exists helm || ! command_exists kubectl || ! command_exists jq; then
@@ -14,6 +14,16 @@ force_purge_release() {
     local release="$1"
     helm uninstall "$release" -n default --wait --timeout 60s &>/dev/null || true
     helm delete "$release" -n default &>/dev/null || true
+}
+
+build_global_values() {
+    local tmp
+    tmp=$(mktemp)
+    echo "global:" > "$tmp"
+    if [ -f "${SCRIPT_DIR}/../values.yaml" ]; then
+        sed 's/^/  /' "${SCRIPT_DIR}/../values.yaml" >> "$tmp"
+    fi
+    echo "$tmp"
 }
 
 deploy_resources() {
@@ -69,22 +79,26 @@ deploy_resources() {
 
         STATUS=$(helm status "$release_name" -n default --output json 2>/dev/null | jq -r '.info.status' || echo "missing")
 
-        if [[ "$STATUS" != "deployed" ]]; then
+        TEMP_VALUES=$(build_global_values)
+
+        if [ "$STATUS" != "deployed" ]; then
             force_purge_release "$release_name"
             helm install "$release_name" "$chart_dir" \
                 --namespace default \
                 --values "$values_file" \
-                --values "${SCRIPT_DIR}/../values.yaml" \
+                --values "$TEMP_VALUES" \
                 --set "deployment.type=$deployment_type" \
                 --set "podLabels.kyriji\.dev/deployment-type=$deployment_type"
         else
             helm upgrade "$release_name" "$chart_dir" \
                 --namespace default \
                 --values "$values_file" \
-                --values "${SCRIPT_DIR}/../values.yaml" \
+                --values "$TEMP_VALUES" \
                 --set "deployment.type=$deployment_type" \
                 --set "podLabels.kyriji\.dev/deployment-type=$deployment_type"
         fi
+
+        rm -f "$TEMP_VALUES"
     done
 }
 
