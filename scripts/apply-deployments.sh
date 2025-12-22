@@ -1,45 +1,13 @@
 #!/bin/bash
-
-# Get the directory where the script is located, resolving symlinks
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
-# Read KUBECONFIG from global-config.yaml
-CONFIG_FILE="${SCRIPT_DIR}/../local/global-config.yaml"
-if [ ! -f "$CONFIG_FILE" ]; then
-    echo "Error: global-config.yaml not found at $CONFIG_FILE"
-    exit 1
-fi
-
-# Extract clusterConfigPath from global-config.yaml
-KUBECONFIG=$(grep "^clusterConfigPath:" "$CONFIG_FILE" | awk '{print $2}' | tr -d '"')
-if [ -z "$KUBECONFIG" ]; then
-    echo "Error: clusterConfigPath not found in global-config.yaml"
-    exit 1
-fi
-# Try original path first, then prepend /host-root if not found
-if [ ! -f "$KUBECONFIG" ]; then
-    HOST_ROOT_KUBECONFIG="/host-root${KUBECONFIG}"
-    if [ ! -f "$HOST_ROOT_KUBECONFIG" ]; then
-        echo "Error: Kubernetes config file not found at $KUBECONFIG or $HOST_ROOT_KUBECONFIG"
-        exit 1
-    fi
-    # Use the host-root path for file access but remove prefix before export
-    FINAL_KUBECONFIG="${KUBECONFIG}"  # Save the original path
-    KUBECONFIG="$HOST_ROOT_KUBECONFIG"  # Use host-root path to check file
-else
-    FINAL_KUBECONFIG="${KUBECONFIG}"  # Use original path
-fi
-
-# Export the path without /host-root prefix
-export KUBECONFIG="${FINAL_KUBECONFIG}"
 
 # Function to check if a command exists
 command_exists() {
     command -v "$1" &> /dev/null
 }
 
-# Check if Helm is installed
 if ! command_exists helm; then
-    echo "Helm is not installed. Please install it by following the instructions at https://helm.sh/docs/intro/install/"
+    echo "Error: Helm is not installed."
     exit 1
 fi
 
@@ -49,61 +17,66 @@ deploy_deployments() {
     local chart_dir="$2"
     local deployment_type="$3"
 
-    # Check if values directory exists
     if [ ! -d "$values_dir" ]; then
-        echo "Warning: Values directory $values_dir does not exist. Skipping $deployment_type deployments."
+        echo "Warning: Values directory $values_dir does not exist. Skipping."
         return 0
     fi
 
-    # Get a list of currently deployed deployments for this type
-    DEPLOYED_DEPLOYMENTS=$(kubectl get deployments -n default -o jsonpath="{.items[?(@.spec.template.metadata.labels.kyriji\\.dev/deployment-type==\"$deployment_type\")].metadata.name}" 2>/dev/null || echo "")
+    echo "--- Category: $deployment_type ---"
 
-    # Get a list of deployment files more safely
-    AVAILABLE_DEPLOYMENTS=""
-    if find "${values_dir}" -type f \( -name "*.yaml" -o -name "*.yml" \) -print0 2>/dev/null | grep -zq .; then
-        AVAILABLE_DEPLOYMENTS=$(find "${values_dir}" -type f \( -name "*.yaml" -o -name "*.yml" \) -print0 2>/dev/null | xargs -0 -n1 basename 2>/dev/null | sed -e 's/\.[^.]*$//' -e 's/^disabled-//' | sort | uniq)
-    fi
+    # 1. Get Local Names (Current configurations)
+    AVAILABLE_RELEASES=""
+    for f in "${values_dir}"/*.{yaml,yml}; do
+        [ -e "$f" ] || continue
+        fname=$(basename "$f")
+        name="${fname%.*}"
+        name="${name#disabled-}"
+        AVAILABLE_RELEASES="$AVAILABLE_RELEASES $name"
+    done
 
-    # Debug output
-    echo "Available deployments in $values_dir:"
-    if [ -n "$AVAILABLE_DEPLOYMENTS" ]; then
-        echo "$AVAILABLE_DEPLOYMENTS"
-    else
-        echo "No deployment files found."
-        return 0
-    fi
+    # 2. Cleanup Phase
+    # We query for all Deployments and StatefulSets.
+    # We use a custom jsonpath to extract the Release Name from Annotations if labels are missing.
+    # We also check the Pod Template labels for your deployment-type.
 
-    # Loop through deployed deployments and delete any that no longer have a corresponding values file
-    if [ -n "$DEPLOYED_DEPLOYMENTS" ]; then
-        for deployment in $DEPLOYED_DEPLOYMENTS; do
-            if [ -n "$AVAILABLE_DEPLOYMENTS" ] && ! echo "$AVAILABLE_DEPLOYMENTS" | grep -q "^$deployment$"; then
-                echo "Deleting removed $deployment_type deployment: $deployment"
-                helm uninstall "$deployment" --namespace default
+    RAW_DATA=$(kubectl get deployments,statefulsets -n default -o json)
+
+    # Use python or a simple loop to parse the JSON for orphans
+    # This finds resources where:
+    # (Label kyriji.dev/deployment-type == category) AND (Release Name NOT in AVAILABLE_RELEASES)
+
+    DEPLOYS_TO_CHECK=$(echo "$RAW_DATA" | jq -r ".items[] |
+        select(.spec.template.metadata.labels[\"kyriji.dev/deployment-type\"] == \"$deployment_type\") |
+        .metadata.annotations[\"meta.helm.sh/release-name\"]" 2>/dev/null | sort | uniq)
+
+    for release in $DEPLOYS_TO_CHECK; do
+        [ "$release" == "null" ] && continue
+
+        found=false
+        for available in $AVAILABLE_RELEASES; do
+            if [ "$release" = "$available" ]; then
+                found=true
+                break
             fi
         done
-    fi
 
-    # Process both .yaml and .yml files
-    for values_file in "${values_dir}"/*.{yaml,yml}; do
-        [ -f "$values_file" ] || continue  # Skip if no matches
-
-        # Extract the deployment name from the filename and remove 'disabled-' prefix if present
-        original_deployment=$(basename "$values_file")
-        # Remove file extension
-        original_deployment="${original_deployment%.*}"
-        deployment="${original_deployment#disabled-}"
-
-        # Skip processing if the original filename started with 'disabled-'
-        if [[ "$original_deployment" == disabled-* ]]; then
-            echo "Skipping disabled deployment: $deployment"
-            continue
+        # If it's on the cluster but not in the folder (or marked as disabled)
+        is_disabled=false
+        if [[ -f "${values_dir}/disabled-${release}.yaml" || -f "${values_dir}/disabled-${release}.yml" ]]; then
+            is_disabled=true
         fi
 
-        echo "Processing $deployment_type deployment: $deployment"
+        if [ "$found" = false ] || [ "$is_disabled" = true ]; then
+            echo "Removing orphaned or disabled release: $release"
+            helm uninstall "$release" --namespace default --wait
+        fi
+    done
 
-        # Debug: Show the values that will be used
-        echo "Values file contents:"
-        cat "$values_file"
+    # 3. Deployment Phase
+    for values_file in "${values_dir}"/*.{yaml,yml}; do
+        [ -f "$values_file" ] || continue
+        filename=$(basename "$values_file")
+        [[ "$filename" == disabled-* ]] && continue
 
         # Create temporary values file with global config
         TEMP_VALUES=$(mktemp)
@@ -117,8 +90,7 @@ deploy_deployments() {
             --values "$TEMP_VALUES" \
             --namespace default \
             --set "deployment.type=$deployment_type" \
-            --debug \
-            --dry-run  # First do a dry run to see what would be created
+            --set "podLabels.kyriji\.dev/deployment-type=$deployment_type"
 
         # If dry run succeeds, do the actual deployment
         if helm upgrade --install "$deployment" "${chart_dir}" \
@@ -142,37 +114,17 @@ deploy_deployments() {
     done
 }
 
-# Define the paths relative to the script location
-PERSISTENT_CHART_DIR="${SCRIPT_DIR}/../charts/persistent-deployment-chart"
-PERSISTENT_VALUES_DIR="${SCRIPT_DIR}/../local/deployments/persistent"
-SCALABLE_CHART_DIR="${SCRIPT_DIR}/../charts/scalable-deployment-chart"
-SCALABLE_VALUES_DIR="${SCRIPT_DIR}/../local/deployments/scalable"
-PROXY_CHART_DIR="${SCRIPT_DIR}/../charts/proxy-chart"
-PROXY_VALUES_DIR="${SCRIPT_DIR}/../local/deployments/proxy"
-PROCESS_CHART_DIR="${SCRIPT_DIR}/../charts/process-chart"
-PROCESS_VALUES_DIR="${SCRIPT_DIR}/../local/deployments/process"
+# --- Execution ---
+# Note: I added a check for 'jq' which is much better at parsing the complex K8s metadata
+if ! command_exists jq; then
+    echo "This script requires 'jq'. Please install it (apt-get install jq / brew install jq)."
+    exit 1
+fi
 
-# Deploy persistent deployments
-echo "Deploying Persistent Deployments:"
-deploy_deployments "$PERSISTENT_VALUES_DIR" "$PERSISTENT_CHART_DIR" "persistent"
+MANIFEST_ROOT="${SCRIPT_DIR}/../manifests"
+CHART_ROOT="${SCRIPT_DIR}/../chart-templates"
 
-# Deploy scalable deployments
-echo "Deploying Scalable Deployments:"
-deploy_deployments "$SCALABLE_VALUES_DIR" "$SCALABLE_CHART_DIR" "scalable"
-
-# Deploy proxy deployment
-echo "Deploying Proxy Deployment:"
-deploy_deployments "$PROXY_VALUES_DIR" "$PROXY_CHART_DIR" "proxy"
-
-# Deploy process deployments
-echo "Deploying Process Deployments:"
-deploy_deployments "$PROCESS_VALUES_DIR" "$PROCESS_CHART_DIR" "process"
-
-# Show final state
-echo "Final Helm releases:"
-helm list -n default
-
-echo "Final Kubernetes deployments:"
-kubectl get deployments -n default -o wide
-
-echo "Deployment of all deployments completed successfully."
+deploy_resources "${MANIFEST_ROOT}/persistent" "${CHART_ROOT}/persistent-deployment-chart" "persistent"
+deploy_resources "${MANIFEST_ROOT}/scalable"   "${CHART_ROOT}/scalable-deployment-chart"   "scalable"
+deploy_resources "${MANIFEST_ROOT}/proxy"      "${CHART_ROOT}/proxy-chart"                 "proxy"
+deploy_resources "${MANIFEST_ROOT}/process"    "${CHART_ROOT}/process-chart"               "process"
