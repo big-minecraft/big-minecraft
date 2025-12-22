@@ -11,8 +11,7 @@ if ! command_exists helm; then
     exit 1
 fi
 
-# Function to process and deploy deployments
-deploy_deployments() {
+deploy_resources() {
     local values_dir="$1"
     local chart_dir="$2"
     local deployment_type="$3"
@@ -78,39 +77,22 @@ deploy_deployments() {
         filename=$(basename "$values_file")
         [[ "$filename" == disabled-* ]] && continue
 
-        # Create temporary values file with global config
+        release_name="${filename%.*}"
+        echo "Deploying $release_name..."
+
         TEMP_VALUES=$(mktemp)
         echo "global:" > "$TEMP_VALUES"
-        sed 's/^/  /' "${SCRIPT_DIR}/../local/global-config.yaml" >> "$TEMP_VALUES"
+        [ -f "${SCRIPT_DIR}/../values.yaml" ] && sed 's/^/  /' "${SCRIPT_DIR}/../values.yaml" >> "$TEMP_VALUES"
 
-        # Deploy using Helm
-        echo "Deploying $deployment..."
-        helm upgrade --install "$deployment" "${chart_dir}" \
+        # Explicitly set the label in the pod template so our script can find it next time
+        helm upgrade --install "$release_name" "${chart_dir}" \
             --values "$values_file" \
             --values "$TEMP_VALUES" \
             --namespace default \
             --set "deployment.type=$deployment_type" \
             --set "podLabels.kyriji\.dev/deployment-type=$deployment_type"
 
-        # If dry run succeeds, do the actual deployment
-        if helm upgrade --install "$deployment" "${chart_dir}" \
-            --values "$values_file" \
-            --values "$TEMP_VALUES" \
-            --namespace default \
-            --set "deployment.type=$deployment_type"; then
-            echo "Successfully deployed $deployment"
-        else
-            echo "Failed to deploy $deployment"
-            rm -f "$TEMP_VALUES"
-            exit 1
-        fi
-
-        # Clean up temporary file
         rm -f "$TEMP_VALUES"
-
-        # Verify deployment
-        echo "Verifying $deployment_type deployment..."
-        kubectl get deployment "$deployment" -n default -o yaml
     done
 }
 
