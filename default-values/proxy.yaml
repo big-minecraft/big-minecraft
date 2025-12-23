@@ -36,7 +36,7 @@ scaling:
 
 server:
   # Change this if you need to use a different java version.
-  image: openjdk:21-jdk-slim
+  image: eclipse-temurin:21-jdk-jammy
 
   # This is the name of your jarfile located in the base deployment directory.
   jarName: server.jar
@@ -64,9 +64,6 @@ server:
 
 
 volume:
-  # The directory to pull the server's data from. By default this is set to the folder that is automatically created for the deployment.
-  dataDirectory: "proxy"
-
   # Where the contents of the aformentioned data directory is copied to internally. There is no real reason to change this.
   mountPath: /minecraft
 

@@ -4,6 +4,7 @@ metadata:
   name: {{ .Values.name }}
   labels:
     app: {{ .Values.name }}
+    kyriji.dev/custom-autoscale: "true"
     cadvisor: "true"
     chart: "{{ .Chart.Name }}-{{ .Chart.Version }}"
 spec:

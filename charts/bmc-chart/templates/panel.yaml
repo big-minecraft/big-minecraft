@@ -45,6 +45,8 @@ spec:
               value: {{ .Values.global.mongoDB.initPassword }}
             - name: STORAGE_PATH
               value: "/storage"
+            - name: ENVIRONMENT
+              value: {{ .Values.global.environment }}
           volumeMounts:
             - name: storage
               mountPath: /storage

@@ -4,6 +4,7 @@ metadata:
   name: proxy
   labels:
     app: proxy
+    kyriji.dev/custom-autoscale: "true"
     cadvisor: "true"
     chart: "{{ .Chart.Name }}-{{ .Chart.Version }}"
 spec:
