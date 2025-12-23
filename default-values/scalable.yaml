@@ -37,10 +37,10 @@ scaling:
   # The maximum number of instances this deployment can have. Use "unlimited" to remove this limit.
   maxInstances: 10
 
-  # The number of player per instance in the deployment that triggers a scale-up
+  # The number of players per instance in the deployment that triggers a scale-up
   scaleUpThreshold: 5
 
-  # The number of player per instance in the deployment that triggers a scale-down
+  # The number of players per instance in the deployment to drop below to trigger a scale-down
   scaleDownThreshold: 2
 
   # How often the deployment can be scaled up in seconds.
