@@ -53,7 +53,7 @@ spec:
         command: ["/bin/bash", "/entrypoint/entrypoint.sh"]
         volumeMounts:
           - name: entrypoint
-            smountPath: /entrypoint
+            mountPath: /entrypoint
           - name: server-data
             mountPath: {{ .Values.volume.mountPath }}
         ports:
