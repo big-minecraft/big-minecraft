@@ -44,7 +44,7 @@ spec:
             mountPath: /entrypoint
           - name: local-volume
             mountPath: {{ .Values.volume.mountPath | default "/minecraft" }}
-            readOnly: true
+            readOnly: false
           - name: tmp
             mountPath: /tmp
         ports:
