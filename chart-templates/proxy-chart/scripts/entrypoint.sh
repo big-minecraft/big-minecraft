@@ -6,6 +6,13 @@ if ! command -v redis-cli &> /dev/null; then
 apt-get update &> /dev/null && apt-get install -y redis-tools &> /dev/null
 fi
 
+# Create plugins directory and download the velocity plugin
+PLUGINS_DIR="{{ .Values.volume.mountPath | default "/minecraft" }}/plugins"
+mkdir -p "$PLUGINS_DIR"
+echo "Downloading bmc-velocity plugin..."
+curl -L -o "$PLUGINS_DIR/bmc-velocity.jar" "https://github.com/big-minecraft/bmc-velocity/releases/latest/download/bmc-velocity.jar"
+echo "Plugin downloaded successfully"
+
 # Create pod-local directory for server files
 POD_LOCAL_DIR="/tmp/minecraft-server"
 mkdir -p "$POD_LOCAL_DIR"
@@ -13,13 +20,6 @@ mkdir -p "$POD_LOCAL_DIR"
 # Copy all files from shared volume to pod-local directory
 echo "Copying server files to pod-local directory..."
 cp -r {{ .Values.volume.mountPath }}/* "$POD_LOCAL_DIR/"
-
-# Create plugins directory and download the velocity plugin
-PLUGINS_DIR="{{ .Values.volume.mountPath | default "/minecraft" }}/plugins"
-mkdir -p "$PLUGINS_DIR"
-echo "Downloading bmc-velocity plugin..."
-curl -L -o "$PLUGINS_DIR/bmc-velocity.jar" "https://github.com/big-minecraft/bmc-velocity/releases/latest/download/bmc-velocity.jar"
-echo "Plugin downloaded successfully"
 
 cd "$POD_LOCAL_DIR"
 if [ ! -f "./{{ .Values.server.jarName }}" ]; then
