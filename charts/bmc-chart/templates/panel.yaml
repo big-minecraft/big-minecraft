@@ -31,6 +31,8 @@ spec:
             runAsUser: 0
             runAsGroup: 0
           env:
+            - name: GLOBAL_VALUES_JSON
+              value: {{ .Values.global | toJson | quote }}
             - name: INITIAL_INVITE_CODE
               value: {{ .Values.global.initialInviteCode }}
             - name: PANEL_HOST
