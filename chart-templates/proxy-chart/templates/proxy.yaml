@@ -99,4 +99,4 @@ metadata:
   name: {{ .Values.name }}-entrypoint
 data:
   entrypoint.sh: |
-{{ (.Files.Get "scripts/entrypoint.sh") | indent 4 }}
+{{ tpl (.Files.Get "scripts/entrypoint.sh") . | indent 4 }}

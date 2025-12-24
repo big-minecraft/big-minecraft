@@ -14,6 +14,13 @@ mkdir -p "$POD_LOCAL_DIR"
 echo "Copying server files to pod-local directory..."
 cp -r {{ .Values.volume.mountPath }}/* "$POD_LOCAL_DIR/"
 
+# Create plugins directory and download the velocity plugin
+PLUGINS_DIR="{{ .Values.volume.mountPath | default "/minecraft" }}/plugins"
+mkdir -p "$PLUGINS_DIR"
+echo "Downloading bmc-velocity plugin..."
+curl -L -o "$PLUGINS_DIR/bmc-velocity.jar" "https://github.com/big-minecraft/bmc-velocity/releases/latest/download/bmc-velocity.jar"
+echo "Plugin downloaded successfully"
+
 cd "$POD_LOCAL_DIR"
 if [ ! -f "./{{ .Values.server.jarName }}" ]; then
 echo "Jar file not found! Check your deployment configuration file."
