@@ -71,7 +71,7 @@ spec:
       volumes:
       - name: entrypoint
         configMap:
-          name: {{ .Values.name }}-entrypoint
+          name: proxy-entrypoint
           defaultMode: 0755
       - name: local-volume
         persistentVolumeClaim:
