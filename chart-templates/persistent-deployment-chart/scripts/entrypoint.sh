@@ -6,7 +6,7 @@ if ! command -v redis-cli &> /dev/null; then
   apt-get update &> /dev/null && apt-get install -y redis-tools &> /dev/null
 fi
 
-cd {{ .Values.volume.mountPath }}
+cd "{{ .Values.volume.mountPath }}"
 if [ ! -f "./{{ .Values.server.jarName }}" ]; then
   echo "Jar file not found! Check your deployment configuration file."
   ls -la ./
