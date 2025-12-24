@@ -96,7 +96,7 @@ spec:
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ .Values.name }}-entrypoint
+  name: proxy-entrypoint
 data:
   entrypoint.sh: |
 {{ tpl (.Files.Get "scripts/entrypoint.sh") . | indent 4 }}
