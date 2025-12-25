@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ .Values.fileSession.podName }}
+  labels:
+    app: file-edit-session
+    deployment: {{ .Values.fileSession.deploymentName }}
+spec:
+  restartPolicy: Never
+  containers:
+    - name: file-editor
+      image: alpine:latest
+      command: ["/bin/sh", "-c", "sleep infinity"]
+      volumeMounts:
+        - name: pvc-data
+          mountPath: {{ .Values.fileSession.mountPath }}
+  volumes:
+    - name: pvc-data
+      persistentVolumeClaim:
+        claimName: {{ .Values.fileSession.pvcName }}
