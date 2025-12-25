@@ -76,3 +76,6 @@ resources:
   limits:
     memory: 0Mi
     cpu: 0m
+
+# Automatically generated SFTP port for accessing the deployment's file system.
+sftpPort: 0
