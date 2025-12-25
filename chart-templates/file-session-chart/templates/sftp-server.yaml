@@ -5,6 +5,8 @@ metadata:
   labels:
     app: sftp-server
 spec:
+  securityContext:
+    fsGroup: 1001
   restartPolicy: Never
   containers:
     - name: sftp
