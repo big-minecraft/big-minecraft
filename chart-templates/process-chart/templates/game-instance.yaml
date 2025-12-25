@@ -38,21 +38,10 @@ spec:
       containers:
       - name: process
         image: {{ .Values.process.image }}
-        ports:
-        {{- if .Values.fileServer.enabled }}
-        - containerPort: {{ .Values.fileServer.port | default 8080 }}
-          name: file-server
-        {{- end }}
         volumeMounts:
           - name: local-volume
             mountPath: {{ .Values.volume.mountPath | default "/minecraft" }}
         env:
-        {{- if .Values.fileServer.enabled }}
-        - name: FILE_SERVER_URL_TEMPLATE
-          value: "https://{{ .Values.global.filesDomain }}/{{ .Values.name }}/{filepath}?pod=${HOSTNAME}"
-        - name: HTTP_PORT
-          value: "{{ .Values.fileServer.port | default 8080 }}"
-        {{- end }}
         {{- range .Values.process.env }}
         - name: {{ .name }}
           value: {{ .value | quote }}
@@ -84,65 +73,3 @@ spec:
   resources:
     requests:
       storage: {{ .Values.global.storage.volumeSize.process | default "2Gi" }}
----
-{{- if .Values.fileServer.enabled }}
-# Headless service to enable pod-specific DNS resolution
-apiVersion: v1
-kind: Service
-metadata:
-  name: files-{{ .Values.name }}-headless
-  labels:
-    app: {{ .Values.name }}
-    component: file-server
-    chart: "{{ .Chart.Name }}-{{ .Chart.Version }}"
-    kyriji.dev/deployment-type: "process"
-    kyriji.dev/component: "file-server"
-spec:
-  clusterIP: None
-  selector:
-    app: {{ .Values.name }}
-  ports:
-  - port: {{ .Values.fileServer.port | default 8080 }}
-    targetPort: {{ .Values.fileServer.port | default 8080 }}
-    protocol: TCP
-    name: http
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: files-{{ .Values.name }}
-  labels:
-    app: {{ .Values.name }}
-    component: file-server
-    chart: "{{ .Chart.Name }}-{{ .Chart.Version }}"
-    kyriji.dev/deployment-type: "process"
-    kyriji.dev/component: "file-server"
-  annotations:
-    cert-manager.io/cluster-issuer: "letsencrypt-prod"
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
-    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
-    {{- if .Values.fileServer.maxFileSize }}
-    nginx.ingress.kubernetes.io/proxy-body-size: {{ .Values.fileServer.maxFileSize }}
-    {{- end }}
-    # Use consistent hashing based on pod parameter to route to specific pods
-    nginx.ingress.kubernetes.io/upstream-hash-by: "$arg_pod"
-    # Rewrite path to remove deployment name from requests sent to pod
-    nginx.ingress.kubernetes.io/rewrite-target: /$2
-spec:
-  ingressClassName: nginx
-  tls:
-  - hosts:
-    - {{ .Values.global.filesDomain }}
-    secretName: files-{{ .Values.name }}-tls
-  rules:
-  - host: {{ .Values.global.filesDomain }}
-    http:
-      paths:
-      - path: /{{ .Values.name }}(/|$)(.*)
-        pathType: ImplementationSpecific
-        backend:
-          service:
-            name: files-{{ .Values.name }}-headless
-            port:
-              number: {{ .Values.fileServer.port | default 8080 }}
-{{- end }}
