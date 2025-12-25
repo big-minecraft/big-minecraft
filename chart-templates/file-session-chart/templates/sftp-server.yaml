@@ -3,7 +3,7 @@ kind: Pod
 metadata:
   name: {{ .Values.sftp.podName }}
   labels:
-    app: sftp-server
+    app: {{ .Values.sftp.podName }}
 spec:
   securityContext:
     fsGroup: 1001
@@ -27,11 +27,11 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: sftp-server
+  name: {{ .Values.sftp.podName }}-service
 spec:
   type: NodePort
   selector:
-    app: sftp-server
+    app: {{ .Values.sftp.podName }}
   ports:
     - port: 22
       targetPort: 22
