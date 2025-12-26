@@ -13,12 +13,12 @@ spec:
       image: atmoz/sftp:latest
       env:
         - name: SFTP_USERS
-          value: "{{ .Values.sftp.username }}:{{ .Values.sftp.password }}:1001:1001:/data"
+          value: "{{ .Values.sftp.username }}:{{ .Values.sftp.password }}:1001:1001"
       ports:
         - containerPort: {{ .Values.sftp.port }}
       volumeMounts:
         - name: pvc-data
-          mountPath: /data
+          mountPath: /home/{{ .Values.sftp.username }}
   volumes:
     - name: pvc-data
       persistentVolumeClaim:
