@@ -9,6 +9,7 @@ spec:
     fsGroup: 1001
     fsGroupChangePolicy: Always
   restartPolicy: Never
+
   initContainers:
     - name: init-upload-dir
       image: busybox
@@ -16,28 +17,29 @@ spec:
         - sh
         - -c
         - |
-          mkdir -p /upload
-          chown 1001:1001 /upload
+          mkdir -p /data/upload
+          chown 1001:1001 /data/upload
       volumeMounts:
         - name: pvc-data
-          mountPath: /home/{{ .Values.sftp.username }}
+          mountPath: /data
 
   containers:
     - name: sftp
       image: atmoz/sftp:latest
       env:
         - name: SFTP_USERS
-          value: "{{ .Values.sftp.username }}:{{ .Values.sftp.password }}:1001:1001"
+          value: "{{ .Values.sftp.username }}:{{ .Values.sftp.password }}:1001:1001:/data"
       ports:
         - containerPort: {{ .Values.sftp.port }}
       volumeMounts:
         - name: pvc-data
-          mountPath: /home/{{ .Values.sftp.username }}
+          mountPath: /data
 
   volumes:
     - name: pvc-data
       persistentVolumeClaim:
         claimName: {{ .Values.sftp.pvcName }}
+
 ---
 apiVersion: v1
 kind: Service
