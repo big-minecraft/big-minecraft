@@ -19,9 +19,6 @@ spec:
       volumeMounts:
         - name: pvc-data
           mountPath: /home/{{ .Values.sftp.username }}
-      securityContext:
-        runAsUser: 1001
-        runAsGroup: 1001
   volumes:
     - name: pvc-data
       persistentVolumeClaim:
