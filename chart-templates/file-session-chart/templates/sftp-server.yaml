@@ -14,7 +14,7 @@ spec:
       image: atmoz/sftp:latest
       env:
         - name: SFTP_USERS
-          value: "{{ .Values.sftp.username }}:{{ .Values.sftp.password }}:1001:1001"
+          value: "{{ .Values.sftp.username }}:{{ .Values.sftp.password }}:1001:1001:/home/{{ .Values.sftp.username }}"
       ports:
         - containerPort: {{ .Values.sftp.port }}
       volumeMounts:
