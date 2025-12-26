@@ -33,22 +33,6 @@ spec:
           env:
             - name: GLOBAL_VALUES_JSON
               value: {{ .Values.global | toJson | quote }}
-            - name: INITIAL_INVITE_CODE
-              value: {{ .Values.global.initialInviteCode }}
-            - name: PANEL_HOST
-              value: {{ .Values.global.ingress.panelDomain }}
-            - name: PANEL_SECRET
-              value: {{ .Values.global.panelSecret }}
-            - name: K8S_DASHBOARD_HOST
-              value: {{ .Values.global.k8sDashboardDomain }}
-            - name: MARIADB_PASSWORD
-              value: {{ .Values.global.mariaDB.initPassword }}
-            - name: MONGO_INITDB_ROOT_PASSWORD
-              value: {{ .Values.global.mongoDB.initPassword }}
-            - name: STORAGE_PATH
-              value: "/storage"
-            - name: ENVIRONMENT
-              value: {{ .Values.global.environment }}
           volumeMounts:
             - name: storage
               mountPath: /storage

@@ -6,6 +6,10 @@ metadata:
     app: {{ .Values.name }}
     cadvisor: "true"
     chart: "{{ .Chart.Name }}-{{ .Chart.Version }}"
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8080"
+    prometheus.io/path: "/metrics"
 spec:
   replicas: {{ .Values.scaling.minInstances }}
   selector:
