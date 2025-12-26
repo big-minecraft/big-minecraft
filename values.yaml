@@ -1,10 +1,15 @@
 environment: development
 
-initialInviteCode: cuLLgJ9LEIf
-panelSecret: QtSDzCJcBJaDhde5A0jZ
+panel:
+  initialInviteCode: cuLLgJ9LEIf
+  panelSecret: QtSDzCJcBJaDhde5A0jZ
+  storagePath: /storage
+  panelHost: panel-bmc.wiji.dev
+  k8sDashboardHost: k8s-bmc.wiji.dev
+  inviteCodeExpiryDays: 7
 
 loadBalancer:
-  #Options:
+  # Options:
   #  - metallb : requires entrypointIP
 
   type: metallb
@@ -15,6 +20,7 @@ ingress:
   panelDomain: panel-bmc.wiji.dev
 
 storage:
+  # Must support ReadWriteMany Access
   storageClass: "nfs"
   reclaimPolicy: "Retain"
   volumeSize:
@@ -31,7 +37,29 @@ redis:
   port: 6379
 
 mariaDB:
+  host: mariadb-service
+  port: 3306
+  username: root
+  database: bmc
+
   initPassword: K46IZkZm44N95h0fparY
 
 mongoDB:
-  initPassword: QpbCcKBWfQTPVASXQmvQ
+   host: mongodb-service
+   port: 27017
+   username: admin
+   database: admin
+
+   initPassword: QpbCcKBWfQTPVASXQmvQ
+
+prometheus:
+  host: prometheus-service
+  port: 9090
+
+sftp:
+  password: v6Qkb82i8V3x
+
+fileEditSession:
+  timeoutMinutes: 15
+
+
