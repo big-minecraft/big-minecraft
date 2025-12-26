@@ -5,30 +5,51 @@ metadata:
   labels:
     app: {{ .Values.sftp.podName }}
 spec:
-  securityContext:
-    fsGroup: 1001
-    fsGroupChangePolicy: "OnRootMismatch"
   restartPolicy: Never
   containers:
     - name: sftp
-      image: atmoz/sftp:latest
-      env:
-        - name: SFTP_USERS
-          value: "{{ .Values.sftp.username }}:{{ .Values.sftp.password }}:1001:1001"
+      image: emberstack/sftp:latest
       ports:
-        - containerPort: {{ .Values.sftp.port }}
+        - containerPort: 22
       volumeMounts:
         - name: pvc-data
-          mountPath: /home/{{ .Values.sftp.username }}
-      securityContext:
-        capabilities:
-          add:
-            - CHOWN
-            - FOWNER
+          mountPath: /home/{{ .Values.sftp.username }}/data
+        - name: sftp-config
+          mountPath: /app/config/sftp.json
+          subPath: sftp.json
   volumes:
     - name: pvc-data
       persistentVolumeClaim:
         claimName: {{ .Values.sftp.pvcName }}
+    - name: sftp-config
+      configMap:
+        name: {{ .Values.sftp.podName }}-config
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.sftp.podName }}-config
+data:
+  sftp.json: |
+    {
+      "Global": {
+        "Chroot": {
+          "Directory": "%h",
+          "StartPath": "data"
+        }
+      },
+      "Users": [
+        {
+          "Username": "{{ .Values.sftp.username }}",
+          "Password": "{{ .Values.sftp.password }}",
+          "UID": 1001,
+          "GID": 1001,
+          "Directories": [
+            "data"
+          ]
+        }
+      ]
+    }
 ---
 apiVersion: v1
 kind: Service
@@ -42,4 +63,3 @@ spec:
     - port: 22
       targetPort: 22
       nodePort: {{ .Values.sftp.nodePort }}
-
