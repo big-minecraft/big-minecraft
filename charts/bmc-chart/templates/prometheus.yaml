@@ -1,3 +1,26 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: prometheus-server-role
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "nodes/proxy", "nodes/metrics", "services", "endpoints", "pods"]
+    verbs: ["get", "list", "watch"]
+  - nonResourceURLs: ["/metrics", "/metrics/cadvisor"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus-server-binding
+subjects:
+  - kind: ServiceAccount
+    name: kubectl-sa
+    namespace: default
+roleRef:
+  kind: ClusterRole
+  name: prometheus-server-role
+  apiGroup: rbac.authorization.k8s.io
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -5,33 +28,36 @@ metadata:
   name: prometheus-config
   labels:
     app: prometheus
-    component: server
 data:
   prometheus.yml: |
     global:
       scrape_interval: 15s
 
     scrape_configs:
-    - job_name: 'cadvisor'
-      kubernetes_sd_configs:
-        - role: pod
-      relabel_configs:
-        - source_labels: [__meta_kubernetes_pod_container_name]
-          regex: "cadvisor"
-          action: keep
-        - source_labels: [__meta_kubernetes_pod_label_cadvisor]
-          regex: "true"
-          action: keep
-        - action: replace
-          source_labels: [__meta_kubernetes_pod_name]
-          target_label: pod
+      # Job to scrape cAdvisor metrics from the Kubelet (CPU/RAM)
+      - job_name: 'kubernetes-cadvisor'
+        scheme: https
+        metrics_path: /metrics/cadvisor
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+          insecure_skip_verify: true
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        kubernetes_sd_configs:
+          - role: node
+        relabel_configs:
+          - action: labelmap
+            regex: __meta_kubernetes_node_label_(.+)
+          - target_label: __address__
+            replacement: kubernetes.default.svc:443
+          - source_labels: [__meta_kubernetes_node_name]
+            regex: (.+)
+            target_label: __metrics_path__
+            replacement: /api/v1/nodes/${1}/proxy/metrics/cadvisor
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: prometheus
-  labels:
-    app: prometheus
 spec:
   replicas: 1
   selector:
@@ -44,16 +70,17 @@ spec:
     spec:
       serviceAccountName: kubectl-sa
       containers:
-      - name: prometheus
-        image: prom/prometheus:v2.46.0
-        args:
-          - "--config.file=/etc/prometheus/prometheus.yml"
-        ports:
-          - containerPort: 9090
-            name: web
-        volumeMounts:
-          - name: prometheus-config-volume
-            mountPath: /etc/prometheus/
+        - name: prometheus
+          image: prom/prometheus:v2.46.0
+          args:
+            - "--config.file=/etc/prometheus/prometheus.yml"
+            - "--storage.tsdb.retention.time=15d"
+          ports:
+            - containerPort: 9090
+              name: web
+          volumeMounts:
+            - name: prometheus-config-volume
+              mountPath: /etc/prometheus/
       volumes:
         - name: prometheus-config-volume
           configMap:
