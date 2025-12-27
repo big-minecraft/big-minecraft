@@ -1,4 +1,4 @@
-{{- if eq .Values.global.loadBalancer.type "metallb" }}
+{{- if eq .Values.global.loadBalancer.provider "metallb" }}
 apiVersion: metallb.io/v1beta1
 kind: IPAddressPool
 metadata:
@@ -8,15 +8,21 @@ metadata:
     {{- include "common.labels" . | nindent 4 }}
 spec:
   addresses:
-    - {{ .Values.global.loadBalancer.entrypointIP }}/32
+    {{- range .Values.global.loadBalancer.metallb.ipAddressPool }}
+    - {{ . }}
+    {{- end }}
   autoAssign: true
 ---
+{{- if eq .Values.global.loadBalancer.metallb.advertisementMode "l2" }}
 apiVersion: metallb.io/v1beta1
 kind: L2Advertisement
 metadata:
   name: default
   namespace: metallb-system
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
 spec:
   ipAddressPools:
     - default
+{{- end }}
 {{- end }}

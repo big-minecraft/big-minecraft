@@ -2,9 +2,24 @@ apiVersion: v1
 kind: Service
 metadata:
   name: proxy-lb
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    app: proxy
   annotations:
-    metallb.universe.tf/allow-shared-ip: "shared-ip-key"
-    metallb.universe.tf/loadBalancerIPs: "{{ .Values.global.ingress.entrypointIP }}"
+    {{- if eq .Values.global.loadBalancer.provider "metallb" }}
+    # Modern MetalLB annotations (v0.13+)
+    metallb.io/allow-shared-ip: "shared-ip-key"
+    metallb.io/loadBalancerIPs: "{{ .Values.global.loadBalancer.metallb.entrypointIP }}"
+    {{- end }}
+    {{- if eq .Values.global.loadBalancer.provider "aws" }}
+    {{- end }}
+    {{- if eq .Values.global.loadBalancer.provider "gcp" }}
+    {{- end }}
+    {{- if eq .Values.global.loadBalancer.provider "azure" }}
+    {{- end }}
+    {{- with .Values.global.loadBalancer.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
 spec:
   type: LoadBalancer
   selector:
