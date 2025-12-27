@@ -1,7 +1,7 @@
 environments:
   default:
     values:
-      - values.yaml
+      - charts/bmc-chart/values.yaml
 ---
 repositories:
   - name: metallb
@@ -17,7 +17,7 @@ releases:
     chart: metallb/metallb
     version: 0.14.9
     # Conditional installation based on loadBalancer provider
-    installed: {{ eq .Environment.Values.loadBalancer.provider "metallb" }}
+    installed: {{ eq .Environment.Values.global.loadBalancer.provider "metallb" }}
     hooks:
       - events: ["presync"]
         showlogs: true
@@ -42,9 +42,7 @@ releases:
     namespace: default
     chart: ./charts/bmc-chart
     needs:
-      {{- if eq .Environment.Values.loadBalancer.provider "metallb" }}
+      {{- if eq .Environment.Values.global.loadBalancer.provider "metallb" }}
       - metallb-system/metallb
       {{- end }}
       - cert-manager/cert-manager
-    values:
-      - global: {{ .Environment.Values | toYaml | nindent 10 }}
