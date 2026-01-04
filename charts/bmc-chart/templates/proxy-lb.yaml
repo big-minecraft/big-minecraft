@@ -7,11 +7,8 @@ metadata:
     app: proxy
   annotations:
     {{- if eq .Values.global.loadBalancer.provider "metallb" }}
-    # Modern MetalLB annotations (v0.13+)
     metallb.io/allow-shared-ip: "shared-ip-key"
     metallb.io/loadBalancerIPs: "{{ .Values.global.loadBalancer.metallb.entrypointIP }}"
-    {{- end }}
-    {{- if eq .Values.global.loadBalancer.provider "aws" }}
     {{- end }}
     {{- if eq .Values.global.loadBalancer.provider "gcp" }}
     {{- end }}

@@ -8,8 +8,17 @@ repositories:
     url: https://metallb.github.io/metallb
   - name: jetstack
     url: https://charts.jetstack.io
+  - name: traefik
+    url: https://traefik.github.io/charts
 ---
 releases:
+  # Traefik - only installed when ingress.installTraefik is true
+  - name: traefik
+    namespace: traefik
+    createNamespace: true
+    chart: traefik/traefik
+    version: 28.3.0
+    installed: {{ .Environment.Values.global.ingress.installTraefik | default false }}
   # MetalLB - only installed when loadBalancer.provider is "metallb"
   - name: metallb
     namespace: metallb-system

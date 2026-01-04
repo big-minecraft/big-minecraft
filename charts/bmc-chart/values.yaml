@@ -5,16 +5,13 @@ global:
     initialInviteCode: cuLLgJ9LEIf
     panelSecret: QtSDzCJcBJaDhde5A0jZ
     storagePath: /storage
-    panelHost: panel-bmc.wiji.dev
+    panelHost: eks-bmc.wiji.dev
     k8sDashboardHost: k8s-bmc.wiji.dev
     inviteCodeExpiryDays: 7
 
   loadBalancer:
     # Provider options:
     #  - metallb : on-premise with MetalLB (requires entrypointIP)
-    #  - gcp     : Google Cloud Platform (uses cloud load balancer)
-    #  - aws     : Amazon Web Services (uses cloud load balancer)
-    #  - azure   : Microsoft Azure (uses cloud load balancer)
 
     provider: metallb
 
@@ -28,26 +25,20 @@ global:
       # Advertisement mode: l2 or bgp
       advertisementMode: l2
 
-    # Cloud-specific annotations (optional, applied based on provider)
-    annotations: {}
-      # Example for GCP:
-      # cloud.google.com/load-balancer-type: "Internal"
-      # networking.gke.io/load-balancer-type: "Internal"
-
-      # Example for AWS:
-      # service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
-      # service.beta.kubernetes.io/aws-load-balancer-internal: "false"
-
-      # Example for Azure:
-      # service.beta.kubernetes.io/azure-load-balancer-internal: "false"
-
   ingress:
     ingressClass: "traefik"
-    panelDomain: panel-bmc.wiji.dev
+    panelDomain: eks-bmc.wiji.dev
+    # Set to false for k3s (includes Traefik), true for base k8s
+    installTraefik: true
 
   storage:
-    # Must support ReadWriteMany Access
-    storageClass: "nfs"
+    # Provider options:
+    #  - nfs      : Network File System
+    #  - longhorn : Longhorn File System
+
+    provider: longhorn
+    storageClass: "efs-sc"
+
     reclaimPolicy: "Retain"
     volumeSize:
       persistent: "10Gi"
