@@ -54,6 +54,20 @@ spec:
     queueStrategy: {{ .Values.queuing.queueStrategy | quote }}
 ---
 apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: bmc-scalable-{{ .Values.name }}
+  labels:
+    app: {{ .Values.name }}
+    kyriji.dev/deployment-type: "scalable"
+spec:
+  accessModes: ["ReadWriteMany"]
+  storageClassName: {{ .Values.global.storage.storageClass | default "longhorn" }}
+  resources:
+    requests:
+      storage: {{ .Values.global.storage.volumeSize.scalable | default "5Gi" }}
+---
+apiVersion: v1
 kind: ConfigMap
 metadata:
   name: {{ .Values.name }}-entrypoint

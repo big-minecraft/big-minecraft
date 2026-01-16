@@ -47,6 +47,20 @@ spec:
     queueStrategy: FILL
 ---
 apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: bmc-persistent-{{ .Values.name }}
+  labels:
+    app: {{ .Values.name }}
+    kyriji.dev/deployment-type: "persistent"
+spec:
+  accessModes: ["ReadWriteMany"]
+  storageClassName: {{ .Values.global.storage.storageClass | default "longhorn" }}
+  resources:
+    requests:
+      storage: {{ .Values.global.storage.volumeSize.persistent | default "10Gi" }}
+---
+apiVersion: v1
 kind: ConfigMap
 metadata:
   name: {{ .Values.name }}-entrypoint

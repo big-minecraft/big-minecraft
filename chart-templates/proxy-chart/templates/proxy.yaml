@@ -55,6 +55,20 @@ spec:
   serviceAccountName: kubectl-sa
 ---
 apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: bmc-proxy
+  labels:
+    app: proxy
+    kyriji.dev/deployment-type: "proxy"
+spec:
+  accessModes: ["ReadWriteMany"]
+  storageClassName: {{ .Values.global.storage.storageClass | default "longhorn" }}
+  resources:
+    requests:
+      storage: {{ .Values.global.storage.volumeSize.proxy | default "5Gi" }}
+---
+apiVersion: v1
 kind: ConfigMap
 metadata:
   name: proxy-entrypoint
