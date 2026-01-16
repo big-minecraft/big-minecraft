@@ -1,97 +1,58 @@
-apiVersion: apps/v1
-kind: Deployment
+apiVersion: kyriji.dev/v1alpha1
+kind: GameServer
 metadata:
   name: proxy
   labels:
     app: proxy
-    cadvisor: "true"
     chart: "{{ .Chart.Name }}-{{ .Chart.Version }}"
 spec:
-  replicas: {{ .Values.scaling.minInstances }}
-  selector:
-    matchLabels:
-      app: proxy
-  template:
-    metadata:
-      labels:
-        app: proxy
-        cadvisor: "true"
-        kyriji.dev/enable-panel-discovery: "true"
-        kyriji.dev/enable-server-discovery: "true"
-        kyriji.dev/deployment-type: "proxy"
-
-        kyriji.dev/scale-strategy: "{{ .Values.scaling.scaleStrategy }}"
-        kyriji.dev/max-players: "{{ .Values.scaling.maxPlayers }}"
-        kyriji.dev/min-instances: "{{ .Values.scaling.minInstances }}"
-        kyriji.dev/max-instances: "{{ .Values.scaling.maxInstances }}"
-        kyriji.dev/scale-up-threshold: "{{ .Values.scaling.scaleUpThreshold }}"
-        kyriji.dev/scale-down-threshold: "{{ .Values.scaling.scaleDownThreshold }}"
-        kyriji.dev/scale-up-cooldown: "{{ .Values.scaling.scaleUpCooldown }}"
-        kyriji.dev/scale-down-cooldown: "{{ .Values.scaling.scaleDownCooldown }}"
-        kyriji.dev/scale-up-limit: "{{ .Values.scaling.scaleUpLimit }}"
-        kyriji.dev/scale-down-limit: "{{ .Values.scaling.scaleDownLimit }}"
-    spec:
-      serviceAccountName: kubectl-sa
-      containers:
-      - name: mc
-        image: {{ .Values.server.image }}
-        command: ["/bin/bash", "/entrypoint/entrypoint.sh"]
-        volumeMounts:
-          - name: entrypoint
-            mountPath: /entrypoint
-          - name: local-volume
-            mountPath: {{ .Values.volume.mountPath | default "/minecraft" }}
-            readOnly: false
-          - name: tmp
-            mountPath: /tmp
-        ports:
-        - containerPort: {{ .Values.server.port | default 25565 }}
-          name: java
-        - containerPort: 19132
-          name: bedrock
-          protocol: UDP
-        env:
-        {{- range .Values.server.env }}
-        - name: {{ .name }}
-          value: {{ .value | quote }}
-        {{- end }}
-        - name: REDIS_HOST
-          value: {{ .Values.server.redis.host | quote }}
-        - name: REDIS_PORT
-          value: {{ .Values.server.redis.port | quote }}
-        - name: DEPLOYMENT_NAME
-          value: "proxy"
-        resources:
-          requests:
-            memory: {{ .Values.resources.requests.memory }}
-            cpu: {{ .Values.resources.requests.cpu }}
-          limits:
-            memory: {{ .Values.resources.limits.memory }}
-            cpu: {{ .Values.resources.limits.cpu }}
-      volumes:
-      - name: entrypoint
-        configMap:
-          name: proxy-entrypoint
-          defaultMode: 0755
-      - name: local-volume
-        persistentVolumeClaim:
-          claimName: bmc-proxy
-      - name: tmp
-        emptyDir: {}
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: bmc-proxy
-  labels:
-    app: proxy
-    kyriji.dev/deployment-type: "proxy"
-spec:
-  accessModes: ["ReadWriteMany"]
-  storageClassName: {{ .Values.global.storage.storageClass | default "longhorn" }} 
+  deploymentType: proxy
+  image: {{ .Values.server.image }}
+  command:
+    - /bin/bash
+    - /entrypoint/entrypoint.sh
+  port: {{ .Values.server.port | default 25565 }}
+  additionalPorts:
+    - name: bedrock
+      port: 19132
+      protocol: UDP
+  env:
+    {{- range .Values.server.env }}
+    - name: {{ .name }}
+      value: {{ .value | quote }}
+    {{- end }}
+    - name: REDIS_HOST
+      value: {{ .Values.server.redis.host | quote }}
+    - name: REDIS_PORT
+      value: {{ .Values.server.redis.port | quote }}
+    - name: DEPLOYMENT_NAME
+      value: "proxy"
   resources:
     requests:
-      storage: {{ .Values.global.storage.volumeSize.proxy | default "5Gi" }}
+      memory: {{ .Values.resources.requests.memory }}
+      cpu: {{ .Values.resources.requests.cpu }}
+    limits:
+      memory: {{ .Values.resources.limits.memory }}
+      cpu: {{ .Values.resources.limits.cpu }}
+  volume:
+    mountPath: {{ .Values.volume.mountPath | default "/minecraft" }}
+    storageClass: {{ .Values.global.storage.storageClass | default "longhorn" }}
+    size: {{ .Values.global.storage.volumeSize.proxy | default "5Gi" }}
+  redis:
+    host: {{ .Values.server.redis.host | quote }}
+    port: {{ .Values.server.redis.port | quote }}
+  scaling:
+    strategy: {{ .Values.scaling.scaleStrategy | quote }}
+    maxPlayers: {{ .Values.scaling.maxPlayers }}
+    minInstances: {{ .Values.scaling.minInstances }}
+    maxInstances: {{ .Values.scaling.maxInstances }}
+    scaleUpThreshold: {{ .Values.scaling.scaleUpThreshold }}
+    scaleDownThreshold: {{ .Values.scaling.scaleDownThreshold }}
+    scaleUpCooldown: {{ .Values.scaling.scaleUpCooldown }}
+    scaleDownCooldown: {{ .Values.scaling.scaleDownCooldown }}
+    scaleUpLimit: {{ .Values.scaling.scaleUpLimit }}
+    scaleDownLimit: {{ .Values.scaling.scaleDownLimit }}
+  serviceAccountName: kubectl-sa
 ---
 apiVersion: v1
 kind: ConfigMap

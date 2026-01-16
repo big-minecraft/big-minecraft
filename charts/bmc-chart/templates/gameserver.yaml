@@ -1,0 +1,144 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: gameservers.kyriji.dev
+spec:
+  group: kyriji.dev
+  scope: Namespaced
+  names:
+    plural: gameservers
+    singular: gameserver
+    kind: GameServer
+    shortNames:
+      - gs
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required:
+                - deploymentType
+                - image
+              properties:
+                deploymentType:
+                  type: string
+                  enum:
+                    - persistent
+                    - scalable
+                    - proxy
+                image:
+                  type: string
+                command:
+                  type: array
+                  items:
+                    type: string
+                port:
+                  type: integer
+                  default: 25565
+                additionalPorts:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                      port:
+                        type: integer
+                      protocol:
+                        type: string
+                        enum:
+                          - TCP
+                          - UDP
+                env:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                      value:
+                        type: string
+                resources:
+                  type: object
+                  properties:
+                    requests:
+                      type: object
+                      properties:
+                        memory:
+                          type: string
+                        cpu:
+                          type: string
+                    limits:
+                      type: object
+                      properties:
+                        memory:
+                          type: string
+                        cpu:
+                          type: string
+                volume:
+                  type: object
+                  properties:
+                    mountPath:
+                      type: string
+                      default: "/minecraft"
+                    storageClass:
+                      type: string
+                    size:
+                      type: string
+                redis:
+                  type: object
+                  properties:
+                    host:
+                      type: string
+                    port:
+                      type: string
+                scaling:
+                  type: object
+                  properties:
+                    strategy:
+                      type: string
+                    maxPlayers:
+                      type: integer
+                    minInstances:
+                      type: integer
+                      default: 1
+                    maxInstances:
+                      type: integer
+                      default: 1
+                    scaleUpThreshold:
+                      type: integer
+                    scaleDownThreshold:
+                      type: integer
+                    scaleUpCooldown:
+                      type: integer
+                    scaleDownCooldown:
+                      type: integer
+                    scaleUpLimit:
+                      type: integer
+                    scaleDownLimit:
+                      type: integer
+                queuing:
+                  type: object
+                  properties:
+                    initialServer:
+                      type: string
+                    requireStartupConfirmation:
+                      type: boolean
+                    queueStrategy:
+                      type: string
+                serviceAccountName:
+                  type: string
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                replicas:
+                  type: integer
+                readyReplicas:
+                  type: integer
