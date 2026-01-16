@@ -1,4 +1,4 @@
-{{- if eq .Values.global.loadBalancer.provider "metallb" }}
+{{- if and (eq .Values.global.loadBalancer.provider "metallb") .Values.global.loadBalancer.metallb.installResources }}
 apiVersion: metallb.io/v1beta1
 kind: IPAddressPool
 metadata:

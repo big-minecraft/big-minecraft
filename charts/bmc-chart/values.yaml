@@ -1,11 +1,29 @@
 global:
   environment: production
 
+  # Dependency installation flags
+  # Set these to false when installing on a cluster that already has these dependencies
+  dependencies:
+    # Install cert-manager helm chart (set false if already installed)
+    installCertManager: false
+    # Install metallb helm chart (set false if already installed)
+    installMetalLB: false
+    # Install traefik helm chart (set false if already installed, e.g., k3s)
+    installTraefik: false
+
+  certManager:
+    # Install ClusterIssuer resource (set false if already exists)
+    installClusterIssuer: false
+    # ClusterIssuer name to use (whether creating it or using existing)
+    clusterIssuerName: "letsencrypt-prod"
+    # Email for Let's Encrypt notifications
+    email: "bmc@redacted.com"
+
   panel:
     initialInviteCode: cuLLgJ9LEIf
     panelSecret: QtSDzCJcBJaDhde5A0jZ
     storagePath: /storage
-    panelHost: eks-bmc.wiji.dev
+    panelHost: dev.panel.wiji.dev
     k8sDashboardHost: k8s-bmc.wiji.dev
     inviteCodeExpiryDays: 7
 
@@ -17,27 +35,24 @@ global:
 
     # MetalLB-specific configuration (only used when provider is 'metallb')
     metallb:
-      entrypointIP: 64.71.161.75
+      # Install MetalLB IPAddressPool and L2Advertisement resources
+      # Set to false if these resources already exist in the cluster
+      entrypointIP: 15.204.235.114
+      installResources: false
       # IP address pool for MetalLB
       # Can be a single IP (e.g., "5.78.123.236/32") or range (e.g., "192.168.1.100-192.168.1.110")
       ipAddressPool:
-        - 64.71.161.75/32
+        - 15.204.235.114/32
       # Advertisement mode: l2 or bgp
       advertisementMode: l2
 
   ingress:
     ingressClass: "traefik"
-    panelDomain: eks-bmc.wiji.dev
-    # Set to false for k3s (includes Traefik), true for base k8s
-    installTraefik: true
+    panelDomain: dev.panel.wiji.dev
 
   storage:
-    # Provider options:
-    #  - nfs      : Network File System
-    #  - longhorn : Longhorn File System
-
-    provider: longhorn
-    storageClass: "efs-sc"
+    # Must support ReadWriteMany Access Mode
+    storageClass: "longhorn"
 
     reclaimPolicy: "Retain"
     volumeSize:

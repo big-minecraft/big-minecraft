@@ -10,13 +10,6 @@ metadata:
     metallb.io/allow-shared-ip: "shared-ip-key"
     metallb.io/loadBalancerIPs: "{{ .Values.global.loadBalancer.metallb.entrypointIP }}"
     {{- end }}
-    {{- if eq .Values.global.loadBalancer.provider "gcp" }}
-    {{- end }}
-    {{- if eq .Values.global.loadBalancer.provider "azure" }}
-    {{- end }}
-    {{- with .Values.global.loadBalancer.annotations }}
-    {{- toYaml . | nindent 4 }}
-    {{- end }}
 spec:
   type: LoadBalancer
   selector:

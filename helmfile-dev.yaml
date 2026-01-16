@@ -1,0 +1,9 @@
+environments:
+  default:
+    values:
+      - charts/bmc-chart/values.yaml
+---
+releases:
+  - name: big-minecraft
+    namespace: default
+    chart: ./charts/bmc-chart

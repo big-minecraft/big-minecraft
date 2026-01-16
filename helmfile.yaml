@@ -12,21 +12,18 @@ repositories:
     url: https://traefik.github.io/charts
 ---
 releases:
-  # Traefik - only installed when ingress.installTraefik is true
   - name: traefik
     namespace: traefik
     createNamespace: true
     chart: traefik/traefik
     version: 28.3.0
-    installed: {{ .Environment.Values.global.ingress.installTraefik | default false }}
-  # MetalLB - only installed when loadBalancer.provider is "metallb"
+    installed: {{ .Environment.Values.global.dependencies.installTraefik | default false }}
   - name: metallb
     namespace: metallb-system
     createNamespace: true
     chart: metallb/metallb
     version: 0.14.9
-    # Conditional installation based on loadBalancer provider
-    installed: {{ eq .Environment.Values.global.loadBalancer.provider "metallb" }}
+    installed: {{ and (eq .Environment.Values.global.loadBalancer.provider "metallb") .Environment.Values.global.dependencies.installMetalLB }}
     hooks:
       - events: ["presync"]
         showlogs: true
@@ -42,6 +39,7 @@ releases:
     createNamespace: true
     chart: jetstack/cert-manager
     version: v1.12.0
+    installed: {{ .Environment.Values.global.dependencies.installCertManager | default true }}
     set:
       - name: installCRDs
         value: true
@@ -51,7 +49,9 @@ releases:
     namespace: default
     chart: ./charts/bmc-chart
     needs:
-      {{- if eq .Environment.Values.global.loadBalancer.provider "metallb" }}
+      {{- if and (eq .Environment.Values.global.loadBalancer.provider "metallb") .Environment.Values.global.dependencies.installMetalLB }}
       - metallb-system/metallb
       {{- end }}
+      {{- if .Environment.Values.global.dependencies.installCertManager }}
       - cert-manager/cert-manager
+      {{- end }}
