@@ -14,7 +14,36 @@ spec:
       volumeMounts:
         - name: pvc-data
           mountPath: {{ .Values.fileSession.mountPath }}
+    - name: activity-watcher
+      image: alpine:latest
+      env:
+        - name: SESSION_ID
+          value: "{{ .Values.activityWatcher.sessionId }}"
+        - name: SERVICE_TOKEN
+          value: "{{ .Values.activityWatcher.serviceToken }}"
+        - name: PANEL_URL
+          value: "{{ .Values.activityWatcher.panelUrl }}"
+        - name: WATCH_PATH
+          value: "{{ .Values.fileSession.mountPath }}"
+      command: ["/bin/sh", "/scripts/activity-watcher.sh"]
+      volumeMounts:
+        - name: pvc-data
+          mountPath: {{ .Values.fileSession.mountPath }}
+        - name: scripts
+          mountPath: /scripts
   volumes:
     - name: pvc-data
       persistentVolumeClaim:
         claimName: {{ .Values.fileSession.pvcName }}
+    - name: scripts
+      configMap:
+        name: {{ .Values.fileSession.podName }}-scripts
+        defaultMode: 0755
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.fileSession.podName }}-scripts
+data:
+  activity-watcher.sh: |
+{{ .Files.Get "scripts/activity-watcher.sh" | indent 4 }}
