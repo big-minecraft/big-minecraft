@@ -13,7 +13,7 @@ metadata:
 spec:
   type: LoadBalancer
   selector:
-    app: proxy
+    kyriji.dev/lb-ready: "true"
   ports:
     - protocol: TCP
       port: 25565
