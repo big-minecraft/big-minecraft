@@ -1,64 +1,29 @@
-apiVersion: apps/v1
-kind: Deployment
+apiVersion: kyriji.dev/v1alpha1
+kind: GameServer
 metadata:
   name: {{ .Values.name }}
   labels:
     app: {{ .Values.name }}
-    cadvisor: "true"
     chart: "{{ .Chart.Name }}-{{ .Chart.Version }}"
 spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: {{ .Values.name }}
-  template:
-    metadata:
-      labels:
-        app: {{ .Values.name }}
-        cadvisor: "true"
-        kyriji.dev/enable-server-discovery: "true"
-        kyriji.dev/enable-panel-discovery: "true"
-        kyriji.dev/deployment-type: "process"
-
-        kyriji.dev/initial-server: "false"
-        kyriji.dev/require-startup-confirmation: "false"
-        kyriji.dev/queue-strategy: "FILL"
-
-        kyriji.dev/scale-strategy: "THRESHOLD"
-        kyriji.dev/max-players: "0"
-        kyriji.dev/min-instances: "1"
-        kyriji.dev/max-instances: "1"
-        kyriji.dev/scale-up-threshold: "0"
-        kyriji.dev/scale-down-threshold: "0"
-        kyriji.dev/scale-up-cooldown: "0"
-        kyriji.dev/scale-down-cooldown: "0"
-        kyriji.dev/scale-up-limit: "1"
-        kyriji.dev/scale-down-limit: "1"
-    spec:
-      containers:
-      - name: process
-        image: {{ .Values.process.image }}
-        volumeMounts:
-          - name: local-volume
-            mountPath: {{ .Values.volume.mountPath | default "/minecraft" }}
-        env:
-        {{- range .Values.process.env }}
-        - name: {{ .name }}
-          value: {{ .value | quote }}
-        {{- end }}
-        resources:
-          requests:
-            memory: {{ .Values.resources.requests.memory }}
-            cpu: {{ .Values.resources.requests.cpu }}
-          limits:
-            memory: {{ .Values.resources.limits.memory }}
-            cpu: {{ .Values.resources.limits.cpu }}
-      volumes:
-      - name: local-volume
-        persistentVolumeClaim:
-          claimName: bmc-process-{{ .Values.name }}
-      - name: tmp
-        emptyDir: {}
+  deploymentType: process
+  image: {{ .Values.process.image }}
+  env:
+  {{- range .Values.process.env }}
+  - name: {{ .name }}
+    value: {{ .value | quote }}
+  {{- end }}
+  resources:
+    requests:
+      memory: {{ .Values.resources.requests.memory }}
+      cpu: {{ .Values.resources.requests.cpu }}
+    limits:
+      memory: {{ .Values.resources.limits.memory }}
+      cpu: {{ .Values.resources.limits.cpu }}
+  volume:
+    mountPath: {{ .Values.volume.mountPath | default "/minecraft" }}
+    storageClass: {{ .Values.global.storage.storageClass | default "longhorn" }}
+    size: {{ .Values.global.storage.volumeSize.process | default "2Gi" }}
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
