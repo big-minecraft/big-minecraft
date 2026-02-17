@@ -33,6 +33,10 @@ scaling:
   # The maximum number of instances that can be stopped in a scale-down cycle.
   scaleDownLimit: 1
 
+  # The maximum age of a server instance before a shutdown is initialized.
+  # Use shorthand time format Ex. (1d 5h 32m 15s)
+  maxInstanceAge: 1d
+
 
 server:
   # Change this if you need to use a different java version.

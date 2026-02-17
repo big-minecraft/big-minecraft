@@ -48,6 +48,7 @@ spec:
     scaleDownCooldown: {{ .Values.scaling.scaleDownCooldown }}
     scaleUpLimit: {{ .Values.scaling.scaleUpLimit }}
     scaleDownLimit: {{ .Values.scaling.scaleDownLimit }}
+    maxInstanceAge: {{ .Values.scaling.maxInstanceAge }}
   queuing:
     initialServer: {{ .Values.queuing.initialServer | quote }}
     requireStartupConfirmation: {{ .Values.queuing.requireStartupConfirmation }}

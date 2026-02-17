@@ -41,6 +41,7 @@ spec:
     maxPlayers: {{ .Values.scaling.maxPlayers }}
     minInstances: 1
     maxInstances: 1
+    maxInstanceAge: {{ .Values.scaling.maxInstanceAge }}
   queuing:
     initialServer: {{ .Values.queuing.initialServer | quote }}
     requireStartupConfirmation: {{ .Values.queuing.requireStartupConfirmation }}

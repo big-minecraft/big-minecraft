@@ -52,6 +52,7 @@ spec:
     scaleDownCooldown: {{ .Values.scaling.scaleDownCooldown }}
     scaleUpLimit: {{ .Values.scaling.scaleUpLimit }}
     scaleDownLimit: {{ .Values.scaling.scaleDownLimit }}
+    maxInstanceAge: {{ .Values.scaling.maxInstanceAge }}
   serviceAccountName: kubectl-sa
 ---
 apiVersion: v1

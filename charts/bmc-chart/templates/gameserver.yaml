@@ -70,16 +70,16 @@ spec:
                       type: object
                       properties:
                         memory:
-                          type: string
+                          x-kubernetes-int-or-string: true
                         cpu:
-                          type: string
+                          x-kubernetes-int-or-string: true
                     limits:
                       type: object
                       properties:
                         memory:
-                          type: string
+                          x-kubernetes-int-or-string: true
                         cpu:
-                          type: string
+                          x-kubernetes-int-or-string: true
                 volume:
                   type: object
                   properties:
@@ -122,6 +122,8 @@ spec:
                       type: integer
                     scaleDownLimit:
                       type: integer
+                    maxInstanceAge:
+                      type: string
                 queuing:
                   type: object
                   properties:
