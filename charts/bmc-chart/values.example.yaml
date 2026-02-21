@@ -1,0 +1,153 @@
+# BMC (Big Minecraft) Chart Configuration Example
+#
+# Copy this file to values.custom.yaml and customize for your environment:
+#   cp values.example.yaml values.custom.yaml
+#
+# Then edit values.custom.yaml with your specific settings.
+# This file serves as documentation and should not be modified directly.
+
+global:
+  # Environment identifier (production, staging, development)
+  environment: production
+
+  # Dependency installation flags
+  # These are auto-detected by 'task detect' but can be overridden here
+  # Set in values.custom.yaml if you want to force install/skip
+  dependencies:
+    # Install cert-manager helm chart (auto-detected)
+    # installCertManager: false
+
+    # Install MetalLB helm chart (auto-detected)
+    # installMetalLB: false
+
+    # Install Traefik helm chart (auto-detected)
+    # installTraefik: false
+
+  certManager:
+    # Install ClusterIssuer resource for Let's Encrypt
+    installClusterIssuer: true
+
+    # ClusterIssuer name to use (whether creating it or using existing)
+    clusterIssuerName: "letsencrypt-prod"
+
+    # REQUIRED: Email for Let's Encrypt certificate notifications
+    email: "your-email@example.com"  # CHANGE THIS
+
+  panel:
+    # REQUIRED: Domain for the BMC web panel
+    panelHost: "panel.example.com"  # CHANGE THIS
+
+    # REQUIRED: Domain for Kubernetes dashboard (if enabled)
+    k8sDashboardHost: "k8s.example.com"  # CHANGE THIS
+
+    # Path for persistent storage inside containers
+    storagePath: /storage
+
+    # Invite code expiry in days
+    inviteCodeExpiryDays: 7
+
+  loadBalancer:
+    # Load balancer provider options:
+    #   - metallb : On-premise clusters using MetalLB
+    #   - cloud   : Cloud providers (GKE, EKS, AKS) with native load balancers
+    provider: metallb
+
+    # MetalLB-specific configuration (only used when provider is 'metallb')
+    metallb:
+      # REQUIRED: IP address for the main ingress entrypoint
+      entrypointIP: "192.168.1.100"  # CHANGE THIS
+
+      # Install MetalLB IPAddressPool and L2Advertisement resources
+      # Set to false if these resources already exist in the cluster
+      installResources: true
+
+      # REQUIRED: IP address pool for MetalLB
+      # Can be a single IP (e.g., "192.168.1.100/32") or range (e.g., "192.168.1.100-192.168.1.110")
+      ipAddressPool:
+        - "192.168.1.100/32"  # CHANGE THIS
+
+      # Advertisement mode: l2 (Layer 2) or bgp (BGP)
+      advertisementMode: l2
+
+  ingress:
+    # Ingress class to use (traefik, nginx, etc.)
+    ingressClass: "traefik"
+
+    # REQUIRED: Main domain for panel ingress
+    # Should match panel.panelHost above
+    panelDomain: "panel.example.com"  # CHANGE THIS
+
+  storage:
+    # Storage class name (must support ReadWriteMany access mode)
+    # Common options: longhorn, nfs, cephfs, efs (AWS), filestore (GCP)
+    storageClass: "longhorn"  # CHANGE if using different storage
+
+    # Reclaim policy for persistent volumes (Retain or Delete)
+    reclaimPolicy: "Retain"
+
+    # Volume sizes for different deployment types
+    volumeSize:
+      persistent: "10Gi"  # Persistent game servers
+      scalable: "5Gi"     # Scalable game servers
+      proxy: "5Gi"        # Proxy servers
+      process: "2Gi"      # Process servers
+      manifests: "1Gi"    # Deployment manifests storage
+      mariaDB: "5Gi"      # MariaDB database
+      mongoDB: "5Gi"      # MongoDB database
+
+  # Redis configuration (internal service)
+  redis:
+    host: "redis-service"
+    port: 6379
+
+  # MariaDB configuration (internal service)
+  # Password is stored in Kubernetes secret 'bmc-secrets'
+  mariaDB:
+    host: mariadb-service
+    port: 3306
+    username: root
+    database: bmc
+
+  # MongoDB configuration (internal service)
+  # Password is stored in Kubernetes secret 'bmc-secrets'
+  mongoDB:
+    host: mongodb-service
+    port: 27017
+    username: admin
+    database: admin
+
+  # Prometheus configuration (internal service)
+  prometheus:
+    host: prometheus-service
+    port: 9090
+
+  # SFTP configuration
+  # Password is stored in Kubernetes secret 'bmc-secrets'
+  sftp:
+    # Port is configured per deployment, password in secret
+    # username is typically 'ftpuser'
+    pass: true  # Enable SFTP access
+
+  # File editing session timeout
+  fileEditSession:
+    timeoutMinutes: 15
+
+# Advanced Configuration
+# Uncomment and modify these sections if you need to customize further
+
+# Image configuration (usually not needed)
+# images:
+#   panel:
+#     repository: your-registry/bmc-panel
+#     tag: latest
+#     pullPolicy: IfNotPresent
+
+# Resource limits (usually not needed, defaults are set in values.yaml)
+# resources:
+#   panel:
+#     requests:
+#       memory: "512Mi"
+#       cpu: "250m"
+#     limits:
+#       memory: "2Gi"
+#       cpu: "1000m"

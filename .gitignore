@@ -6,3 +6,15 @@ local/
 nuke.sh
 scripts/Dockerfile
 backups/
+
+# Generated and user-specific configuration files
+charts/bmc-chart/values.auto.yaml
+charts/bmc-chart/values.custom.yaml
+charts/bmc-chart/values.*.yaml
+!charts/bmc-chart/values.yaml
+!charts/bmc-chart/values.example.yaml
+
+# Secrets
+secrets.yaml
+secrets.*.yaml
+*.secret.yaml

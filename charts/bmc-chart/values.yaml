@@ -1,59 +1,57 @@
+# BMC (Big Minecraft) Chart Default Values
+#
+# This file contains safe defaults only.
+# DO NOT add secrets or environment-specific values here.
+#
+# For installation:
+#   1. Copy values.example.yaml to values.custom.yaml
+#   2. Edit values.custom.yaml with your configuration
+#   3. Run 'task secrets:generate' to create Kubernetes secrets
+#   4. Run 'task install' to deploy
+
 global:
   environment: production
 
   # Dependency installation flags
-  # Set these to false when installing on a cluster that already has these dependencies
+  # These are auto-detected by scripts/detect-dependencies.sh
+  # Override in values.custom.yaml if needed
   dependencies:
-    # Install cert-manager helm chart (set false if already installed)
     installCertManager: false
-    # Install metallb helm chart (set false if already installed)
     installMetalLB: false
-    # Install traefik helm chart (set false if already installed, e.g., k3s)
     installTraefik: false
 
   certManager:
-    # Install ClusterIssuer resource (set false if already exists)
     installClusterIssuer: false
-    # ClusterIssuer name to use (whether creating it or using existing)
     clusterIssuerName: "letsencrypt-prod"
-    # Email for Let's Encrypt notifications
-    email: "bmc@redacted.com"
+    # Email must be set in values.custom.yaml
+    email: ""
 
   panel:
-    initialInviteCode: cuLLgJ9LEIf
-    panelSecret: QtSDzCJcBJaDhde5A0jZ
+    # Secrets are stored in Kubernetes secret 'bmc-secrets'
+    # Domains must be set in values.custom.yaml
+    panelHost: ""
+    k8sDashboardHost: ""
     storagePath: /storage
-    panelHost: dev.panel.wiji.dev
-    k8sDashboardHost: k8s-bmc.wiji.dev
     inviteCodeExpiryDays: 7
 
   loadBalancer:
-    # Provider options:
-    #  - metallb : on-premise with MetalLB (requires entrypointIP)
-
     provider: metallb
 
-    # MetalLB-specific configuration (only used when provider is 'metallb')
     metallb:
-      # Install MetalLB IPAddressPool and L2Advertisement resources
-      # Set to false if these resources already exist in the cluster
-      entrypointIP: 15.204.235.114
+      # IP configuration must be set in values.custom.yaml
+      entrypointIP: ""
       installResources: false
-      # IP address pool for MetalLB
-      # Can be a single IP (e.g., "5.78.123.236/32") or range (e.g., "192.168.1.100-192.168.1.110")
-      ipAddressPool:
-        - 15.204.235.114/32
-      # Advertisement mode: l2 or bgp
+      ipAddressPool: []
       advertisementMode: l2
 
   ingress:
     ingressClass: "traefik"
-    panelDomain: dev.panel.wiji.dev
+    # Domain must be set in values.custom.yaml
+    panelDomain: ""
 
   storage:
     # Must support ReadWriteMany Access Mode
     storageClass: "longhorn"
-
     reclaimPolicy: "Retain"
     volumeSize:
       persistent: "10Gi"
@@ -73,25 +71,22 @@ global:
     port: 3306
     username: root
     database: bmc
-
-    initPassword: K46IZkZm44N95h0fparY
+    # Password stored in secret 'bmc-secrets' key 'mariadb-root-password'
 
   mongoDB:
-     host: mongodb-service
-     port: 27017
-     username: admin
-     database: admin
-
-     initPassword: QpbCcKBWfQTPVASXQmvQ
+    host: mongodb-service
+    port: 27017
+    username: admin
+    database: admin
+    # Password stored in secret 'bmc-secrets' key 'mongodb-root-password'
 
   prometheus:
     host: prometheus-service
     port: 9090
 
   sftp:
-    password: v6Qkb82i8V3x
+    # Password stored in secret 'bmc-secrets' key 'sftp-password'
+    enabled: true
 
   fileEditSession:
     timeoutMinutes: 15
-
-

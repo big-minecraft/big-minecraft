@@ -1,0 +1,152 @@
+version: '3'
+
+vars:
+  CHART_DIR: charts/bmc-chart
+  NAMESPACE: default
+  SCRIPTS_DIR: scripts
+
+tasks:
+  install:
+    desc: Complete installation (detect, validate, deploy)
+    silent: true
+    cmds:
+      - task: detect
+      - task: validate
+      - task: secrets:check
+      - echo ""
+      - echo "=========================================="
+      - echo "Ready to deploy BMC to Kubernetes"
+      - echo "=========================================="
+      - echo ""
+      - task: deploy
+
+  detect:
+    desc: Auto-detect installed dependencies (Traefik, MetalLB, cert-manager)
+    silent: true
+    cmds:
+      - chmod +x {{.SCRIPTS_DIR}}/detect-dependencies.sh
+      - "{{.SCRIPTS_DIR}}/detect-dependencies.sh"
+    sources:
+      - "{{.SCRIPTS_DIR}}/detect-dependencies.sh"
+    generates:
+      - "{{.CHART_DIR}}/values.auto.yaml"
+
+  validate:
+    desc: Validate required configuration values
+    silent: true
+    cmds:
+      - chmod +x {{.SCRIPTS_DIR}}/validate-config.sh
+      - "{{.SCRIPTS_DIR}}/validate-config.sh"
+
+  secrets:check:
+    desc: Check if secrets exist in cluster
+    silent: true
+    cmds:
+      - chmod +x {{.SCRIPTS_DIR}}/check-secrets.sh
+      - "{{.SCRIPTS_DIR}}/check-secrets.sh"
+
+  secrets:generate:
+    desc: Generate and create Kubernetes secrets
+    prompt: This will create secrets in the '{{.NAMESPACE}}' namespace. Continue?
+    silent: true
+    cmds:
+      - chmod +x {{.SCRIPTS_DIR}}/generate-secrets.sh
+      - "{{.SCRIPTS_DIR}}/generate-secrets.sh"
+
+  config:init:
+    desc: Initialize configuration from example template
+    silent: true
+    cmds:
+      - |
+        if [ -f {{.CHART_DIR}}/values.custom.yaml ]; then
+          echo "⚠️  values.custom.yaml already exists!"
+          echo "   Delete it first or edit it directly."
+          exit 1
+        fi
+      - cp {{.CHART_DIR}}/values.example.yaml {{.CHART_DIR}}/values.custom.yaml
+      - echo "✓ Created values.custom.yaml"
+      - echo ""
+      - echo "Next steps:"
+      - echo "  1. Edit {{.CHART_DIR}}/values.custom.yaml with your configuration"
+      - echo "  2. Run 'task secrets:generate' to create secrets"
+      - echo "  3. Run 'task install' to deploy"
+
+  deploy:
+    desc: Deploy BMC using helmfile
+    cmds:
+      - helmfile apply
+
+  upgrade:
+    desc: Upgrade existing BMC installation
+    cmds:
+      - task: detect
+      - helmfile apply
+
+  uninstall:
+    desc: Remove BMC installation from cluster
+    prompt: This will DELETE the BMC installation from '{{.NAMESPACE}}'. Continue?
+    silent: true
+    cmds:
+      - helmfile destroy
+      - echo ""
+      - echo "⚠️  Secrets were NOT deleted. To remove secrets run:"
+      - echo "   kubectl delete secret bmc-secrets -n {{.NAMESPACE}}"
+
+  status:
+    desc: Show installation status and resources
+    silent: true
+    cmds:
+      - echo "=== BMC Resources in namespace '{{.NAMESPACE}}' ==="
+      - echo ""
+      - echo "Pods:"
+      - kubectl get pods -n {{.NAMESPACE}} -l 'app in (bmc-panel,bmc-manager)' || echo "No BMC pods found"
+      - echo ""
+      - echo "Services:"
+      - kubectl get services -n {{.NAMESPACE}} -l 'app in (bmc-panel,bmc-manager)' || echo "No BMC services found"
+      - echo ""
+      - echo "Ingress:"
+      - kubectl get ingress -n {{.NAMESPACE}} || echo "No ingress found"
+      - echo ""
+      - echo "Secrets:"
+      - kubectl get secret bmc-secrets -n {{.NAMESPACE}} 2>/dev/null && echo "✓ bmc-secrets exists" || echo "✗ bmc-secrets NOT found"
+
+  logs:
+    desc: Show BMC panel logs (follow mode)
+    cmds:
+      - kubectl logs -n {{.NAMESPACE}} -l app=bmc-panel -f --tail=100
+
+  logs:manager:
+    desc: Show BMC manager logs (follow mode)
+    cmds:
+      - kubectl logs -n {{.NAMESPACE}} -l app=bmc-manager -f --tail=100
+
+  restart:
+    desc: Restart BMC panel and manager pods
+    silent: true
+    cmds:
+      - kubectl rollout restart deployment -n {{.NAMESPACE}} -l 'app in (bmc-panel,bmc-manager)'
+      - echo "✓ Restart initiated"
+      - echo ""
+      - 'echo "Watch status with: task status"'
+
+  clean:
+    desc: Clean generated files (values.auto.yaml, values.custom.yaml)
+    prompt: This will delete auto-generated and custom config files. Continue?
+    silent: true
+    cmds:
+      - rm -f {{.CHART_DIR}}/values.auto.yaml
+      - rm -f {{.CHART_DIR}}/values.custom.yaml
+      - echo "✓ Cleaned generated files"
+
+  verify:
+    desc: Verify all prerequisites are installed
+    silent: true
+    cmds:
+      - chmod +x {{.SCRIPTS_DIR}}/verify-prerequisites.sh
+      - "{{.SCRIPTS_DIR}}/verify-prerequisites.sh"
+
+  help:
+    desc: Show available tasks
+    silent: true
+    cmds:
+      - task --list
