@@ -23,7 +23,7 @@ spec:
                 name: panel-service
                 port:
                   number: 80
-{{- if .Values.global.certManager.installClusterIssuer }}
+{{- if and (.Values.global.certManager.installClusterIssuer) (.Capabilities.APIVersions.Has "cert-manager.io/v1/ClusterIssuer") }}
 ---
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer

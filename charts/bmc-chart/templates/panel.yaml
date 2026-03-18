@@ -31,8 +31,32 @@ spec:
             runAsUser: 0
             runAsGroup: 0
           env:
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: bmc-secrets
+                  key: panelSecret
+            - name: PANEL_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: bmc-secrets
+                  key: panelSecret
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: bmc-secrets
+                  key: panelSecret
+            {{- $secret := lookup "v1" "Secret" .Release.Namespace "bmc-secrets" }}
+            {{- $globalWithSecrets := deepCopy .Values.global }}
+            {{- if $secret }}
+            {{- $_ := set $globalWithSecrets.mariaDB "initPassword" (index $secret.data "mariadb-root-password" | b64dec) }}
+            {{- $_ := set $globalWithSecrets.mongoDB "initPassword" (index $secret.data "mongodb-root-password" | b64dec) }}
+            {{- $_ := set $globalWithSecrets.panel "panelSecret" (index $secret.data "panelSecret" | b64dec) }}
+            {{- $_ := set $globalWithSecrets.panel "initialInviteCode" (index $secret.data "initialInviteCode" | b64dec) }}
+            {{- $_ := set $globalWithSecrets.sftp "password" (index $secret.data "sftp-password" | b64dec) }}
+            {{- end }}
             - name: GLOBAL_VALUES_JSON
-              value: {{ .Values.global | toJson | quote }}
+              value: {{ $globalWithSecrets | toJson | quote }}
           volumeMounts:
             - name: storage
               mountPath: /storage

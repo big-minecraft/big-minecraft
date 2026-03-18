@@ -23,7 +23,10 @@ spec:
         - containerPort: 3306
         env:
         - name: MARIADB_ROOT_PASSWORD
-          value: {{ .Values.global.mariaDB.initPassword }}
+          valueFrom:
+            secretKeyRef:
+              name: bmc-secrets
+              key: mariadb-root-password
         - name: MARIADB_DATABASE
           value: "bmc"
         - name: MARIADB_ROOT_HOST
@@ -54,14 +57,18 @@ apiVersion: v1
 kind: Service
 metadata:
   name: mariadb-service
+  annotations:
+    {{- if eq .Values.global.loadBalancer.provider "metallb" }}
+    metallb.io/allow-shared-ip: "shared-ip-key"
+    metallb.io/loadBalancerIPs: "{{ .Values.global.loadBalancer.metallb.entrypointIP }}"
+    {{- end }}
 spec:
-  type: NodePort
+  type: LoadBalancer
   selector:
     app: mariadb
   ports:
   - port: 3306
     targetPort: 3306
-    nodePort: 30036
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
