@@ -8,5 +8,5 @@ nuke.sh
 scripts/Dockerfile
 backups/
 
-*/values.auto.yaml
-*/values.custom.yaml
+**/values.auto.yaml
+**/values.custom.yaml
