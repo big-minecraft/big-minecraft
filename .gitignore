@@ -7,3 +7,6 @@ local/
 nuke.sh
 scripts/Dockerfile
 backups/
+
+*/values.auto.yaml
+*/values.custom.yaml
