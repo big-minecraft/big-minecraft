@@ -49,7 +49,7 @@ releases:
         value: false
 
   - name: big-minecraft
-    namespace: default
+    namespace: bmc
     chart: ./charts/bmc-chart
     values:
       - charts/bmc-chart/values.yaml

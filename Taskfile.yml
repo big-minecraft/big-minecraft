@@ -2,7 +2,7 @@ version: '3'
 
 vars:
   CHART_DIR: charts/bmc-chart
-  NAMESPACE: default
+  NAMESPACE: bmc
   SCRIPTS_DIR: scripts
 
 tasks:
