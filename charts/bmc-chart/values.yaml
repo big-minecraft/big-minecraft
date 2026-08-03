@@ -10,6 +10,7 @@
 #   4. Run 'task install' to deploy
 
 global:
+  namespace: bmc
   environment: production
 
   # Dependency installation flags

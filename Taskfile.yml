@@ -2,7 +2,8 @@ version: '3'
 
 vars:
   CHART_DIR: charts/bmc-chart
-  NAMESPACE: bmc
+  NAMESPACE:
+    sh: yq '.global.namespace' {{.CHART_DIR}}/values.yaml
   SCRIPTS_DIR: scripts
 
 tasks:
@@ -40,7 +41,7 @@ tasks:
     silent: true
     cmds:
       - chmod +x {{.SCRIPTS_DIR}}/check-secrets.sh
-      - "{{.SCRIPTS_DIR}}/check-secrets.sh"
+      - NAMESPACE={{.NAMESPACE}} {{.SCRIPTS_DIR}}/check-secrets.sh
 
   secrets:generate:
     desc: Generate and create Kubernetes secrets
@@ -48,7 +49,7 @@ tasks:
     silent: true
     cmds:
       - chmod +x {{.SCRIPTS_DIR}}/generate-secrets.sh
-      - "{{.SCRIPTS_DIR}}/generate-secrets.sh"
+      - NAMESPACE={{.NAMESPACE}} {{.SCRIPTS_DIR}}/generate-secrets.sh
 
   config:init:
     desc: Initialize configuration from example template
