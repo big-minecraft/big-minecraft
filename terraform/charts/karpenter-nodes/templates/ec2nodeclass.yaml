@@ -1,0 +1,31 @@
+apiVersion: karpenter.k8s.aws/v1
+kind: EC2NodeClass
+metadata:
+  name: default
+spec:
+  # AL2023 is the current default EKS AMI family. `alias: al2023@latest` lets
+  # Karpenter track AMI releases; pin to a specific version if you would rather
+  # approve AMI changes yourself.
+  amiFamily: AL2023
+  amiSelectorTerms:
+    - alias: al2023@latest
+
+  role: {{ .Values.nodeIamRoleName | quote }}
+
+  # Both selectors match the karpenter.sh/discovery tags that the VPC module
+  # puts on the private subnets and the EKS module puts on the node security
+  # group. If either tag goes missing, Karpenter accepts NodePools and then
+  # never launches an instance.
+  subnetSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: {{ .Values.clusterName | quote }}
+  securityGroupSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: {{ .Values.clusterName | quote }}
+
+  {{- with .Values.tags }}
+  tags:
+    {{- range $k, $v := . }}
+    {{ $k }}: {{ $v | quote }}
+    {{- end }}
+  {{- end }}

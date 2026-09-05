@@ -1,0 +1,15 @@
+# Every value here is supplied by terraform/karpenter.tf. The defaults exist so
+# `helm template` works standalone for review.
+clusterName: bmc
+nodeIamRoleName: bmc-karpenter-node
+capacityTypes:
+  - on-demand
+instanceCategories:
+  - m
+  - c
+  - r
+cpuLimit: "200"
+consolidationPolicy: WhenEmpty
+consolidateAfter: 5m
+expireAfter: 720h
+tags: {}

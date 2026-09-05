@@ -1,0 +1,10 @@
+.terraform/
+# .terraform.lock.hcl is deliberately NOT ignored -- it pins provider
+# versions and belongs in version control.
+terraform.tfstate
+terraform.tfstate.*
+# state lock, present only while a plan/apply/destroy is running
+.terraform.tfstate.lock.info
+terraform.tfvars
+*.auto.tfvars
+crash.log

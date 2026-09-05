@@ -1,0 +1,30 @@
+# Copy to terraform.tfvars and edit. Do not commit terraform.tfvars.
+
+region       = "us-east-1"
+cluster_name = "bmc"
+
+# Narrow this to your operators once you know their addresses.
+cluster_endpoint_public_access_cidrs = ["0.0.0.0/0"]
+
+# A public server wants the world; keep this in step with
+# global.edge.game.sourceRanges in values.custom.yaml.
+game_allowed_cidrs = ["0.0.0.0/0"]
+
+# Who may reach SFTP file sessions. Public by default so sessions work out of
+# the box; the only thing protecting an open session is the shared SFTP
+# password, which is the same for every deployment.
+#
+# To lock it down, list the addresses you connect from instead:
+#   file_session_allowed_cidrs = ["203.0.113.4/32"]
+# An empty list creates no rule and closes the ports entirely.
+file_session_allowed_cidrs = ["0.0.0.0/0"]
+
+# true (this setting): one NAT gateway shared by every private subnet -- cheapest,
+# and a single-AZ failure domain for all pod egress.
+# Set false for one NAT gateway per AZ: ~3x the hourly cost, survives an AZ loss.
+single_nat_gateway = true
+
+node_instance_types     = ["m6i.xlarge"]
+node_group_min_size     = 2
+node_group_max_size     = 6
+node_group_desired_size = 2
