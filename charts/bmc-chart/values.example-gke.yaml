@@ -1,0 +1,81 @@
+# BMC Configuration Example -- Google Kubernetes Engine
+#
+# Created for you by:
+#   task config:init PROFILE=gke
+#
+# The cluster itself comes from the Terraform/OpenTofu layer in terraform/gke/.
+# Build that first -- it creates the network, the cluster and its autoscaling
+# node pool. ReadWriteMany storage and the ingress controller are installed by
+# helmfile on top. See terraform/gke/README.md.
+#
+# Configuration is layered, lowest precedence first:
+#   1. charts/bmc-chart/values.yaml  -- neutral defaults, do not edit
+#   2. profiles/gke.yaml             -- how GKE satisfies the contract
+#   3. values.custom.yaml            -- this file: YOUR installation
+#
+# This file is deliberately SHORT. Everything about GKE as a KIND of cluster --
+# storage classes, edge types, ingress class, load balancer annotations --
+# already lives in profiles/gke.yaml. Repeating any of it here is how the two drift
+# apart later, and a wrong value here silently wins.
+#
+# Full install:
+#   cd terraform/gke && tofu apply
+#   gcloud container clusters get-credentials <cluster> --region <region>
+#   task preflight PROFILE=gke
+#   task secrets:generate
+#   task install PROFILE=gke
+
+global:
+  environment: production
+
+  certManager:
+    # Create the ClusterIssuer? Set false if your cluster already has one.
+    installClusterIssuer: true
+    clusterIssuerName: "letsencrypt-prod"
+    # REQUIRED -- Let's Encrypt sends expiry warnings here.
+    email: "your-email@example.com"  # CHANGE THIS
+
+  panel:
+    # REQUIRED: domain for the BMC web panel. After installing, CNAME this at
+    # the ingress-nginx load balancer:
+    #   kubectl get svc ingress-nginx-controller -n ingress-nginx \
+    #     -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
+    panelHost: "panel.example.com"  # CHANGE THIS
+
+  ingress:
+    # REQUIRED: must match panel.panelHost, or the certificate will not match.
+    host: "panel.example.com"  # CHANGE THIS
+
+  # Who may reach the game edge. Empty is anywhere, which is what a public
+  # Minecraft server wants.
+  #
+  # GCP honours loadBalancerIP, unlike AWS. Reserve a regional static address
+  # and set it here to keep the game address stable across cluster rebuilds.
+  edge:
+    game:
+      sourceRanges: []
+      # loadBalancerIP: "34.x.x.x"
+    file:
+      # Not read: file sessions are reached through the ingress controller's
+      # TCP passthrough rather than their own load balancer.
+      sourceRanges: []
+
+  # ReadWriteMany comes from an in-cluster NFS server rather than Filestore,
+  # whose smallest instance is 1 TiB at roughly $200/month regardless of use.
+  # Raise this if your worlds outgrow it; it is an ordinary disk.
+  nfsServer:
+    size: "100Gi"
+
+  # Managed databases are a good fit here: Cloud SQL and a managed MongoDB
+  # remove two RWO volumes and two single-replica Deployments. Set external
+  # true, point host/port/username at them, and keep the passwords in the
+  # bmc-secrets keys the chart already reads.
+  mariaDB:
+    external: false
+  mongoDB:
+    external: false
+
+  fileEditSession:
+    # Sessions cost nothing extra here (no load balancer per session), so this
+    # is purely about how long an idle session stays open.
+    timeoutMinutes: 15
