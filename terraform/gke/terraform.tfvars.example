@@ -1,0 +1,20 @@
+# Copy to terraform.tfvars and edit. Do not commit terraform.tfvars.
+
+project_id   = "your-gcp-project"
+region       = "us-central1"
+cluster_name = "bmc-gke"
+
+# Narrow this to your operators once you know their addresses.
+master_authorized_cidrs = ["0.0.0.0/0"]
+
+# true: nodes on private addresses, egress through Cloud NAT (billed hourly
+# plus per GB). false: public node IPs, no NAT charge, larger attack surface.
+private_nodes = true
+
+node_machine_type = "n2-standard-4"
+node_min_count    = 1   # per zone; a regional cluster spans three
+node_max_count    = 3
+
+# Spot VMs are 60-90% cheaper and can be reclaimed with 30 seconds' notice,
+# restarting every Minecraft server on the node. Fine for testing.
+node_spot = false
