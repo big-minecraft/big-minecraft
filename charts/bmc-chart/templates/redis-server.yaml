@@ -1,3 +1,9 @@
+{{- /*
+The Service is named redis-service in every mode on purpose: global.redis.external
+changes what sits behind the name, never the name itself, so anything already
+resolving it keeps working.
+*/ -}}
+{{- if not .Values.global.redis.external }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -34,3 +40,59 @@ spec:
       nodePort: 30079
       {{- end }}
   type: {{ ternary "NodePort" "ClusterIP" (eq .Values.global.environment "development") }}
+{{- else if .Values.global.redis.createService }}
+{{- $host := .Values.global.redis.externalHost | required "global.redis.externalHost is required when global.redis.external is true and createService is true" }}
+{{- $port := .Values.global.redis.externalPort | default 6379 | int }}
+{{- if regexMatch "^[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}$" $host }}
+{{- /* ExternalName cannot express an IP, so an IP endpoint needs a ClusterIP
+Service with a hand-written EndpointSlice. This form can also remap the port. */ -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-service
+  labels:
+    app: redis
+    bmc/redis-mode: external-ip
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.global.redis.port | default 6379 }}
+      targetPort: {{ $port }}
+      protocol: TCP
+      name: redis
+---
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  name: redis-service-external
+  labels:
+    # This label is what binds the slice to the Service above. Without it the
+    # Service exists, resolves, and routes to nothing.
+    kubernetes.io/service-name: redis-service
+addressType: IPv4
+ports:
+  - name: redis
+    port: {{ $port }}
+    protocol: TCP
+endpoints:
+  - addresses:
+      - {{ $host | quote }}
+    conditions:
+      ready: true
+{{- else }}
+{{- /* ExternalName does not remap ports, so the external Redis must listen on
+the same port clients use. externalPort is only honoured in the IP form above. */ -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-service
+  labels:
+    app: redis
+    bmc/redis-mode: external-name
+spec:
+  type: ExternalName
+  externalName: {{ $host | quote }}
+{{- end }}
+{{- end }}
+{{- /* Neither branch: createService is false, so the alias is owned elsewhere
+(Terraform, on the cloud profiles). Preflight checks the name resolves. */ -}}

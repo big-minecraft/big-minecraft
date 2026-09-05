@@ -163,6 +163,17 @@ global:
   # Kubernetes Secret, so cert-manager has nothing to issue into. Going that
   # route means className "alb", tls.mode "none", and accepting that TLS ends
   # at the load balancer with plain HTTP behind it.
+
+  # ElastiCache, provisioned by the Terraform layer, which also creates the
+  # redis-service alias since only it knows the endpoint. Everything still
+  # connects to "redis-service".
+  #
+  # enable_ha_redis = false in terraform.tfvars falls back to the in-cluster
+  # pod; set external back to false here too.
+  redis:
+    external: true
+    createService: false
+
   ingress:
     className: "nginx"
     tls:

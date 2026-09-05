@@ -98,6 +98,30 @@ if [ "$SHARED_MODE" != "ReadWriteMany" ]; then
   VALIDATION_FAILED=true
 fi
 
+# An external Redis needs somewhere to point. The chart keeps the
+# redis-service name resolvable either way, so global.redis.host should NOT
+# change -- the endpoint goes in externalHost.
+REDIS_EXTERNAL=$(echo "$MERGED" | yq '.global.redis.external' - 2>/dev/null || echo "false")
+REDIS_HOST=$(echo "$MERGED" | yq '.global.redis.host' - 2>/dev/null || echo "")
+REDIS_EXT_HOST=$(echo "$MERGED" | yq '.global.redis.externalHost' - 2>/dev/null || echo "")
+if [ "$REDIS_EXTERNAL" = "true" ]; then
+  if [ -z "$REDIS_EXT_HOST" ] || [ "$REDIS_EXT_HOST" = "null" ] || [ "$REDIS_EXT_HOST" = '""' ]; then
+    echo -e "${RED}✗${NC} global.redis.external is true but externalHost is not set"
+    echo "   Set global.redis.externalHost to your Redis endpoint (hostname or IP)."
+    VALIDATION_FAILED=true
+  else
+    echo -e "${GREEN}✓${NC} External Redis: ${REDIS_EXT_HOST} (via the redis-service alias)"
+  fi
+  # Changing host defeats the alias and breaks anything already resolving
+  # redis-service, which is the thing the alias exists to prevent.
+  if [ -n "$REDIS_HOST" ] && [ "$REDIS_HOST" != "redis-service" ]; then
+    echo -e "${YELLOW}⚠${NC}  global.redis.host is '${REDIS_HOST}', not 'redis-service'"
+    echo "   The chart keeps redis-service pointing at externalHost, so host"
+    echo "   normally does not need to change. Anything already resolving"
+    echo "   redis-service will not follow this."
+  fi
+fi
+
 echo ""
 echo "Edge:"
 echo ""

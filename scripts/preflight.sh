@@ -68,6 +68,14 @@ GAME_EDGE=$(read_value '.global.edge.game.type')
 INSTALL_NGINX=$(read_value '.global.ingressNginx.install')
 # Whether BMC brings its own RWX storage provider on this profile.
 INSTALL_NFS=$(read_value '.global.nfsServer.install')
+REDIS_EXTERNAL=$(read_value '.global.redis.external')
+REDIS_CREATE_SVC=$(read_value '.global.redis.createService')
+REDIS_HOST=$(read_value '.global.redis.host')
+
+# The namespace BMC itself is installed into, as opposed to $NS, which is the
+# throwaway namespace these probes run in.
+NS_TARGET=$(read_value '.global.namespace')
+NS_TARGET="${NS_TARGET:-bmc}"
 
 cleanup() { kubectl delete namespace "$NS" --wait=false &>/dev/null || true; }
 trap cleanup EXIT
@@ -289,6 +297,29 @@ else
   kubectl delete svc preflight-lb -n "$NS" --wait=false &>/dev/null || true
 fi
 echo ""
+
+# ----------------------------------------------------------------- redis ----
+# When the chart creates neither the Redis pod nor its Service, something else
+# must have. Checked hard because nothing else in the install would notice it
+# missing: pods would start, resolve nothing, and scaling would quietly stop.
+if [ "$REDIS_EXTERNAL" = "true" ] && [ "$REDIS_CREATE_SVC" = "false" ]; then
+  echo "Redis (managed, alias owned outside the chart)"
+  if kubectl get service "$REDIS_HOST" -n "$NS_TARGET" &>/dev/null; then
+    MODE=$(kubectl get service "$REDIS_HOST" -n "$NS_TARGET" -o jsonpath='{.metadata.labels.bmc/redis-mode}' 2>/dev/null)
+    TARGET=$(kubectl get service "$REDIS_HOST" -n "$NS_TARGET" -o jsonpath='{.spec.externalName}' 2>/dev/null)
+    [ -z "$TARGET" ] && TARGET=$(kubectl get endpointslice -n "$NS_TARGET" -l "kubernetes.io/service-name=$REDIS_HOST" -o jsonpath='{.items[0].endpoints[0].addresses[0]}' 2>/dev/null)
+    pass "Service '$REDIS_HOST' exists (${MODE:-unknown mode}) -> ${TARGET:-<no endpoint>}"
+    if [ -z "$TARGET" ]; then
+      fail "'$REDIS_HOST' resolves but has no endpoint behind it"
+      skip "the EndpointSlice is missing or empty -- check the Terraform layer applied cleanly"
+    fi
+  else
+    fail "Service '$REDIS_HOST' not found in namespace '$NS_TARGET'"
+    skip "global.redis.createService is false, so the chart will not create it"
+    skip "run the Terraform layer first (it provisions the managed Redis and this alias together)"
+  fi
+  echo ""
+fi
 
 # ---------------------------------------------------------------- egress ----
 echo "Outbound egress from a pod"

@@ -300,6 +300,39 @@ rules require owning the group.
 
 ---
 
+## Redis is managed, and highly available
+
+The Terraform layer provisions **ElastiCache** and points the in-cluster
+`redis-service` name at it, instead of running the single Redis pod the chart
+ships by default.
+
+This matters more than it might look. Redis is the busiest component in BMC —
+every server publishes status to it and the manager consumes that to make
+scaling decisions — so losing it stops scaling cluster-wide. In-cluster it is
+one replica with no failover.
+
+Nothing in the cluster needs to know. Everything still connects to
+`redis-service`; only what sits behind that name changes, so anything else you
+run that depends on it keeps working untouched.
+
+There is no endpoint to copy by hand: Terraform creates the instance and the
+alias in the same apply, because it is the only thing that knows the address.
+`task preflight` fails loudly if the alias is missing, since nothing else in the
+install would notice.
+
+Cost is ~$45/month for two cache.t4g.small nodes. Set `enable_ha_redis` to false in `terraform.tfvars` for a
+test cluster — the chart then falls back to the in-cluster pod, and you set
+`global.redis.external` back to `false` in `values.custom.yaml`.
+
+**One limitation worth knowing:** the clients connect with no authentication or
+TLS, because Jedis is constructed as a plain single-endpoint pool in the manager,
+the panel and the Velocity plugin. Security here is network isolation — the
+instance is reachable only from this cluster's private network. Enabling AUTH
+needs a client change first; see
+[docs/scaling-architecture.md](scaling-architecture.md), track B.
+
+---
+
 ## Cost
 
 Fixed monthly, us-east-1 list prices, 2 × m6i.xlarge:
@@ -311,7 +344,8 @@ Fixed monthly, us-east-1 list prices, 2 × m6i.xlarge:
 | NAT gateway | $33 |
 | 2 × NLB (ingress + game) | $33 |
 | EBS gp3, 50 GiB | $4 |
-| **Fixed total** | **~$423** |
+| ElastiCache (2 × cache.t4g.small, Multi-AZ) | $45 |
+| **Fixed total** | **~$468** |
 
 Variable on top: data transfer out (~$0.09/GB after 100 GB free — this is the
 one that scales with players, roughly 500 GB/mo for 20 concurrent), NAT data

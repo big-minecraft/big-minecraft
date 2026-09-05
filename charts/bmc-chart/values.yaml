@@ -171,8 +171,31 @@ global:
     advertisementMode: l2
 
   redis:
+    # Leave host alone. When external is true the chart keeps this name
+    # resolvable by pointing it at externalHost, so anything already using
+    # "redis-service" keeps working.
     host: "redis-service"
     port: 6379
+
+    # Run Redis outside the cluster. Skips the Deployment and repoints
+    # redis-service at externalHost.
+    external: false
+
+    # false when something else owns the redis-service alias -- on the cloud
+    # profiles that is Terraform, which creates the managed instance and the
+    # alias in one apply because only it knows the endpoint.
+    createService: true
+
+    # A hostname becomes an ExternalName Service; a bare IP becomes a ClusterIP
+    # plus EndpointSlice, which is what allows the port to be remapped.
+    externalHost: ""
+    externalPort: 6379
+
+    # LIMITATION: clients connect without authentication or TLS -- Jedis is a
+    # plain `new JedisPool(config, host, port)` in the manager, panel and
+    # Velocity plugin. An external Redis must be reachable unauthenticated on a
+    # private network. AUTH and Sentinel both need a client change first; see
+    # docs/scaling-architecture.md, track B.
 
   mariaDB:
     # Set external: true to use a managed database (RDS, Cloud SQL, ...). The

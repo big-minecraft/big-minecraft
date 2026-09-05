@@ -102,6 +102,17 @@ global:
         # Same backend-service L4 load balancer as the game edge.
         cloud.google.com/l4-rbs: "enabled"
 
+
+  # Memorystore, provisioned by the Terraform layer, which also creates the
+  # redis-service alias since only it knows the endpoint. Everything still
+  # connects to "redis-service".
+  #
+  # enable_ha_redis = false in terraform.tfvars falls back to the in-cluster
+  # pod; set external back to false here too.
+  redis:
+    external: true
+    createService: false
+
   ingress:
     className: "nginx"
     tls:

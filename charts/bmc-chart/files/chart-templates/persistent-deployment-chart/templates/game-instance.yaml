@@ -18,9 +18,9 @@ spec:
       value: {{ .value | quote }}
     {{- end }}
     - name: REDIS_HOST
-      value: {{ .Values.server.redis.host | quote }}
+      value: {{ .Values.global.redis.host | default .Values.server.redis.host | quote }}
     - name: REDIS_PORT
-      value: {{ .Values.server.redis.port | quote }}
+      value: {{ .Values.global.redis.port | default .Values.server.redis.port | quote }}
     - name: DEPLOYMENT_NAME
       value: {{ .Values.name | quote }}
   resources:
@@ -35,8 +35,8 @@ spec:
     storageClass: {{ .Values.global.storage.classes.shared.name | default "longhorn" }}
     size: {{ .Values.global.storage.volumeSize.persistent | default "10Gi" }}
   redis:
-    host: {{ .Values.server.redis.host | quote }}
-    port: {{ .Values.server.redis.port | quote }}
+    host: {{ .Values.global.redis.host | default .Values.server.redis.host | quote }}
+    port: {{ .Values.global.redis.port | default .Values.server.redis.port | quote }}
   scaling:
     maxPlayers: {{ .Values.scaling.maxPlayers }}
     minInstances: 1

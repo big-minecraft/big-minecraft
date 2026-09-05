@@ -141,3 +141,33 @@ variable "labels" {
     managed-by = "opentofu"
   }
 }
+
+# -------------------------------------------------------------- HA redis ----
+
+variable "enable_ha_redis" {
+  description = <<-EOT
+    Provision Memorystore (STANDARD_HA) and point redis-service at it, instead
+    of running the single in-cluster Redis pod.
+
+    On by default because Redis is the one component whose loss stops scaling
+    cluster-wide, and the in-cluster default has no failover.
+
+    Costs roughly $35/month for a 1 GB STANDARD_HA instance. Set false for a
+    test cluster, and the chart falls back to the in-cluster pod with no other
+    configuration change.
+  EOT
+  type        = bool
+  default     = true
+}
+
+variable "redis_memory_gb" {
+  description = "Memorystore instance size. BMC stores coordination state, not bulk data, so the 1 GB minimum is usually enough."
+  type        = number
+  default     = 1
+}
+
+variable "namespace" {
+  description = "Namespace BMC is installed into. Must match global.namespace in the chart -- the redis-service alias is created here, so the two have to agree."
+  type        = string
+  default     = "bmc"
+}
