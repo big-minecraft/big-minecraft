@@ -1,0 +1,127 @@
+# Profile: Amazon EKS
+#
+# The cluster and everything under it -- VPC, node groups, the EFS filesystem,
+# the CSI drivers, the load balancer controller -- is assumed to be provisioned
+# already (this is the layer Terraform/OpenTofu owns). This profile only states
+# how EKS satisfies the capability contract; it installs none of it.
+#
+# The contract, and who satisfies it on EKS:
+#   - RWX storage        -> EFS + aws-efs-csi-driver      (storage class below)
+#   - RWO storage        -> EBS + aws-ebs-csi-driver      (storage class below)
+#   - LoadBalancer       -> AWS Load Balancer Controller  (annotations below)
+#   - IngressClass       -> ingress-nginx                 (see ingress below)
+#   - pod egress         -> NAT gateway, if nodes are in private subnets
+#
+# Verify all of it before installing:
+#   task preflight PROFILE=eks
+#
+# Three of these are easy to get wrong in ways that fail late rather than loudly:
+#
+# 1. The AWS Load Balancer Controller is REQUIRED, not optional. The game edge
+#    is one Service carrying TCP 25565 and UDP 19132, and the legacy in-tree
+#    provider cannot do UDP at all -- it will hand back a working-looking
+#    Classic LB that silently drops every Bedrock packet. Mixed-protocol
+#    Services also need Kubernetes >= 1.26 (preflight checks the version).
+#
+# 2. EFS dynamic provisioning needs the driver's access-point mode. A storage
+#    class in static mode binds nothing and the PVC sits Pending forever, which
+#    looks identical to "the cluster is slow". The preflight shared-storage
+#    probe schedules two pods against one claim, so it catches this in ~90s.
+#
+# 3. If nodes are in private subnets, pods have no egress without a NAT
+#    gateway. The proxy entrypoint downloads bmc-velocity.jar from GitHub on
+#    EVERY start, so without egress every proxy pod fails at boot. That NAT
+#    gateway is a standing hourly charge plus per-GB -- budget for it, or
+#    vendor the plugin into the image.
+#
+# You must still set in values.custom.yaml:
+#   global.ingress.host, global.panel.panelHost, global.certManager.email
+#   global.edge.game.sourceRanges  (strongly recommended -- see below)
+
+global:
+  edge:
+    # One internet-facing NLB for the game entrypoint. Annotations are a
+    # verbatim passthrough, so this is data, not template logic.
+    game:
+      type: LoadBalancer
+      annotations:
+        # "external" selects the AWS Load Balancer Controller rather than the
+        # deprecated in-tree provider. Without it, no UDP -- see note 1 above.
+        service.beta.kubernetes.io/aws-load-balancer-type: "external"
+        service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: "ip"
+        service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"
+      # AWS ignores loadBalancerIP. To keep a stable address, allocate Elastic
+      # IPs in Terraform and pass them as
+      #   service.beta.kubernetes.io/aws-load-balancer-eip-allocations
+      # above, one per subnet, in subnet order.
+      loadBalancerIP: ""
+      sourceRanges: []
+
+    # SFTP / file-edit sessions, created and destroyed per session by the panel.
+    #
+    # LoadBalancer, NOT the NodePort default. On EKS with private node subnets
+    # a NodePort is simply unreachable from a user's machine, so the historical
+    # default produces file sessions that open successfully and then cannot be
+    # connected to.
+    #
+    # The cost of that correctness: one NLB per OPEN session, billed hourly with
+    # a one-hour minimum. global.fileEditSession.timeoutMinutes (default 15)
+    # bounds how long each one lives, but a user opening ten sessions in a day
+    # pays for ten load balancer hours. If that is not acceptable, the real fix
+    # is ClusterIP plus SFTP proxying through the panel -- a panel feature that
+    # does not exist yet, so do not set ClusterIP here expecting it to work.
+    file:
+      type: LoadBalancer
+      annotations:
+        service.beta.kubernetes.io/aws-load-balancer-type: "external"
+        service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: "ip"
+        service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"
+      # An open SFTP session is a credentialed door into game data. Restrict it
+      # to your operators' addresses in values.custom.yaml.
+      sourceRanges: []
+
+  storage:
+    classes:
+      # Created by Terraform against the EFS filesystem, in access-point mode:
+      #   provisioner: efs.csi.aws.com
+      #   parameters: {provisioningMode: efs-ap, fileSystemId: fs-..., directoryPerms: "700"}
+      # Rename here if your Terraform names it something else -- but never leave
+      # it empty. An empty name silently selects the cluster default, which on
+      # EKS is EBS gp2/gp3 and is RWO-only, and the failure surfaces as a
+      # file-edit pod that will not schedule alongside its running server.
+      shared:
+        name: "efs-sc"
+        accessMode: ReadWriteMany
+      # EBS. gp3 is cheaper and faster than the gp2 that older clusters default
+      # to; the class must exist (the EBS CSI driver does not create one).
+      database:
+        name: "gp3"
+        accessMode: ReadWriteOnce
+
+  # No MetalLB on EKS -- the AWS Load Balancer Controller owns Services of type
+  # LoadBalancer.
+  metallb:
+    installResources: false
+
+  # ingress-nginx plus cert-manager, which is the combination the contract's
+  # tls.mode: cluster-issuer describes.
+  #
+  # An AWS ALB is the other option, and it does NOT fit this mode: an ALB
+  # terminates TLS with an ACM certificate referenced by annotation, not with a
+  # Kubernetes Secret, so cert-manager has nothing to issue into. Going that
+  # route means className "alb", tls.mode "none", and accepting that TLS ends
+  # at the load balancer with plain HTTP behind it.
+  ingress:
+    className: "nginx"
+    tls:
+      mode: cluster-issuer
+
+  # Managed databases are a good fit on EKS and remove two RWO volumes plus two
+  # single-replica Deployments from the cluster. Set external: true here, point
+  # host/port/username at RDS and DocumentDB, and put the passwords in the
+  # bmc-secrets keys the chart already reads. Preflight skips the database
+  # storage probe entirely when both are external.
+  mariaDB:
+    external: false
+  mongoDB:
+    external: false

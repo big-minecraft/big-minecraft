@@ -22,7 +22,7 @@ spec:
       cpu: {{ .Values.resources.limits.cpu }}
   volume:
     mountPath: {{ .Values.volume.mountPath | default "/minecraft" }}
-    storageClass: {{ .Values.global.storage.storageClass | default "longhorn" }}
+    storageClass: {{ .Values.global.storage.classes.shared.name | default "longhorn" }}
     size: {{ .Values.global.storage.volumeSize.process | default "2Gi" }}
 ---
 apiVersion: v1
@@ -33,8 +33,8 @@ metadata:
     app: {{ .Values.name }}
     kyriji.dev/deployment-type: "process"
 spec:
-  accessModes: ["ReadWriteMany"]
-  storageClassName: {{ .Values.global.storage.storageClass | default "longhorn" }}
+  accessModes: [{{ .Values.global.storage.classes.shared.accessMode | default "ReadWriteMany" | quote }}]
+  storageClassName: {{ .Values.global.storage.classes.shared.name | default "longhorn" }}
   resources:
     requests:
       storage: {{ .Values.global.storage.volumeSize.process | default "2Gi" }}

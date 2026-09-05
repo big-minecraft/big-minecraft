@@ -1,128 +1,133 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
-# Colors for output
+# Validate that the user has supplied the values BMC cannot guess.
+#
+# This checks CONFIGURATION only. Whether the cluster can actually satisfy the
+# contract those values describe is preflight.sh's job.
+
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
-VALUES_FILE="charts/bmc-chart/values.custom.yaml"
+CHART_DIR="${CHART_DIR:-charts/bmc-chart}"
+PROFILE="${PROFILE:-baremetal-metallb}"
+VALUES_FILE="${VALUES_FILE:-$CHART_DIR/values.custom.yaml}"
 
 echo "=========================================="
 echo "Validating Configuration"
+echo "  profile: $PROFILE"
 echo "=========================================="
 echo ""
 
-# Check if custom values file exists
+if ! command -v yq &> /dev/null; then
+  echo -e "${RED}✗ yq is required${NC}"
+  echo "   Install: https://github.com/mikefarah/yq#install"
+  exit 1
+fi
+
 if [ ! -f "$VALUES_FILE" ]; then
   echo -e "${RED}✗ Configuration file not found: $VALUES_FILE${NC}"
   echo ""
   echo "Run: task config:init"
-  echo "Then edit $VALUES_FILE with your settings"
   exit 1
 fi
-
 echo -e "${GREEN}✓${NC} Found configuration file: $VALUES_FILE"
+
+if [ ! -f "profiles/${PROFILE}.yaml" ]; then
+  echo -e "${RED}✗ Unknown profile '${PROFILE}'${NC}. Available:"
+  ls profiles/ | sed 's/\.yaml$//' | sed 's/^/     - /'
+  exit 1
+fi
+echo -e "${GREEN}✓${NC} Using profile: profiles/${PROFILE}.yaml"
 echo ""
 
-# Function to check if a value is set and not empty/default
+# Resolve values through the same layering helmfile uses, so a value supplied
+# by the profile counts as set.
+merged() {
+  yq eval-all '. as $item ireduce ({}; . * $item)' \
+    "$CHART_DIR/values.yaml" "profiles/${PROFILE}.yaml" "$VALUES_FILE" 2>/dev/null
+}
+MERGED=$(merged)
+
+VALIDATION_FAILED=false
+
 check_value() {
-  local yaml_path=$1
-  local description=$2
-  local example=$3
+  local path="$1" description="$2" example="${3:-}"
+  local value
+  value=$(echo "$MERGED" | yq "$path" - 2>/dev/null || echo "")
 
-  # Use yq if available, otherwise use grep/sed (less reliable)
-  if command -v yq &> /dev/null; then
-    value=$(yq eval "$yaml_path" "$VALUES_FILE" 2>/dev/null || echo "")
-  else
-    # Fallback to grep (less accurate but works without yq)
-    value=$(grep -A1 "$yaml_path" "$VALUES_FILE" 2>/dev/null | tail -1 | sed 's/.*: //' | tr -d '"' || echo "")
-  fi
-
-  # Check if value is empty, null, or still a placeholder
-  if [ -z "$value" ] || [ "$value" = "null" ] || [ "$value" = '""' ] || [[ "$value" == *"CHANGE"* ]] || [[ "$value" == *"example.com"* ]]; then
+  if [ -z "$value" ] || [ "$value" = "null" ] || [ "$value" = '""' ] \
+     || [[ "$value" == *"CHANGE"* ]] || [[ "$value" == *"example.com"* ]] \
+     || [[ "$value" == *"your-email"* ]]; then
     echo -e "${RED}✗${NC} Missing: $description"
-    echo "   Path: $yaml_path"
-    if [ -n "$example" ]; then
-      echo "   Example: $example"
-    fi
-    return 1
+    echo "   Path: $path"
+    [ -n "$example" ] && echo "   Example: $example"
+    VALIDATION_FAILED=true
   else
     echo -e "${GREEN}✓${NC} $description: $value"
-    return 0
   fi
 }
 
-# Track validation status
-VALIDATION_FAILED=false
-
-echo "Required Configuration:"
+echo "Required configuration:"
 echo ""
+check_value '.global.certManager.email' "Let's Encrypt email" "admin@yourdomain.com"
+check_value '.global.panel.panelHost'   "Panel host"          "panel.yourdomain.com"
+check_value '.global.ingress.host'      "Panel ingress host"  "panel.yourdomain.com"
+check_value '.global.ingress.className' "Ingress class"       "traefik"
 
-# Check cert-manager email
-if ! check_value ".global.certManager.email" "Let's Encrypt email" "admin@yourdomain.com"; then
+# The panel host and the ingress host must agree or TLS will not match.
+PANEL_HOST=$(echo "$MERGED" | yq '.global.panel.panelHost' - 2>/dev/null || echo "")
+INGRESS_HOST=$(echo "$MERGED" | yq '.global.ingress.host' - 2>/dev/null || echo "")
+if [ -n "$PANEL_HOST" ] && [ "$PANEL_HOST" != "null" ] && [ "$PANEL_HOST" != "$INGRESS_HOST" ]; then
+  echo -e "${YELLOW}⚠${NC}  panel.panelHost ('$PANEL_HOST') differs from ingress.host ('$INGRESS_HOST')"
+  echo "   The issued certificate will not match the address the panel is served on."
+fi
+
+echo ""
+echo "Storage:"
+echo ""
+check_value '.global.storage.classes.shared.name'   "Shared storage class (RWX)" "longhorn"
+check_value '.global.storage.classes.database.name' "Database storage class"     "longhorn"
+
+SHARED_MODE=$(echo "$MERGED" | yq '.global.storage.classes.shared.accessMode' - 2>/dev/null || echo "")
+if [ "$SHARED_MODE" != "ReadWriteMany" ]; then
+  echo -e "${RED}✗${NC} storage.classes.shared.accessMode is '$SHARED_MODE', must be ReadWriteMany"
+  echo "   File-edit and SFTP pods mount a deployment's volume alongside the running server."
   VALIDATION_FAILED=true
 fi
 
-# Check panel host
-if ! check_value ".global.panel.panelHost" "Panel domain" "panel.yourdomain.com"; then
-  VALIDATION_FAILED=true
-fi
+echo ""
+echo "Edge:"
+echo ""
+EDGE_TYPE=$(echo "$MERGED" | yq '.global.edge.game.type' - 2>/dev/null || echo "")
+echo -e "${GREEN}✓${NC} Game edge type: $EDGE_TYPE"
 
-# Check load balancer configuration
-PROVIDER=$(yq eval '.global.loadBalancer.provider' "$VALUES_FILE" 2>/dev/null || echo "metallb")
-
-if [ "$PROVIDER" = "metallb" ]; then
-  echo ""
-  echo "MetalLB Configuration (provider=metallb):"
-  echo ""
-
-  if ! check_value ".global.loadBalancer.metallb.entrypointIP" "MetalLB entrypoint IP" "192.168.1.100"; then
+# MetalLB resources need an address pool; nothing else does.
+INSTALL_METALLB=$(echo "$MERGED" | yq '.global.metallb.installResources' - 2>/dev/null || echo "false")
+if [ "$INSTALL_METALLB" = "true" ]; then
+  POOL_LEN=$(echo "$MERGED" | yq '.global.metallb.ipAddressPool | length' - 2>/dev/null || echo "0")
+  if [ "$POOL_LEN" -eq 0 ] 2>/dev/null; then
+    echo -e "${RED}✗${NC} Missing: MetalLB IP address pool"
+    echo "   Path: .global.metallb.ipAddressPool"
+    echo "   Example: [\"192.168.1.100/32\"]"
     VALIDATION_FAILED=true
-  fi
-
-  # Check IP address pool
-  if command -v yq &> /dev/null; then
-    ip_pool=$(yq eval '.global.loadBalancer.metallb.ipAddressPool | length' "$VALUES_FILE" 2>/dev/null || echo "0")
-    if [ "$ip_pool" -eq 0 ]; then
-      echo -e "${RED}✗${NC} Missing: MetalLB IP address pool"
-      echo "   Path: .global.loadBalancer.metallb.ipAddressPool"
-      echo "   Example: [\"192.168.1.100/32\"]"
-      VALIDATION_FAILED=true
-    else
-      pool_ips=$(yq eval '.global.loadBalancer.metallb.ipAddressPool[]' "$VALUES_FILE" 2>/dev/null)
-      echo -e "${GREEN}✓${NC} MetalLB IP pool: $pool_ips"
-    fi
+  else
+    echo -e "${GREEN}✓${NC} MetalLB IP pool: $(echo "$MERGED" | yq -o=json -I=0 '.global.metallb.ipAddressPool' - 2>/dev/null)"
   fi
 fi
 
 echo ""
-
-# Check storage class (warn if default)
-STORAGE_CLASS=$(yq eval '.global.storage.storageClass' "$VALUES_FILE" 2>/dev/null || echo "longhorn")
-if [ "$STORAGE_CLASS" = "longhorn" ]; then
-  echo -e "${YELLOW}⚠${NC}  Using storage class: $STORAGE_CLASS"
-  echo "   Make sure Longhorn is installed or change to your storage class"
-else
-  echo -e "${GREEN}✓${NC} Storage class: $STORAGE_CLASS"
-fi
-
-echo ""
-
-# Final validation result
 if [ "$VALIDATION_FAILED" = true ]; then
-  echo ""
   echo -e "${RED}=========================================="
   echo "Validation FAILED"
   echo -e "==========================================${NC}"
   echo ""
-  echo "Please edit $VALUES_FILE and set all required values"
-  echo ""
+  echo "Edit $VALUES_FILE and set the values marked ✗."
   exit 1
-else
-  echo -e "${GREEN}=========================================="
-  echo "Validation PASSED"
-  echo -e "==========================================${NC}"
-  echo ""
 fi
+echo -e "${GREEN}=========================================="
+echo "Validation PASSED"
+echo -e "==========================================${NC}"
+echo ""

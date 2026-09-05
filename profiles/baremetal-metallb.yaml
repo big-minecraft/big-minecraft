@@ -1,0 +1,44 @@
+# Profile: bare metal / k3s with MetalLB + Longhorn
+#
+# This is the environment BMC was originally built for. It reproduces the
+# historical behaviour exactly.
+#
+# Requires from the cluster:
+#   - MetalLB installed, with an address pool you control
+#   - a ReadWriteMany-capable storage class (Longhorn RWX is NFS-backed, so
+#     nfs-common must be present on every node)
+#
+# You must still set in values.custom.yaml:
+#   global.edge.game.annotations."metallb.io/loadBalancerIPs"
+#   global.metallb.ipAddressPool
+#   global.ingress.host, global.panel.panelHost, global.certManager.email
+
+global:
+  edge:
+    game:
+      type: LoadBalancer
+      annotations:
+        # Lets the game entrypoint share one address with Traefik. The IP
+        # itself is installation-specific and belongs in values.custom.yaml:
+        #   metallb.io/loadBalancerIPs: "203.0.113.10"
+        metallb.io/allow-shared-ip: "shared-ip-key"
+    file:
+      type: NodePort
+
+  storage:
+    classes:
+      shared:
+        name: "longhorn"
+        accessMode: ReadWriteMany
+      database:
+        name: "longhorn"
+        accessMode: ReadWriteOnce
+
+  metallb:
+    installResources: true
+    advertisementMode: l2
+
+  ingress:
+    className: "traefik"
+    tls:
+      mode: cluster-issuer

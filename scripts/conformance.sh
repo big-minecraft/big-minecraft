@@ -67,12 +67,12 @@ sftp: {podName: t, nodePort: 31000, pvcName: t, username: u, password: p}
 fileSession: {podName: t, pvcName: t, mountPath: /minecraft}
 activityWatcher: {panelUrl: http://panel-service, serviceToken: t, sessionId: s}
 EOF
-for pair in "proxy-chart:default-values/proxy.yaml" \
-            "scalable-deployment-chart:default-values/scalable.yaml" \
-            "persistent-deployment-chart:default-values/persistent.yaml" \
-            "process-chart:default-values/process.yaml" \
+for pair in "proxy-chart:charts/bmc-chart/files/default-values/proxy.yaml" \
+            "scalable-deployment-chart:charts/bmc-chart/files/default-values/scalable.yaml" \
+            "persistent-deployment-chart:charts/bmc-chart/files/default-values/persistent.yaml" \
+            "process-chart:charts/bmc-chart/files/default-values/process.yaml" \
             "file-session-chart:$TMP/fs.yaml"; do
-  chart="chart-templates/${pair%%:*}"
+  chart="charts/bmc-chart/files/chart-templates/${pair%%:*}"
   vals="${pair##*:}"
   if helm template t "$chart" -f "$vals" > "$TMP/rt.yaml" 2>"$TMP/rt.err"; then
     echo -e "  ${GREEN}✓${NC} $(basename "$chart")"

@@ -1,0 +1,52 @@
+# Configuration for the throwaway local k3d cluster (scripts/local-test.sh).
+#
+# Committed on purpose: it contains no secrets and describes what k3d provides,
+# so `task test:up` works from a clean checkout. It is passed explicitly via
+# VALUES_FILE and NEVER replaces values.custom.yaml.
+
+global:
+  environment: development
+
+  certManager:
+    # No public DNS on k3d, so ACME cannot complete a challenge.
+    installClusterIssuer: false
+    email: "local@example.invalid"
+
+  panel:
+    panelHost: "panel.bmc.local"
+
+  ingress:
+    className: "traefik"          # k3s ships Traefik
+    host: "panel.bmc.local"
+    tls:
+      mode: none                  # plain HTTP locally
+
+  edge:
+    game:
+      # klipper-lb (k3s servicelb) implements LoadBalancer on k3d.
+      type: LoadBalancer
+      annotations: {}
+    file:
+      type: NodePort
+
+  storage:
+    classes:
+      # Provided by the in-cluster NFS provisioner that local-test.sh installs.
+      # k3d's built-in local-path is RWO-only and cannot host game data.
+      shared:
+        name: "nfs"
+        accessMode: ReadWriteMany
+      database:
+        name: "local-path"
+        accessMode: ReadWriteOnce
+    volumeSize:
+      persistent: "1Gi"
+      scalable: "1Gi"
+      proxy: "1Gi"
+      process: "1Gi"
+      manifests: "1Gi"
+      mariaDB: "2Gi"
+      mongoDB: "2Gi"
+
+  metallb:
+    installResources: false       # k3d has its own LoadBalancer controller

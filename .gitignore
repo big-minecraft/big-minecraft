@@ -10,3 +10,6 @@ backups/
 
 **/values.auto.yaml
 **/values.custom.yaml
+# local test cluster state
+.local-test/
+.local-test.env

@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 
 # Colors for output
 RED='\033[0;31m'
@@ -11,6 +12,23 @@ echo "=========================================="
 echo "Waiting for webhooks to be ready..."
 echo "=========================================="
 echo ""
+
+# Nothing to wait for if this profile installs neither webhook-bearing chart.
+# Without this the script polls for the full 12 minutes on any install that
+# does not use cert-manager (ingress.tls.mode != cluster-issuer) or MetalLB.
+CM=0; MLB=0
+kubectl get deployment cert-manager-webhook -n cert-manager &>/dev/null && CM=1
+kubectl get deployment metallb-controller -n metallb-system &>/dev/null && MLB=1
+if [ "$CM" = "0" ] && [ "$MLB" = "0" ]; then
+  echo -e "${GREEN}✓${NC} Neither cert-manager nor MetalLB is installed - nothing to wait for"
+  echo ""
+  exit 0
+fi
+if [ "$CM" = "0" ]; then
+  echo -e "${GREEN}✓${NC} cert-manager is not installed - skipping its webhook checks"
+  echo ""
+  exit 0
+fi
 
 # Wait for deployments to be available
 echo "Waiting for cert-manager webhook deployment..."
@@ -36,14 +54,16 @@ echo -n "Checking certificate validity"
 
 while [ $ELAPSED -lt $MAX_WAIT_TIME ]; do
     # Check if cert-manager webhook pods are ready
-    WEBHOOK_READY=$(kubectl get pods -n cert-manager -l app.kubernetes.io/name=webhook -o jsonpath='{.items[*].status.conditions[?(@.type=="Ready")].status}' 2>/dev/null)
+    # These probes are expected to fail while the webhook is still coming up,
+    # so they must not trip `set -e`.
+    WEBHOOK_READY=$(kubectl get pods -n cert-manager -l app.kubernetes.io/name=webhook -o jsonpath='{.items[*].status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)
 
     # Debug output (remove later)
     #echo "[DEBUG] WEBHOOK_READY=$WEBHOOK_READY" >&2
 
     if [ "$WEBHOOK_READY" = "True" ]; then
         # Pods are ready, now check if webhook configuration has caBundle
-        CA_BUNDLE=$(kubectl get validatingwebhookconfigurations cert-manager-webhook -o jsonpath='{.webhooks[0].clientConfig.caBundle}' 2>/dev/null)
+        CA_BUNDLE=$(kubectl get validatingwebhookconfigurations cert-manager-webhook -o jsonpath='{.webhooks[0].clientConfig.caBundle}' 2>/dev/null || true)
 
         # Debug output (remove later)
         #echo "[DEBUG] CA_BUNDLE exists: $([ -n "$CA_BUNDLE" ] && echo yes || echo no)" >&2
@@ -78,7 +98,7 @@ spec:
   dnsNames:
     - test.example.com
 EOF
-)
+) || true
 
             # Clean up test namespace
             kubectl delete namespace cert-manager-test-ns --wait=false &>/dev/null || true

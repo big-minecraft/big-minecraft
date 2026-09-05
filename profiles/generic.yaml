@@ -1,0 +1,54 @@
+# Profile: generic conformant cluster
+#
+# Assumes nothing about the provider. This is the profile to start from on a
+# cluster BMC has no specific profile for -- managed Kubernetes, a VM cluster,
+# k3d, anything.
+#
+# The cluster must satisfy the capability contract:
+#   - a storage class supporting ReadWriteMany, mountable by several pods at
+#     once (see global.storage.classes.shared -- this is NOT optional, the
+#     file-edit and SFTP pods mount a running server's volume alongside it)
+#   - a storage class supporting ReadWriteOnce for the databases
+#   - an IngressClass
+#   - a LoadBalancer implementation, if edge.game.type is LoadBalancer
+#   - outbound internet egress from game pods (the proxy entrypoint downloads
+#     its plugin jar from GitHub on every start)
+#
+# Run 'task preflight PROFILE=generic' to check all of the above.
+#
+# Both storage class names are intentionally empty: set them in
+# values.custom.yaml to whatever your cluster provides. Leaving them empty
+# selects the cluster's default StorageClass, which will usually be RWO-only
+# and will therefore fail the shared-storage probe -- that failure is the
+# correct answer, not a bug.
+
+global:
+  edge:
+    game:
+      type: LoadBalancer
+      annotations: {}
+      # Most clouds ignore loadBalancerIP; set sourceRanges to restrict access.
+      sourceRanges: []
+    # NodePort is unreachable on clouds whose nodes are in private subnets.
+    # ClusterIP requires the panel to proxy SFTP.
+    file:
+      type: NodePort
+
+  storage:
+    classes:
+      shared:
+        name: ""
+        accessMode: ReadWriteMany
+      database:
+        name: ""
+        accessMode: ReadWriteOnce
+
+  # No MetalLB on a generic cluster -- the provider's own controller handles
+  # LoadBalancer Services.
+  metallb:
+    installResources: false
+
+  ingress:
+    className: ""
+    tls:
+      mode: cluster-issuer

@@ -55,11 +55,28 @@ apiVersion: v1
 kind: Service
 metadata:
   name: {{ .Values.sftp.podName }}-service
+  {{- with .Values.global.edge.file.annotations }}
+  annotations:
+    {{- range $key, $value := . }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
+  {{- end }}
 spec:
-  type: NodePort
+  type: {{ .Values.global.edge.file.type | default "NodePort" }}
+  {{- with .Values.global.edge.file.sourceRanges }}
+  # Restrict who can reach SFTP. Applies to LoadBalancer, and to NodePort on
+  # clusters whose CNI honours it -- on others, use a node firewall as well.
+  loadBalancerSourceRanges:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   selector:
     app: {{ .Values.sftp.podName }}
   ports:
     - port: 22
       targetPort: 22
+      {{- if eq (.Values.global.edge.file.type | default "NodePort") "NodePort" }}
+      # Allocated by the panel. Note there is no range check and no collision
+      # detection against the NodePorts the platform chart hardcodes
+      # (redis 30079, prometheus 30090 in development).
       nodePort: {{ .Values.sftp.nodePort }}
+      {{- end }}

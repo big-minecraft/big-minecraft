@@ -21,12 +21,22 @@ spec:
             claimName: bmc-panel-storage
         - name: kube-config
           emptyDir: {}
+        # Runtime charts shipped with this release. items[].path rebuilds the
+        # directory tree that the flattened ConfigMap keys encode.
+        - name: runtime-charts
+          configMap:
+            name: {{ include "common.name" . }}-runtime-charts
+            items:
+              {{- range $path, $_ := .Files.Glob "files/**" }}
+              - key: {{ include "bmc.runtimeKey" $path }}
+                path: {{ include "bmc.runtimePath" $path }}
+              {{- end }}
       securityContext:
         fsGroup: 1000
       containers:
         - name: panel
-          image: kyrokrypt/bmc-panel:latest
-          imagePullPolicy: Always
+          image: "{{ .Values.images.panel.repository }}:{{ .Values.images.panel.tag }}"
+          imagePullPolicy: {{ .Values.images.panel.pullPolicy }}
           securityContext:
             runAsUser: 0
             runAsGroup: 0
@@ -55,12 +65,22 @@ spec:
             {{- $_ := set $globalWithSecrets.panel "initialInviteCode" (index $secret.data "initialInviteCode" | b64dec) }}
             {{- $_ := set $globalWithSecrets.sftp "password" (index $secret.data "sftp-password" | b64dec) }}
             {{- end }}
+            # Where the runtime charts live. Set explicitly so the panel uses
+            # the copy shipped with this chart rather than the git clone it
+            # used to make into /storage.
+            - name: BMC_RUNTIME_CHARTS_PATH
+              value: /opt/bmc/runtime/chart-templates
+            - name: BMC_DEFAULT_VALUES_PATH
+              value: /opt/bmc/runtime/default-values
             - name: GLOBAL_VALUES_JSON
               value: {{ $globalWithSecrets | toJson | quote }}
           volumeMounts:
             - name: storage
               mountPath: /storage
               readOnly: false
+            - name: runtime-charts
+              mountPath: /opt/bmc/runtime
+              readOnly: true
 ---
 apiVersion: v1
 kind: Service
@@ -68,8 +88,6 @@ metadata:
   name: panel-service
   labels:
     {{- include "common.labels" . | nindent 4 }}
-  annotations:
-    nginx.ingress.kubernetes.io/rewrite-target: /api$1
 spec:
   selector:
     app: panel
@@ -85,8 +103,8 @@ kind: PersistentVolumeClaim
 metadata:
  name: bmc-panel-storage
 spec:
- accessModes: ["ReadWriteMany"]
- storageClassName: {{ .Values.global.storage.storageClass }}
+ accessModes: [{{ .Values.global.storage.classes.shared.accessMode | quote }}]
+ storageClassName: {{ .Values.global.storage.classes.shared.name }}
  resources:
    requests:
      storage: {{ .Values.global.storage.volumeSize.manifests }}

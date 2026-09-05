@@ -2,6 +2,11 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   name: gameservers.kyriji.dev
+  annotations:
+    # Without this, `helm uninstall` deletes the CRD, and CRD deletion cascades
+    # to every GameServer in the cluster. Kept in templates/ rather than moved
+    # to crds/ so that Helm can still apply schema changes on upgrade.
+    "helm.sh/resource-policy": keep
 spec:
   group: kyriji.dev
   scope: Namespaced

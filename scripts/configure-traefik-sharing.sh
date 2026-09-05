@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 
 # Colors for output
 RED='\033[0;31m'
@@ -20,7 +21,7 @@ if ! kubectl get svc traefik -n kube-system &>/dev/null; then
 fi
 
 # Check if Traefik already has the sharing annotation
-CURRENT_ANNOTATION=$(kubectl get svc traefik -n kube-system -o jsonpath='{.metadata.annotations.metallb\.io/allow-shared-ip}' 2>/dev/null)
+CURRENT_ANNOTATION=$(kubectl get svc traefik -n kube-system -o jsonpath='{.metadata.annotations.metallb\.io/allow-shared-ip}' 2>/dev/null || true)
 
 if [ -n "$CURRENT_ANNOTATION" ]; then
   echo -e "${GREEN}✓${NC} Traefik already configured for IP sharing with key: $CURRENT_ANNOTATION"

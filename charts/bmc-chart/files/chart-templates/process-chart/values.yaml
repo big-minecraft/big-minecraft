@@ -1,0 +1,26 @@
+# Defaults for the `global` subtree that the panel injects at render time
+# (it derives these from GLOBAL_VALUES_JSON on the panel Deployment).
+#
+# This chart is installed as its own Helm release, so Helm does NOT propagate
+# `global` from bmc-chart. Declaring the shape here means a missing or renamed
+# injection surfaces as a wrong-but-rendered value instead of a nil-pointer
+# panic deep in template evaluation -- and lets `helm template` check the
+# contract in CI.
+global:
+  storage:
+    classes:
+      shared:
+        name: "longhorn"
+        # RWX is required: file-edit and SFTP pods mount a deployment's volume
+        # alongside the running server.
+        accessMode: ReadWriteMany
+    volumeSize:
+      proxy: "5Gi"
+      scalable: "5Gi"
+      persistent: "10Gi"
+      process: "2Gi"
+  edge:
+    file:
+      type: NodePort
+      annotations: {}
+      sourceRanges: []

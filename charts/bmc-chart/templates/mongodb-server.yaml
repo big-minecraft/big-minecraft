@@ -1,3 +1,6 @@
+{{- /* Skipped entirely when using a managed database. host/port/username
+     from global.mongoDB are then used as-is by the panel. */ -}}
+{{- if not .Values.global.mongoDB.external }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -41,13 +44,9 @@ apiVersion: v1
 kind: Service
 metadata:
   name: mongodb-service
-  annotations:
-    {{- if eq .Values.global.loadBalancer.provider "metallb" }}
-    metallb.io/allow-shared-ip: "shared-ip-key"
-    metallb.io/loadBalancerIPs: "{{ .Values.global.loadBalancer.metallb.entrypointIP }}"
-    {{- end }}
 spec:
-  type: LoadBalancer
+  # ClusterIP by design -- see the note on mariadb-service.
+  type: ClusterIP
   selector:
     app: mongodb
   ports:
@@ -60,8 +59,9 @@ kind: PersistentVolumeClaim
 metadata:
   name: mongodb-pvc
 spec:
-  accessModes: ["ReadWriteMany"]
-  storageClassName: {{ .Values.global.storage.storageClass }}
+  accessModes: [{{ .Values.global.storage.classes.database.accessMode | quote }}]
+  storageClassName: {{ .Values.global.storage.classes.database.name }}
   resources:
     requests:
       storage: {{ .Values.global.storage.volumeSize.mongoDB }}
+{{- end }}

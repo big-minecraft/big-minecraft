@@ -1,3 +1,6 @@
+{{- /* Skipped entirely when using a managed database. host/port/username
+     from global.mariaDB are then used as-is by the panel. */ -}}
+{{- if not .Values.global.mariaDB.external }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -57,13 +60,11 @@ apiVersion: v1
 kind: Service
 metadata:
   name: mariadb-service
-  annotations:
-    {{- if eq .Values.global.loadBalancer.provider "metallb" }}
-    metallb.io/allow-shared-ip: "shared-ip-key"
-    metallb.io/loadBalancerIPs: "{{ .Values.global.loadBalancer.metallb.entrypointIP }}"
-    {{- end }}
 spec:
-  type: LoadBalancer
+  # ClusterIP by design. Only the panel and manager talk to MariaDB, and they
+  # reach it by service DNS via global.mariaDB.host. Exposing 3306 through a
+  # LoadBalancer put the database root port on a public address.
+  type: ClusterIP
   selector:
     app: mariadb
   ports:
@@ -75,8 +76,9 @@ kind: PersistentVolumeClaim
 metadata:
   name: mariadb-pvc
 spec:
-  accessModes: ["ReadWriteMany"]
-  storageClassName: {{ .Values.global.storage.storageClass }}
+  accessModes: [{{ .Values.global.storage.classes.database.accessMode | quote }}]
+  storageClassName: {{ .Values.global.storage.classes.database.name }}
   resources:
     requests:
       storage: {{ .Values.global.storage.volumeSize.mariaDB }}
+{{- end }}

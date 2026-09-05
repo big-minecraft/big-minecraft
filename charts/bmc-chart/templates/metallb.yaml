@@ -1,4 +1,13 @@
-{{- if and (eq .Values.global.loadBalancer.provider "metallb") (.Values.global.loadBalancer.metallb.installResources) (.Capabilities.APIVersions.Has "metallb.io/v1beta1/IPAddressPool") }}
+{{- /*
+MetalLB IP pool resources. Opt-in via global.metallb.installResources, which a
+bare-metal profile sets. There is no provider enum: environments that are not
+MetalLB simply leave this false and supply their own edge.game.annotations.
+
+NOTE: rendering this with `helm template` requires --api-versions, because
+.Capabilities.APIVersions is empty when Helm has no cluster connection.
+See scripts/apply-metallb-config.sh.
+*/ -}}
+{{- if and .Values.global.metallb.installResources (.Capabilities.APIVersions.Has "metallb.io/v1beta1/IPAddressPool") }}
 apiVersion: metallb.io/v1beta1
 kind: IPAddressPool
 metadata:
@@ -8,12 +17,12 @@ metadata:
     {{- include "common.labels" . | nindent 4 }}
 spec:
   addresses:
-    {{- range .Values.global.loadBalancer.metallb.ipAddressPool }}
+    {{- range .Values.global.metallb.ipAddressPool }}
     - {{ . }}
     {{- end }}
   autoAssign: true
 ---
-{{- if eq .Values.global.loadBalancer.metallb.advertisementMode "l2" }}
+{{- if eq .Values.global.metallb.advertisementMode "l2" }}
 apiVersion: metallb.io/v1beta1
 kind: L2Advertisement
 metadata:

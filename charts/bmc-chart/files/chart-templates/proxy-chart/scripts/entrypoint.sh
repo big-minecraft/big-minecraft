@@ -5,6 +5,26 @@ if ! command -v redis-cli &> /dev/null; then
 apt-get update &> /dev/null && apt-get install -y redis-tools &> /dev/null
 fi
 
+if ! command -v curl &> /dev/null; then
+echo "curl not found, installing..."
+if command -v apt-get &> /dev/null; then
+  apt-get update &> /dev/null && apt-get install -y curl &> /dev/null
+elif command -v apk &> /dev/null; then
+  apk add --no-cache curl &> /dev/null
+elif command -v microdnf &> /dev/null; then
+  microdnf install -y curl &> /dev/null
+elif command -v dnf &> /dev/null; then
+  dnf install -y curl &> /dev/null
+elif command -v yum &> /dev/null; then
+  yum install -y curl &> /dev/null
+fi
+
+if ! command -v curl &> /dev/null; then
+  echo "Failed to install curl; cannot download the bmc-velocity plugin."
+  exit 1
+fi
+fi
+
 PLUGINS_DIR="{{ .Values.volume.mountPath | default "/minecraft" }}/plugins"
 mkdir -p "$PLUGINS_DIR"
 echo "Downloading bmc-velocity plugin..."

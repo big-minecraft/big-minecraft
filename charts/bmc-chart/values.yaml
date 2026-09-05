@@ -1,25 +1,35 @@
 # BMC (Big Minecraft) Chart Default Values
 #
-# This file contains safe defaults only.
+# This file contains safe, environment-neutral defaults only.
 # DO NOT add secrets or environment-specific values here.
 #
+# Configuration is layered, lowest precedence first:
+#   1. this file          -- neutral defaults
+#   2. profiles/<name>.yaml -- how one KIND of environment satisfies the contract
+#   3. values.custom.yaml -- this specific installation
+#
 # For installation:
-#   1. Copy values.example.yaml to values.custom.yaml
+#   1. Run 'task config:init'
 #   2. Edit values.custom.yaml with your configuration
 #   3. Run 'task secrets:generate' to create Kubernetes secrets
-#   4. Run 'task install' to deploy
+#   4. Run 'task install PROFILE=<profile>' to deploy
+
+# Container images. values.example.yaml has always documented this section,
+# but until now no template read it. Overriding these is what lets a locally
+# built image be used instead of the published one (see scripts/local-test.sh).
+images:
+  panel:
+    repository: kyrokrypt/bmc-panel
+    tag: latest
+    pullPolicy: Always
+  manager:
+    repository: kyrokrypt/bmc-manager
+    tag: latest
+    pullPolicy: Always
 
 global:
   namespace: bmc
   environment: production
-
-  # Dependency installation flags
-  # These are auto-detected by scripts/detect-dependencies.sh
-  # Override in values.custom.yaml if needed
-  dependencies:
-    installCertManager: false
-    installMetalLB: false
-    installTraefik: false
 
   certManager:
     installClusterIssuer: false
@@ -34,25 +44,61 @@ global:
     storagePath: /storage
     inviteCodeExpiryDays: 7
 
-  loadBalancer:
-    provider: metallb
+  # Edge = the surfaces BMC exposes outside the cluster.
+  # `annotations` is a verbatim passthrough: environment-specific load balancer
+  # configuration belongs in a profile as data, never as template logic. This is
+  # what lets a new environment be a YAML file rather than a template change.
+  edge:
+    # The game entrypoint. This is the ONLY surface that must be internet-facing.
+    game:
+      type: LoadBalancer
+      annotations: {}
+      loadBalancerIP: ""
+      sourceRanges: []
+      java:
+        port: 25565
+      bedrock:
+        enabled: true
+        port: 19132
 
-    metallb:
-      # IP configuration must be set in values.custom.yaml
-      entrypointIP: ""
-      installResources: false
-      ipAddressPool: []
-      advertisementMode: l2
+    # SFTP / file-edit sessions, created per deployment at runtime by the panel.
+    #
+    # NodePort is the historical behaviour and stays the default. It is
+    # unreachable on clouds whose nodes sit in private subnets -- switching to
+    # ClusterIP requires the panel to proxy SFTP, and LoadBalancer costs one
+    # cloud load balancer per open file session.
+    file:
+      type: NodePort
+      annotations: {}
+      # Restrict who can reach an open SFTP session (empty = anywhere)
+      sourceRanges: []
 
   ingress:
-    ingressClass: "traefik"
-    # Domain must be set in values.custom.yaml
-    panelDomain: ""
+    className: "traefik"
+    # Host must be set in values.custom.yaml
+    host: ""
+    tls:
+      # cluster-issuer | existing-secret | none
+      mode: cluster-issuer
+      # Used when mode is 'cluster-issuer'; defaults to certManager.clusterIssuerName
+      issuer: ""
+      # Used when mode is 'existing-secret'
+      secretName: ""
 
   storage:
-    # Must support ReadWriteMany Access Mode
-    storageClass: "longhorn"
-    reclaimPolicy: "Retain"
+    classes:
+      # Shared game data and panel manifests. RWX is NOT optional: the panel
+      # mounts a deployment's game volume into a file-edit pod and an SFTP pod
+      # concurrently with the running server, so multiple pods hold the same
+      # claim whenever a file session is open.
+      shared:
+        name: "longhorn"
+        accessMode: ReadWriteMany
+      # MariaDB and MongoDB. Single writer each -- these do not want a network
+      # filesystem.
+      database:
+        name: "longhorn"
+        accessMode: ReadWriteOnce
     volumeSize:
       persistent: "10Gi"
       scalable: "5Gi"
@@ -62,11 +108,24 @@ global:
       mariaDB: "5Gi"
       mongoDB: "5Gi"
 
+  # MetalLB resources. Not a core capability -- purely an opt-in extra that a
+  # bare-metal profile enables. The chart contains no other MetalLB logic; the
+  # Service annotations come from edge.game.annotations like any other
+  # environment's would.
+  metallb:
+    installResources: false
+    ipAddressPool: []
+    advertisementMode: l2
+
   redis:
     host: "redis-service"
     port: 6379
 
   mariaDB:
+    # Set external: true to use a managed database (RDS, Cloud SQL, ...). The
+    # in-cluster Deployment and its PVC are then not created, and host/port/
+    # username below are used as-is.
+    external: false
     host: mariadb-service
     port: 3306
     username: root
@@ -74,6 +133,7 @@ global:
     # Password stored in secret 'bmc-secrets' key 'mariadb-root-password'
 
   mongoDB:
+    external: false
     host: mongodb-service
     port: 27017
     username: admin

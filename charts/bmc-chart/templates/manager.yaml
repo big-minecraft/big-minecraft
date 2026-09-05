@@ -17,8 +17,14 @@ spec:
       serviceAccountName: kubectl-sa
       containers:
       - name: manager
-        image: kyrokrypt/bmc-manager:latest
+        image: "{{ .Values.images.manager.repository }}:{{ .Values.images.manager.tag }}"
+        imagePullPolicy: {{ .Values.images.manager.pullPolicy }}
         env:
+          # BMCManager.getNamespace() falls back to a hardcoded "bmc" when this
+          # is unset, so a manager deployed elsewhere would reconcile the wrong
+          # namespace. Always pass it explicitly.
+          - name: KUBERNETES_NAMESPACE
+            value: {{ .Release.Namespace | quote }}
           - name: REDIS_HOST
             value: {{ .Values.global.redis.host }}
           - name: REDIS_PORT
