@@ -96,6 +96,8 @@ spec:
                       type: string
                     size:
                       type: string
+                    readOnly:
+                      type: boolean
                 redis:
                   type: object
                   properties:

@@ -34,6 +34,7 @@ spec:
     mountPath: {{ .Values.volume.mountPath | default "/minecraft" }}
     storageClass: {{ .Values.global.storage.classes.shared.name | default "longhorn" }}
     size: {{ .Values.global.storage.volumeSize.scalable | default "5Gi" }}
+    readOnly: true
   redis:
     host: {{ .Values.server.redis.host | quote }}
     port: {{ .Values.server.redis.port | quote }}

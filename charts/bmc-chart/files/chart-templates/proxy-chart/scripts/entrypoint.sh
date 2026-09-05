@@ -25,17 +25,17 @@ if ! command -v curl &> /dev/null; then
 fi
 fi
 
-PLUGINS_DIR="{{ .Values.volume.mountPath | default "/minecraft" }}/plugins"
-mkdir -p "$PLUGINS_DIR"
-echo "Downloading bmc-velocity plugin..."
-curl -L -o "$PLUGINS_DIR/bmc-velocity.jar" "https://github.com/big-minecraft/bmc-velocity/releases/latest/download/bmc-velocity.jar"
-echo "Plugin downloaded successfully"
-
 POD_LOCAL_DIR="/tmp/minecraft-server"
 mkdir -p "$POD_LOCAL_DIR"
 
 echo "Copying server files to pod-local directory..."
 cp -r {{ .Values.volume.mountPath }}/* "$POD_LOCAL_DIR/"
+
+PLUGINS_DIR="$POD_LOCAL_DIR/plugins"
+mkdir -p "$PLUGINS_DIR"
+echo "Downloading bmc-velocity plugin..."
+curl -L -o "$PLUGINS_DIR/bmc-velocity.jar" "https://github.com/big-minecraft/bmc-velocity/releases/latest/download/bmc-velocity.jar"
+echo "Plugin downloaded successfully"
 
 cd "$POD_LOCAL_DIR"
 if [ ! -f "./{{ .Values.server.jarName }}" ]; then

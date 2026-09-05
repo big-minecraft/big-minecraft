@@ -56,7 +56,7 @@ with a Redis write per event.
 Replace "every instance reads a shared filesystem" with "every instance pulls a
 versioned artifact".
 
-### Phase A0 — One pod per file session
+### Phase A0 — One pod per file session  ✅ done
 
 The smallest useful change, and the one that proves the RWO assumption before
 anything depends on it.
@@ -85,7 +85,7 @@ with it — arguably correct, since they are one session.
 
 **Rollback:** split the pod back; the Services are unchanged.
 
-### Phase A1 — Read-only template mounts
+### Phase A1 — Read-only template mounts  ✅ done
 
 Makes the existing contract explicit and prevents accidental writes.
 
@@ -99,8 +99,16 @@ Makes the existing contract explicit and prevents accidental writes.
 **Value on its own:** an accidental write from a plugin or an admin script can
 no longer corrupt the template other instances are copying from.
 
-**Risk:** low. If a plugin does write to the mount today, it fails loudly
-instead of silently diverging — which is the point, but worth a release note.
+**Risk:** low, but real. If a plugin writes to the mount today it now fails
+loudly instead of silently diverging — which is the point, and worth a release
+note for operators.
+
+Implementing this found one such writer in BMC itself: the proxy entrypoint
+downloaded `bmc-velocity.jar` into `<mountPath>/plugins` on the shared volume
+*before* copying to local, so every proxy start wrote to shared storage and
+several proxies starting at once all wrote the same file concurrently. It now
+downloads into the pod-local copy instead. That change is worth having on its
+own, independent of the read-only mount.
 
 ### Phase A2 — Artifact store and publish
 
