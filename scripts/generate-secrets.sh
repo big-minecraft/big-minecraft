@@ -54,6 +54,14 @@ echo -e "${GREEN}✓${NC} Generated initial invite code"
 echo -e "${GREEN}✓${NC} Generated MariaDB root password"
 echo -e "${GREEN}✓${NC} Generated MongoDB root password"
 echo -e "${GREEN}✓${NC} Generated SFTP password"
+
+# Artifact store credentials, under two spellings of the same values:
+# artifactAccessKey/artifactSecretKey are what BMC's manifests read, and
+# rootUser/rootPassword are the names the MinIO chart requires from an
+# existingSecret -- it fails to start without exactly those.
+ARTIFACT_ACCESS_KEY=$(openssl rand -hex 16)
+ARTIFACT_SECRET_KEY=$(openssl rand -base64 32 | tr -d '/+=' | head -c 40)
+echo -e "${GREEN}✓${NC} Generated artifact store credentials"
 echo ""
 
 # Create Kubernetes secret
@@ -73,6 +81,10 @@ echo ""
 
 kubectl create secret generic "$SECRET_NAME" \
   --namespace="$NAMESPACE" \
+  --from-literal=artifactAccessKey="$ARTIFACT_ACCESS_KEY" \
+  --from-literal=artifactSecretKey="$ARTIFACT_SECRET_KEY" \
+  --from-literal=rootUser="$ARTIFACT_ACCESS_KEY" \
+  --from-literal=rootPassword="$ARTIFACT_SECRET_KEY" \
   --from-literal=panelSecret="$PANEL_SECRET" \
   --from-literal=initialInviteCode="$INITIAL_INVITE_CODE" \
   --from-literal=mariadb-root-password="$MARIADB_PASSWORD" \

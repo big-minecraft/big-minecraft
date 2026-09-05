@@ -138,6 +138,21 @@ global:
       mariaDB: "5Gi"
       mongoDB: "5Gi"
 
+  # Object storage for deployment artifacts. Instances pull a versioned
+  # artifact instead of every instance reading one shared filesystem at
+  # startup, which is what stops scale-up contending on that filesystem.
+  #
+  # install runs MinIO in-cluster, for anywhere without managed object storage.
+  # Credentials live in bmc-secrets.
+  artifactStore:
+    enabled: false
+    install: false
+    endpoint: ""
+    bucket: "bmc-artifacts"
+    region: "us-east-1"
+    # MinIO's backing volume. Only read when install is true.
+    size: "20Gi"
+
   # In-cluster NFS server, providing the ReadWriteMany storage class on clouds
   # whose managed RWX filesystem is disproportionately expensive.
   #

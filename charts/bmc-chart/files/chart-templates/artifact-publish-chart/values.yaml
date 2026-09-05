@@ -1,0 +1,21 @@
+# Supplied by the panel at publish time. The defaults exist so `helm template`
+# works standalone for review and in CI.
+publish:
+  jobName: publish-proxy-v1
+  deploymentName: proxy
+  # Version this publish produces. The panel allocates it and records it in the
+  # deployment manifest once the Job succeeds.
+  version: "v1"
+  # The deployment's existing PVC. Mounted READ-ONLY: publishing reads the
+  # files, it never modifies them.
+  pvcName: bmc-proxy
+  mountPath: /minecraft
+
+# Defaults for the `global` subtree the panel injects from GLOBAL_VALUES_JSON.
+global:
+  namespace: bmc
+  artifactStore:
+    enabled: false
+    endpoint: ""
+    bucket: "bmc-artifacts"
+    region: "us-east-1"

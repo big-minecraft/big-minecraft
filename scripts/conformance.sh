@@ -67,7 +67,11 @@ sftp: {podName: t, nodePort: 31000, pvcName: t, username: u, password: p}
 fileSession: {podName: t, pvcName: t, mountPath: /minecraft}
 activityWatcher: {panelUrl: http://panel-service, serviceToken: t, sessionId: s}
 EOF
-for pair in "proxy-chart:charts/bmc-chart/files/default-values/proxy.yaml" \
+cat > "$TMP/publish.yaml" <<'EOF'
+publish: {jobName: p, deploymentName: proxy, version: v1, pvcName: t, mountPath: /minecraft}
+EOF
+for pair in "artifact-publish-chart:$TMP/publish.yaml" \
+            "proxy-chart:charts/bmc-chart/files/default-values/proxy.yaml" \
             "scalable-deployment-chart:charts/bmc-chart/files/default-values/scalable.yaml" \
             "persistent-deployment-chart:charts/bmc-chart/files/default-values/persistent.yaml" \
             "process-chart:charts/bmc-chart/files/default-values/process.yaml" \

@@ -16,6 +16,8 @@ repositories:
     url: https://kubernetes.github.io/ingress-nginx
   - name: nfs-ganesha
     url: https://kubernetes-sigs.github.io/nfs-ganesha-server-and-external-provisioner/
+  - name: minio
+    url: https://charts.min.io/
 ---
 releases:
   - name: traefik
@@ -35,6 +37,35 @@ releases:
     # IPAddressPools and L2Advertisements this install depends on -- including
     # any the cluster operator manages themselves. The pinned chart version
     # above is what keeps CRD drift under control.
+
+  # Object storage for deployment artifacts, where there is no managed
+  # equivalent. Must exist before big-minecraft: a deployment whose artifact
+  # cannot be fetched will not start.
+  - name: minio
+    namespace: minio
+    createNamespace: true
+    chart: minio/minio
+    version: 5.4.0
+    installed: {{ .Values.global.artifactStore.install }}
+    values:
+      - mode: standalone
+        # Deployment templates are re-publishable from the panel, so one
+        # replica is enough; distributed mode needs four nodes.
+        replicas: 1
+        persistence:
+          enabled: true
+          size: {{ .Values.global.artifactStore.size | quote }}
+          {{- with .Values.global.storage.classes.database.name }}
+          storageClass: {{ . | quote }}
+          {{- end }}
+        existingSecret: bmc-secrets
+        buckets:
+          - name: {{ .Values.global.artifactStore.bucket | quote }}
+            policy: none
+            purge: false
+        resources:
+          requests:
+            memory: 512Mi
 
   # ReadWriteMany storage, for clusters with no affordable managed option.
   #
@@ -132,4 +163,7 @@ releases:
       {{- end }}
       {{- if .Values.global.nfsServer.install }}
       - nfs/nfs-server-provisioner
+      {{- end }}
+      {{- if .Values.global.artifactStore.install }}
+      - minio/minio
       {{- end }}

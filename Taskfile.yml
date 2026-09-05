@@ -120,6 +120,7 @@ tasks:
       - |
         echo "Installing storage provider (no-op unless the profile enables one)..."
       - helmfile apply --selector name=nfs-server-provisioner
+      - helmfile apply --selector name=minio
 
   deploy:
     desc: Deploy dependencies (ingress controller, cert-manager, MetalLB, per profile)

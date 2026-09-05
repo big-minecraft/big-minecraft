@@ -1,0 +1,77 @@
+{{- /*
+Packs one deployment into a versioned artifact.
+
+A Job rather than streaming through the panel: server directories run to
+hundreds of megabytes, and the panel can otherwise only reach deployment files
+by exec-ing into a session pod, so this is also what allows publishing with no
+session open.
+*/ -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Values.publish.jobName }}
+  labels:
+    app: artifact-publish
+    deployment: {{ .Values.publish.deploymentName }}
+    bmc/artifact-version: {{ .Values.publish.version | quote }}
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: artifact-publish
+        deployment: {{ .Values.publish.deploymentName }}
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: publish
+          image: quay.io/minio/mc:latest
+          env:
+            - name: ARTIFACT_ENDPOINT
+              value: {{ .Values.global.artifactStore.endpoint | quote }}
+            - name: ARTIFACT_BUCKET
+              value: {{ .Values.global.artifactStore.bucket | quote }}
+            - name: ARTIFACT_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: bmc-secrets
+                  key: artifactAccessKey
+            - name: ARTIFACT_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: bmc-secrets
+                  key: artifactSecretKey
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+
+              mc alias set store "$ARTIFACT_ENDPOINT" "$ARTIFACT_ACCESS_KEY" "$ARTIFACT_SECRET_KEY"
+
+              echo "Packing {{ .Values.publish.deploymentName }} {{ .Values.publish.version }}..."
+              # -C so archive paths are relative, not absolute.
+              tar czf /tmp/artifact.tar.gz -C {{ .Values.publish.mountPath }} .
+
+              SIZE=$(stat -c %s /tmp/artifact.tar.gz)
+              echo "Packed ${SIZE} bytes"
+
+              # Versioned object first, then the pointer. In that order a
+              # reader that catches the window sees the previous version rather
+              # than a "latest" naming an object that does not exist yet.
+              mc cp /tmp/artifact.tar.gz \
+                "store/${ARTIFACT_BUCKET}/deployments/{{ .Values.publish.deploymentName }}/{{ .Values.publish.version }}.tar.gz"
+              mc cp /tmp/artifact.tar.gz \
+                "store/${ARTIFACT_BUCKET}/deployments/{{ .Values.publish.deploymentName }}/latest.tar.gz"
+
+              echo "Published {{ .Values.publish.version }}"
+          volumeMounts:
+            - name: deployment-data
+              mountPath: {{ .Values.publish.mountPath }}
+              readOnly: true
+      volumes:
+        - name: deployment-data
+          persistentVolumeClaim:
+            claimName: {{ .Values.publish.pvcName }}
+            readOnly: true

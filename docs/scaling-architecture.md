@@ -110,7 +110,7 @@ several proxies starting at once all wrote the same file concurrently. It now
 downloads into the pod-local copy instead. That change is worth having on its
 own, independent of the read-only mount.
 
-### Phase A2 — Artifact store and publish
+### Phase A2 — Artifact store and publish  🚧 in progress
 
 | Where | Change |
 |---|---|
@@ -130,6 +130,23 @@ deployments/<name>/latest          ← pointer, updated on publish
 **Value on its own:** versioning and rollback exist before anything consumes
 them. Publishing is observable and reversible while the old copy path still
 runs.
+
+**Done so far:** the store (`global.artifactStore`, an optional MinIO release
+gated like the NFS server, installed by `task storage`), the credentials in
+`bmc-secrets`, and `artifact-publish-chart` — a Job that mounts a deployment's
+PVC read-only, packs it, and uploads the versioned object then the `latest`
+pointer.
+
+Publishing runs as a Job rather than streaming a tarball through the panel: a
+server directory is routinely hundreds of megabytes, and the panel has no reason
+to be in that path. It is also the only way to publish without an open file
+session, because `PVCFileOperationsService` reaches deployment files only by
+exec-ing into a session pod.
+
+**Still to do:** the panel side — `artifactService.ts` to create the Job and
+watch it, an `artifactVersion` field in the deployment manifest, and
+auto-publish when a file session closes. The store stays `enabled: false` until
+A3 makes it load-bearing, so nothing provisions storage it does not use yet.
 
 **Auto-publish on session close is what keeps the UX unchanged.** Sessions
 already have a lifecycle and a timeout, so "edit, close, restart" feels like
@@ -215,14 +232,72 @@ of that.
 
 ## Track B — Redis and database HA
 
-### B1 — `redis.external`, mirroring the databases
+### B1 — `redis.external`, mirroring the databases  ✅ done
 
-`charts/bmc-chart/templates/redis-server.yaml` has no `external` conditional,
+`charts/bmc-chart/templates/redis-server.yaml` had no `external` conditional,
 unlike `mariadb-server.yaml` and `mongodb-server.yaml`, which are both wrapped
-in `{{- if not .Values.global.<db>.external }}`. Add the same flag and guard.
-~15 lines, and it unblocks everything else in this track.
+in `{{- if not .Values.global.<db>.external }}`. It now has the same flag and
+guard.
 
-### B2 — Sentinel, not Cluster
+It turned out to need more than the guard. The runtime charts read
+`.Values.server.redis.host`, which the deployment manifests in
+`files/default-values/` hardcode to `redis-service` — so the panel and manager
+would have moved to an external Redis while every game server kept dialling the
+in-cluster Service that no longer exists. The templates now prefer the
+panel-injected `global.redis.host` and fall back to the per-deployment value,
+and each runtime chart declares `global.redis` so it renders standalone.
+
+`validate-config.sh` also fails when `external` is true and the host is still
+`redis-service`, because that combination produces no error anywhere — the
+Deployment simply is not created, and the symptom is scaling quietly not
+happening.
+
+**Still missing for a managed Redis:** the clients connect with no
+authentication or TLS. That is B2's territory.
+
+### B1.5 — Managed HA Redis on the cloud profiles  ✅ done
+
+Not in the original plan, and it turned out to deliver the whole of track B's
+value on cloud without B2.
+
+Self-hosted Sentinel needs the *client* to discover which node is master, which
+is why B2 exists. Managed cloud Redis does not: the provider keeps one stable
+endpoint and repoints it internally, so BMC's plain single-endpoint pool works
+unchanged.
+
+| | EKS | GKE |
+|---|---|---|
+| Service | ElastiCache, cluster mode **disabled**, Multi-AZ | Memorystore **STANDARD_HA** |
+| Alias | `ExternalName` → primary endpoint | ClusterIP + `EndpointSlice` → the IP |
+| Failover | AWS repoints the endpoint | the IP is preserved |
+| Cost | ~$45/month | ~$35/month |
+
+Cluster mode **enabled** is specifically avoided: it shards the keyspace, and
+the manager enumerates instances with `SCAN`, which in a sharded cluster is
+per-node and would silently return partial lists.
+
+Terraform provisions the instance *and* creates the `redis-service` alias in the
+same apply, because it is the only thing that knows the endpoint — the same
+arrangement as the EFS filesystem and its storage class. The chart's new
+`redis.createService: false` tells it to stay out of the way, and preflight
+hard-fails if the alias is missing, since nothing else in the install would
+notice.
+
+**Bare metal is deliberately excluded.** Three reasons, in order:
+
+1. The obvious chart is currently broken — `bitnami/redis` 20.6.2 pins
+   `bitnami/redis:7.4.2-debian-12-r0`, which 404s on Docker Hub since Bitnami
+   moved older tags to `bitnamilegacy`.
+2. Its master-service feature, which is what would let a plain pool work, is
+   marked experimental.
+3. HA Redis wants three nodes for a Sentinel quorum, and many bare-metal BMC
+   clusters are single-node, where three Redis pods die together.
+
+The exposure there is also smaller: Redis holds coordination state, not durable
+data — the manager's discovery tasks rebuild it from what is actually running —
+so losing the pod pauses scaling for about a minute and self-heals.
+
+### B2 — Sentinel, not Cluster  *(bare metal only, after B1.5)*
 
 `bmc-manager` `controllers/RedisManager.java` line 31 constructs
 `new JedisPool(poolConfig, redisHost, redisPort)` — a single-endpoint pool. Two
@@ -273,6 +348,12 @@ and should follow measurement, not precede it.
 
 **A0 → A1 → B1 → A2 → A3 → A4**, with **C1–C3** slotted in whenever convenient
 — they are small and independent.
+
+Done so far: **A0, A1, B1, B1.5**. Next is **A2**.
+
+B2 dropped in priority once B1.5 landed: cloud installs get HA Redis from the
+provider, so Sentinel-aware clients are now only needed for self-hosted HA,
+which in practice means bare metal.
 
 A0 and A1 are cheap and de-risk everything after them — A0 in particular is a
 few dozen lines of YAML and proves the ReadWriteOnce assumption before anything
