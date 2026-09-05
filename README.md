@@ -49,6 +49,7 @@ a YAML file, never editing a template.
 | Profile | For |
 |---|---|
 | `baremetal-metallb` | Bare metal / k3s with MetalLB + Longhorn (the default) |
+| `eks` | Amazon EKS — see [`terraform/`](terraform/) to build the cluster itself |
 | `generic` | Any other conformant cluster — managed Kubernetes, VMs, k3d |
 
 Provider-specific load balancer settings are supplied as
@@ -63,9 +64,9 @@ verbatim. See `charts/bmc-chart/values.example.yaml` for AWS/GCP/Azure examples.
 # 1. Check your tooling and cluster connection
 task verify
 
-# 2. Create your config
-task config:init
-#    then edit charts/bmc-chart/values.custom.yaml
+# 2. Create your config, pre-filled for your profile
+task config:init PROFILE=baremetal-metallb
+#    then edit charts/bmc-chart/values.custom.yaml -- every line marked CHANGE THIS
 
 # 3. Check the cluster can actually run BMC
 task preflight PROFILE=baremetal-metallb
@@ -78,6 +79,35 @@ task install PROFILE=baremetal-metallb
 ```
 
 Access the panel at your configured domain and use the invite code from step 4.
+
+There is exactly one active config file, `charts/bmc-chart/values.custom.yaml`,
+and the profile is what makes it environment-appropriate. `config:init` starts
+it from `values.example-<profile>.yaml` when that profile has a template, and
+from the generic `values.example.yaml` otherwise.
+
+To point this checkout at a different cluster, park the current config rather
+than keeping two:
+
+```bash
+mkdir -p backups && mv charts/bmc-chart/values.custom.yaml backups/values.custom.<name>.yaml
+task config:init PROFILE=<other-profile>
+```
+
+### On EKS
+
+Full guide: **[docs/eks-install.md](docs/eks-install.md)** — install, DNS,
+costs, and the failure modes worth knowing in advance.
+
+The cluster itself — VPC, EKS, EFS, CSI drivers, load balancer controller,
+Karpenter — is built by the OpenTofu/Terraform layer in
+[`terraform/`](terraform/). Build it first, then the steps above are the same:
+
+```bash
+cd terraform && cp terraform.tfvars.example terraform.tfvars && tofu apply
+aws eks update-kubeconfig --region <region> --name <cluster>
+cd .. && task config:init PROFILE=eks
+task preflight PROFILE=eks && task secrets:generate && task install PROFILE=eks
+```
 
 ---
 
@@ -143,7 +173,7 @@ source in this order:
 task verify           # Verify local prerequisites
 task preflight        # Verify the cluster satisfies the capability contract
 task conformance      # Preflight, plus render every profile
-task config:init      # Initialize configuration
+task config:init      # Initialize configuration for PROFILE
 task validate         # Check required config values are set
 task secrets:generate # Generate secrets
 task diff             # Show what an apply would change

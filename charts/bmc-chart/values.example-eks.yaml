@@ -1,0 +1,82 @@
+# BMC Configuration Example -- Amazon EKS
+#
+# Created for you by:
+#   task config:init PROFILE=eks
+#
+# The cluster itself comes from the Terraform/OpenTofu layer in terraform/.
+# Build that first -- it creates the EFS filesystem, the storage classes, the
+# load balancer controller and the node security group rules this config
+# assumes. See terraform/README.md.
+#
+# Configuration is layered, lowest precedence first:
+#   1. charts/bmc-chart/values.yaml  -- neutral defaults, do not edit
+#   2. profiles/eks.yaml             -- how EKS satisfies the contract
+#   3. values.custom.yaml            -- this file: YOUR installation
+#
+# This file is deliberately SHORT. Everything about EKS as a KIND of cluster --
+# storage classes, edge types, ingress class, the NLB annotations -- already
+# lives in profiles/eks.yaml. Repeating any of it here is how the two drift
+# apart later, and a wrong value here silently wins.
+#
+# Full install:
+#   cd terraform && tofu apply
+#   aws eks update-kubeconfig --region <region> --name <cluster>
+#   task preflight PROFILE=eks
+#   task secrets:generate
+#   task install PROFILE=eks
+
+global:
+  environment: production
+
+  certManager:
+    # Create the ClusterIssuer? Set false if your cluster already has one.
+    installClusterIssuer: true
+    clusterIssuerName: "letsencrypt-prod"
+    # REQUIRED -- Let's Encrypt sends expiry warnings here.
+    email: "your-email@example.com"  # CHANGE THIS
+
+  panel:
+    # REQUIRED: domain for the BMC web panel. After installing, CNAME this at
+    # the ingress-nginx load balancer:
+    #   kubectl get svc ingress-nginx-controller -n ingress-nginx \
+    #     -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
+    panelHost: "panel.example.com"  # CHANGE THIS
+
+  ingress:
+    # REQUIRED: must match panel.panelHost, or the certificate will not match.
+    host: "panel.example.com"  # CHANGE THIS
+
+  # The two source-range lists below have counterparts in
+  # terraform/terraform.tfvars, and BOTH halves have to agree.
+  #
+  # Every load balancer in the EKS stack is an ip-target NLB, which preserves
+  # the client's source IP end to end -- so the node security group sees real
+  # client addresses. Setting the range in only one place either breaks access
+  # or silently leaves the port open to the internet.
+  edge:
+    game:
+      # Pairs with game_allowed_cidrs. Empty = anywhere, which is what a public
+      # Minecraft server wants.
+      sourceRanges: []
+    file:
+      # Not read on EKS. File sessions are reached through the ingress
+      # controller's TCP passthrough rather than their own load balancer, so
+      # access is controlled by that load balancer's security group -- see
+      # file_session_allowed_cidrs in terraform/terraform.tfvars, which is
+      # public by default.
+      sourceRanges: []
+
+  # Managed databases are a good fit on EKS: RDS and DocumentDB remove two RWO
+  # volumes and two single-replica Deployments from the cluster. Set external
+  # true, point host/port/username at them, and keep the passwords in the
+  # bmc-secrets keys the chart already reads.
+  mariaDB:
+    external: false
+  mongoDB:
+    external: false
+
+  fileEditSession:
+    # Each open session holds its own NLB, billed hourly with a one-hour
+    # minimum. Lower this to cap the exposure; raise it if operators complain
+    # about sessions closing under them.
+    timeoutMinutes: 15

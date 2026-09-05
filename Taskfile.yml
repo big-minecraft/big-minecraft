@@ -55,6 +55,12 @@ tasks:
     cmds:
       - PROFILE={{.PROFILE}} {{.SCRIPTS_DIR}}/validate-config.sh
 
+  sftp:info:
+    desc: Print connection details for open SFTP / file-edit sessions
+    silent: true
+    cmds:
+      - NAMESPACE={{.NAMESPACE}} {{.SCRIPTS_DIR}}/sftp-info.sh
+
   secrets:check:
     desc: Check if secrets exist in cluster
     silent: true
@@ -69,29 +75,46 @@ tasks:
       - NAMESPACE={{.NAMESPACE}} {{.SCRIPTS_DIR}}/generate-secrets.sh
 
   config:init:
-    desc: Initialize configuration from example template
+    desc: Initialize values.custom.yaml from the template for PROFILE
     silent: true
     cmds:
       - |
         if [ -f {{.CHART_DIR}}/values.custom.yaml ]; then
           echo "⚠️  values.custom.yaml already exists!"
           echo "   Delete it first or edit it directly."
+          echo "   To switch clusters, save the current one first:"
+          echo "     mkdir -p backups && mv {{.CHART_DIR}}/values.custom.yaml backups/"
           exit 1
         fi
-      - cp {{.CHART_DIR}}/values.example.yaml {{.CHART_DIR}}/values.custom.yaml
-      - echo "✓ Created values.custom.yaml"
-      - echo ""
-      - echo "Next steps:"
-      - echo "  1. Edit {{.CHART_DIR}}/values.custom.yaml with your configuration"
-      - echo "  2. Pick a profile - see profiles/ - and pass it as PROFILE=<name>"
-      - echo "  3. Run 'task secrets:generate' to create secrets"
-      - echo "  4. Run 'task install PROFILE=<name>' to deploy"
+
+        # A profile-specific template when one exists, the generic one
+        # otherwise. There is only ever ONE active values.custom.yaml -- the
+        # profile is what makes it environment-appropriate, not a second file.
+        TEMPLATE={{.CHART_DIR}}/values.example-{{.PROFILE}}.yaml
+        [ -f "$TEMPLATE" ] || TEMPLATE={{.CHART_DIR}}/values.example.yaml
+
+        cp "$TEMPLATE" {{.CHART_DIR}}/values.custom.yaml
+        echo "✓ Created values.custom.yaml from $(basename "$TEMPLATE")"
+        echo ""
+        echo "Next steps:"
+        echo "  1. Edit {{.CHART_DIR}}/values.custom.yaml (every line marked CHANGE THIS)"
+        echo "  2. Run 'task validate PROFILE={{.PROFILE}}' to check it"
+        echo "  3. Run 'task secrets:generate' to create secrets"
+        echo "  4. Run 'task install PROFILE={{.PROFILE}}' to deploy"
 
   deploy:
-    desc: Deploy dependencies (cert-manager and MetalLB, per profile)
+    desc: Deploy dependencies (ingress controller, cert-manager, MetalLB, per profile)
     silent: true
     cmds:
       - echo "Installing profile dependencies..."
+      # Each release is selected by name. A release that is not named here is
+      # never installed, whatever `needs:` says in helmfile.yaml -- helmfile
+      # only walks needs when passed --include-needs. Adding a dependency to
+      # helmfile.yaml therefore means adding a line here too.
+      #
+      # Every one of these is a no-op unless the profile turns it on, so the
+      # list is safe to keep in one order for all profiles.
+      - helmfile apply --selector name=ingress-nginx
       - helmfile apply --selector name=cert-manager
       - helmfile apply --selector name=metallb
       - "{{.SCRIPTS_DIR}}/apply-metallb-config.sh"
@@ -123,6 +146,68 @@ tasks:
     silent: true
     cmds:
       - helmfile diff
+
+  teardown:
+    desc: Destroy EVERYTHING - BMC and the cloud infrastructure under it (irreversible)
+    prompt: This DESTROYS the cluster and every volume, world and database in it. Continue?
+    silent: true
+    cmds:
+      - |
+        # Order matters, and getting it wrong wastes twenty minutes.
+        #
+        # Kubernetes-created load balancers (the game edge, the ingress) leave
+        # ENIs in the VPC subnets. Terraform cannot delete a VPC out from under
+        # them, so `tofu destroy` first gets most of the way and then hangs on
+        # subnet deletion until it times out. Removing the Helm releases first
+        # lets the load balancer controller clean its own ENIs up.
+        echo "==========================================" 
+        echo "1/3  Removing BMC (releases the load balancers)"
+        echo "=========================================="
+        helmfile destroy || echo "  (nothing installed, or cluster already gone)"
+      - |
+        echo ""
+        echo "=========================================="
+        echo "2/3  Waiting for cloud load balancers to disappear"
+        echo "=========================================="
+        # The controller deletes these asynchronously. Polling beats guessing.
+        for i in $(seq 1 60); do
+          REMAINING=$(aws elbv2 describe-load-balancers \
+            --query "length(LoadBalancers[?starts_with(LoadBalancerName, 'k8s-')])" \
+            --output text 2>/dev/null || echo 0)
+          [ "${REMAINING:-0}" = "0" ] && { echo "  all released"; break; }
+          echo "  $REMAINING still present..."
+          sleep 5
+        done
+      - |
+        echo ""
+        echo "=========================================="
+        echo "3/3  Destroying the infrastructure"
+        echo "=========================================="
+        cd terraform && tofu destroy -auto-approve
+      - |
+        echo ""
+        echo "Done. Verify nothing is still billable with:"
+        echo "  task teardown:verify"
+
+  teardown:verify:
+    desc: List any AWS resources still running that would incur charges
+    silent: true
+    cmds:
+      - |
+        echo "=========================================="
+        echo "Still-billable resources"
+        echo "=========================================="
+        printf "%-22s %s\n" "EKS clusters:"   "$(aws eks list-clusters --query 'clusters' --output text 2>/dev/null || echo '?')"
+        printf "%-22s %s\n" "EC2 instances:"  "$(aws ec2 describe-instances --filters Name=instance-state-name,Values=running,pending --query 'Reservations[].Instances[].InstanceId' --output text 2>/dev/null)"
+        printf "%-22s %s\n" "Load balancers:" "$(aws elbv2 describe-load-balancers --query 'LoadBalancers[].LoadBalancerName' --output text 2>/dev/null)"
+        printf "%-22s %s\n" "NAT gateways:"   "$(aws ec2 describe-nat-gateways --filter Name=state,Values=available,pending --query 'NatGateways[].NatGatewayId' --output text 2>/dev/null)"
+        printf "%-22s %s\n" "Elastic IPs:"    "$(aws ec2 describe-addresses --query 'Addresses[].AllocationId' --output text 2>/dev/null)"
+        printf "%-22s %s\n" "EBS volumes:"    "$(aws ec2 describe-volumes --query 'Volumes[].VolumeId' --output text 2>/dev/null)"
+        printf "%-22s %s\n" "EBS snapshots:"  "$(aws ec2 describe-snapshots --owner-ids self --query 'Snapshots[].SnapshotId' --output text 2>/dev/null)"
+        printf "%-22s %s\n" "EFS filesystems:" "$(aws efs describe-file-systems --query 'FileSystems[].FileSystemId' --output text 2>/dev/null)"
+        echo ""
+        echo "Empty on every line means nothing is accruing charges."
+        echo "NOTE: this checks the CURRENT region only."
 
   uninstall:
     desc: Remove BMC installation from cluster
