@@ -24,3 +24,8 @@ global:
       type: NodePort
       annotations: {}
       sourceRanges: []
+  ingressNginx:
+    # When true, the ingress controller forwards this session's port straight
+    # through, and no per-session cloud load balancer is created at all.
+    sftpPassthrough:
+      enabled: false

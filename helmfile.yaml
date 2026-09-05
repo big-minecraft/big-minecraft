@@ -12,6 +12,8 @@ repositories:
     url: https://charts.jetstack.io
   - name: traefik
     url: https://traefik.github.io/charts
+  - name: ingress-nginx
+    url: https://kubernetes.github.io/ingress-nginx
 ---
 releases:
   - name: traefik
@@ -31,6 +33,42 @@ releases:
     # IPAddressPools and L2Advertisements this install depends on -- including
     # any the cluster operator manages themselves. The pinned chart version
     # above is what keeps CRD drift under control.
+
+  # Installed by helmfile rather than by the Terraform layer: ingress-nginx
+  # needs nothing from any cloud provider, so keeping it here preserves one
+  # place to look for what lands in a cluster. Service annotations come from
+  # the profile as data -- see global.ingressNginx.service.annotations.
+  #
+  # On EKS this needs the AWS Load Balancer Controller to already exist, or its
+  # Service sits in <pending> forever. Terraform installs that controller, and
+  # Terraform runs before helmfile, so the ordering holds across the two tools.
+  - name: ingress-nginx
+    namespace: ingress-nginx
+    createNamespace: true
+    chart: ingress-nginx/ingress-nginx
+    version: 4.11.3
+    installed: {{ .Values.global.ingressNginx.install }}
+    values:
+      - controller:
+          service:
+            annotations:
+              {{- toYaml .Values.global.ingressNginx.service.annotations | nindent 14 }}
+        {{- if .Values.global.ingressNginx.sftpPassthrough.enabled }}
+        # One entry per SFTP port the panel can hand out. The chart turns these
+        # into the tcp-services ConfigMap AND into ports on the controller
+        # Service, which is what puts listeners on the cloud load balancer.
+        #
+        # Keyed by port rather than by deployment on purpose: the panel assigns
+        # a port per deployment and never moves it, so this mapping never needs
+        # to change when deployments come and go. The file-session chart names
+        # its Service to match.
+        tcp:
+          {{- $min := .Values.global.ingressNginx.sftpPassthrough.minPort | int }}
+          {{- $ns := .Values.global.namespace }}
+          {{- range $i := until (.Values.global.ingressNginx.sftpPassthrough.portCount | int) }}
+          {{ add $min $i | quote }}: "{{ $ns }}/sftp-slot-{{ add $min $i }}:22"
+          {{- end }}
+        {{- end }}
 
   - name: cert-manager
     namespace: cert-manager
@@ -58,4 +96,7 @@ releases:
       {{- end }}
       {{- if eq .Values.global.ingress.tls.mode "cluster-issuer" }}
       - cert-manager/cert-manager
+      {{- end }}
+      {{- if .Values.global.ingressNginx.install }}
+      - ingress-nginx/ingress-nginx
       {{- end }}

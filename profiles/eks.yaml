@@ -50,6 +50,16 @@ global:
         service.beta.kubernetes.io/aws-load-balancer-type: "external"
         service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: "ip"
         service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"
+        # NOT optional. An NLB spans every subnet it is given -- three AZs here
+        # -- and publishes one IP per AZ in DNS. With cross-zone disabled (the
+        # AWS default) an AZ only serves traffic if it holds a healthy target,
+        # but its IP stays in DNS regardless. Game server pods rarely occupy
+        # every AZ, so clients round-robin onto an IP with no backend behind it
+        # and the connection hangs -- intermittently, for a fraction of players,
+        # with nothing wrong in any log.
+        #
+        # The cost is inter-AZ data transfer on traffic that crosses zones.
+        service.beta.kubernetes.io/aws-load-balancer-attributes: "load_balancing.cross_zone.enabled=true"
       # AWS ignores loadBalancerIP. To keep a stable address, allocate Elastic
       # IPs in Terraform and pass them as
       #   service.beta.kubernetes.io/aws-load-balancer-eip-allocations
@@ -59,25 +69,26 @@ global:
 
     # SFTP / file-edit sessions, created and destroyed per session by the panel.
     #
-    # LoadBalancer, NOT the NodePort default. On EKS with private node subnets
-    # a NodePort is simply unreachable from a user's machine, so the historical
-    # default produces file sessions that open successfully and then cannot be
-    # connected to.
+    # ClusterIP -- deliberately NOT a per-session LoadBalancer.
     #
-    # The cost of that correctness: one NLB per OPEN session, billed hourly with
-    # a one-hour minimum. global.fileEditSession.timeoutMinutes (default 15)
-    # bounds how long each one lives, but a user opening ten sessions in a day
-    # pays for ten load balancer hours. If that is not acceptable, the real fix
-    # is ClusterIP plus SFTP proxying through the panel -- a panel feature that
-    # does not exist yet, so do not set ClusterIP here expecting it to work.
+    # A per-session NLB takes about four minutes before it accepts a connection
+    # (provisioning, then DNS publication, then target health checks) against a
+    # 15-minute session, and bills hourly with a one-hour minimum. Instead
+    # ingress-nginx forwards the deployment's SFTP port straight through to the
+    # session pod: no new load balancer, so a session is reachable as soon as
+    # the pod is running.
+    #
+    # This also makes the panel's existing address correct with no panel change.
+    # It advertises "sftp://<panelHost>:<sftpPort>"; panelHost resolves to the
+    # ingress load balancer, which now listens on exactly that port.
+    #
+    # See global.ingressNginx.sftpPassthrough below for the port block.
     file:
-      type: LoadBalancer
-      annotations:
-        service.beta.kubernetes.io/aws-load-balancer-type: "external"
-        service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: "ip"
-        service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"
-      # An open SFTP session is a credentialed door into game data. Restrict it
-      # to your operators' addresses in values.custom.yaml.
+      type: ClusterIP
+      annotations: {}
+      # Not read for ClusterIP -- access is controlled by the ingress load
+      # balancer's security group, which Terraform manages per port (see
+      # file_session_allowed_cidrs in terraform/).
       sourceRanges: []
 
   storage:
@@ -102,6 +113,47 @@ global:
   # LoadBalancer.
   metallb:
     installResources: false
+
+  # Installed by helmfile (see helmfile.yaml), not by the Terraform layer --
+  # ingress-nginx needs nothing from AWS, so it stays where every other
+  # in-cluster install lives. The annotations are the same NLB passthrough the
+  # game edge uses.
+  #
+  # It does depend on the AWS Load Balancer Controller, which Terraform installs;
+  # since Terraform runs first, the ordering holds.
+  ingressNginx:
+    install: true
+
+    # Forward the panel's SFTP port block through to file session pods. This is
+    # what replaces the per-session load balancer; see edge.file above.
+    sftpPassthrough:
+      enabled: true
+      minPort: 31400
+      portCount: 20
+
+    service:
+      annotations:
+        service.beta.kubernetes.io/aws-load-balancer-type: "external"
+        service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: "ip"
+        service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"
+        # A Terraform-managed security group, referenced by name.
+        #
+        # Needed because loadBalancerSourceRanges applies to a whole Service,
+        # and this one now carries both the panel (80/443, which must stay open
+        # to the internet for Let's Encrypt HTTP-01) and the SFTP port block
+        # (which must not). Per-port rules require owning the group, so
+        # terraform/ creates it and the controller is told to use it.
+        #
+        # The name must match ingress_lb_security_group_name in terraform/.
+        service.beta.kubernetes.io/aws-load-balancer-security-groups: "bmc-ingress-lb"
+        # Keep the controller managing the load-balancer-to-pod rules even
+        # though the frontend group is ours; without this, backend traffic is
+        # silently not allowed.
+        service.beta.kubernetes.io/aws-load-balancer-manage-backend-security-group-rules: "true"
+        # The controller runs one or two replicas against a three-AZ load
+        # balancer, so without this a share of panel requests hit an IP with no
+        # backend and hang.
+        service.beta.kubernetes.io/aws-load-balancer-attributes: "load_balancing.cross_zone.enabled=true"
 
   # ingress-nginx plus cert-manager, which is the combination the contract's
   # tls.mode: cluster-issuer describes.

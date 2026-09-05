@@ -80,3 +80,29 @@ spec:
       # (redis 30079, prometheus 30090 in development).
       nodePort: {{ .Values.sftp.nodePort }}
       {{- end }}
+{{- if .Values.global.ingressNginx.sftpPassthrough.enabled }}
+---
+# Stable, port-named Service for ingress-nginx TCP passthrough.
+#
+# The tcp-services mapping is keyed by port and written once at install time, so
+# the Service it points at must have a name derived from the PORT, not from this
+# session or its deployment. The panel assigns a port per deployment and never
+# moves it, so "sftp-slot-31400" is always whichever deployment holds 31400.
+#
+# This exists alongside the session-named Service above; both select the same
+# pod. The session-named one stays because the LoadBalancer edge still uses it.
+apiVersion: v1
+kind: Service
+metadata:
+  name: sftp-slot-{{ .Values.sftp.nodePort }}
+  labels:
+    app: {{ .Values.sftp.podName }}
+    bmc/sftp-slot: {{ .Values.sftp.nodePort | quote }}
+spec:
+  type: ClusterIP
+  selector:
+    app: {{ .Values.sftp.podName }}
+  ports:
+    - port: 22
+      targetPort: 22
+{{- end }}

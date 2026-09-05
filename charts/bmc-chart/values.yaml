@@ -73,6 +73,36 @@ global:
       # Restrict who can reach an open SFTP session (empty = anywhere)
       sourceRanges: []
 
+  # ingress-nginx, installed by helmfile when a profile asks for it. Kept here
+  # rather than in the Terraform layer because it needs nothing from any cloud
+  # provider: helmfile is the single answer to "what gets installed into this
+  # cluster", and the annotations below are data, exactly like edge.*.annotations.
+  ingressNginx:
+    install: false
+    service:
+      annotations: {}
+
+    # TCP passthrough for SFTP file sessions.
+    #
+    # Instead of giving every session its own cloud load balancer -- which takes
+    # about four minutes to provision and bills hourly with a one-hour minimum --
+    # the ingress controller forwards a block of ports straight through to the
+    # session pods. Sessions then become reachable as fast as the pod starts.
+    #
+    # The panel allocates one SFTP port per DEPLOYMENT from 31400 upwards
+    # (MIN_SFTP_PORT_RANGE in deploymentManager), so the mapping below is static:
+    # port 31400 always routes to whichever deployment currently holds 31400.
+    # That is also why the panel's existing "panelHost:sftpPort" address becomes
+    # correct with no panel change -- panelHost resolves to the ingress load
+    # balancer, which now listens on exactly that port.
+    #
+    # portCount is bounded by the cloud load balancer's listener limit (50 on an
+    # AWS NLB), and by how many deployments you expect to have.
+    sftpPassthrough:
+      enabled: false
+      minPort: 31400
+      portCount: 20
+
   ingress:
     className: "traefik"
     # Host must be set in values.custom.yaml
