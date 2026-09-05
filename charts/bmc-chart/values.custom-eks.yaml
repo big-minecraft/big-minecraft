@@ -1,0 +1,41 @@
+# Installation values for the EKS cluster.
+#
+# This is the third and highest-precedence layer:
+#   charts/bmc-chart/values.yaml  ->  profiles/eks.yaml  ->  this file
+#
+# Keep it SMALL. Everything the eks profile already decides -- storage classes,
+# edge types, ingress class, the NLB annotations -- is deliberately absent here.
+# Repeating a profile value in this file is how the two drift apart later.
+#
+# Point the tooling at it with BOTH variables (scripts read one, helmfile the
+# other):
+#   export VALUES_FILE=charts/bmc-chart/values.custom-eks.yaml
+#   export BMC_VALUES_FILE=charts/bmc-chart/values.custom-eks.yaml
+
+global:
+  certManager:
+    # Let's Encrypt sends expiry warnings here.
+    email: "wiji@wiji.dev"
+    # Create the ClusterIssuer named in the profile. Leave true unless you
+    # already manage your own.
+    installClusterIssuer: true
+
+  panel:
+    # Must match ingress.host below, or the issued certificate will not match
+    # the address the panel is served on.
+    panelHost: "panel.eks.wiji.dev"
+
+  ingress:
+    host: "panel.eks.wiji.dev"
+
+  edge:
+    game:
+      # Keep in step with game_allowed_cidrs in terraform/terraform.tfvars.
+      # An ip-target NLB preserves the client IP, so the node security group and
+      # this list must agree -- setting one without the other either breaks
+      # players or leaves the port open.
+      sourceRanges: []
+    file:
+      # Keep in step with file_session_allowed_cidrs in terraform.tfvars.
+      # An open SFTP session is a credentialed door into game data.
+      sourceRanges: []

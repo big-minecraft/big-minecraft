@@ -1,31 +1,4 @@
 apiVersion: v1
-kind: Pod
-metadata:
-  name: {{ .Values.sftp.podName }}
-  labels:
-    app: {{ .Values.sftp.podName }}
-spec:
-  restartPolicy: Never
-  containers:
-    - name: sftp
-      image: emberstack/sftp:latest
-      ports:
-        - containerPort: 22
-      volumeMounts:
-        - name: pvc-data
-          mountPath: /home/{{ .Values.sftp.username }}/data
-        - name: sftp-config
-          mountPath: /app/config/sftp.json
-          subPath: sftp.json
-  volumes:
-    - name: pvc-data
-      persistentVolumeClaim:
-        claimName: {{ .Values.sftp.pvcName }}
-    - name: sftp-config
-      configMap:
-        name: {{ .Values.sftp.podName }}-config
----
-apiVersion: v1
 kind: ConfigMap
 metadata:
   name: {{ .Values.sftp.podName }}-config
@@ -70,7 +43,7 @@ spec:
     {{- toYaml . | nindent 4 }}
   {{- end }}
   selector:
-    app: {{ .Values.sftp.podName }}
+    session: {{ .Values.fileSession.podName }}
   ports:
     - port: 22
       targetPort: 22
@@ -101,7 +74,7 @@ metadata:
 spec:
   type: ClusterIP
   selector:
-    app: {{ .Values.sftp.podName }}
+    session: {{ .Values.fileSession.podName }}
   ports:
     - port: 22
       targetPort: 22

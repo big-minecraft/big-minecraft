@@ -5,6 +5,7 @@ metadata:
   labels:
     app: file-edit-session
     deployment: {{ .Values.fileSession.deploymentName }}
+    session: {{ .Values.fileSession.podName }}
 spec:
   restartPolicy: Never
   containers:
@@ -14,6 +15,16 @@ spec:
       volumeMounts:
         - name: pvc-data
           mountPath: {{ .Values.fileSession.mountPath }}
+    - name: sftp
+      image: emberstack/sftp:latest
+      ports:
+        - containerPort: 22
+      volumeMounts:
+        - name: pvc-data
+          mountPath: /home/{{ .Values.sftp.username }}/data
+        - name: sftp-config
+          mountPath: /app/config/sftp.json
+          subPath: sftp.json
     - name: activity-watcher
       image: alpine:latest
       env:
@@ -38,6 +49,9 @@ spec:
     - name: scripts
       configMap:
         name: {{ .Values.fileSession.podName }}-scripts
+    - name: sftp-config
+      configMap:
+        name: {{ .Values.sftp.podName }}-config
         defaultMode: 0755
 ---
 apiVersion: v1
