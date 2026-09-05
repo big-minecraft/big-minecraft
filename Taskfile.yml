@@ -10,6 +10,10 @@ vars:
   NAMESPACE:
     sh: '{ yq ".global.namespace" {{.CHART_DIR}}/values.yaml 2>/dev/null || echo bmc; } | tr -d ''"'''
   SCRIPTS_DIR: scripts
+  # Which Terraform root module belongs to this profile. Profiles with no cloud
+  # layer (bare metal) resolve to a directory that does not exist, and the
+  # teardown task checks before using it.
+  TF_DIR: 'terraform/{{if eq .PROFILE "eks"}}eks{{else if eq .PROFILE "gke"}}gke{{else}}none{{end}}'
   # Which kind of environment this cluster is. See profiles/.
   PROFILE: '{{.PROFILE | default "baremetal-metallb"}}'
 
@@ -19,10 +23,17 @@ env:
 
 tasks:
   install:
-    desc: Complete installation (verify, preflight, validate, deploy)
+    desc: Complete installation (verify, storage, preflight, validate, deploy)
     silent: true
     cmds:
       - task: verify
+      # Before preflight, not after. On profiles where the cluster has no
+      # managed RWX filesystem, BMC brings its own NFS server -- and preflight's
+      # shared-storage probe is the single most valuable check it makes. Running
+      # it against a storage class that does not exist yet would either fail
+      # spuriously or have to be skipped, and skipping it means never testing
+      # ReadWriteMany at all on exactly the profiles where it is least certain.
+      - task: storage
       - task: preflight
       - task: validate
       - task: secrets:check
@@ -102,6 +113,14 @@ tasks:
         echo "  3. Run 'task secrets:generate' to create secrets"
         echo "  4. Run 'task install PROFILE={{.PROFILE}}' to deploy"
 
+  storage:
+    desc: Install the in-cluster storage provider, if this profile uses one
+    silent: true
+    cmds:
+      - |
+        echo "Installing storage provider (no-op unless the profile enables one)..."
+      - helmfile apply --selector name=nfs-server-provisioner
+
   deploy:
     desc: Deploy dependencies (ingress controller, cert-manager, MetalLB, per profile)
     silent: true
@@ -161,53 +180,151 @@ tasks:
         # subnet deletion until it times out. Removing the Helm releases first
         # lets the load balancer controller clean its own ENIs up.
         echo "==========================================" 
-        echo "1/3  Removing BMC (releases the load balancers)"
+        echo "1/4  Removing BMC (releases the load balancers)"
         echo "=========================================="
         helmfile destroy || echo "  (nothing installed, or cluster already gone)"
       - |
         echo ""
         echo "=========================================="
-        echo "2/3  Waiting for cloud load balancers to disappear"
+        echo "2/4  Deleting persistent volume claims"
         echo "=========================================="
-        # The controller deletes these asynchronously. Polling beats guessing.
-        for i in $(seq 1 60); do
-          REMAINING=$(aws elbv2 describe-load-balancers \
-            --query "length(LoadBalancers[?starts_with(LoadBalancerName, 'k8s-')])" \
-            --output text 2>/dev/null || echo 0)
-          [ "${REMAINING:-0}" = "0" ] && { echo "  all released"; break; }
-          echo "  $REMAINING still present..."
-          sleep 5
+        # Helm does not delete PVCs created from a StatefulSet's
+        # volumeClaimTemplate -- that is deliberate, so an upgrade cannot eat
+        # your data. It also means the NFS server's backing disk outlives
+        # `helmfile destroy`, and deleting the cluster does not reclaim it
+        # either: the disk is owned by the PV, not the node. The result is a
+        # disk quietly billing every month for a cluster that no longer exists.
+        #
+        # Deleting the PVCs lets the CSI driver delete the underlying disks
+        # while there is still a cluster around to do it.
+        for ns in {{.NAMESPACE}} nfs; do
+          PVCS=$(kubectl get pvc -n "$ns" --no-headers 2>/dev/null | wc -l | tr -d ' ')
+          if [ "${PVCS:-0}" != "0" ]; then
+            echo "  deleting $PVCS PVC(s) in namespace '$ns'"
+            kubectl delete pvc --all -n "$ns" --timeout=120s 2>/dev/null || true
+          fi
         done
+        for ns in {{.NAMESPACE}} nfs; do
+          kubectl delete namespace "$ns" --timeout=120s 2>/dev/null || true
+        done
+
       - |
         echo ""
         echo "=========================================="
-        echo "3/3  Destroying the infrastructure"
+        echo "3/4  Waiting for cloud load balancers to disappear"
         echo "=========================================="
-        cd terraform && tofu destroy -auto-approve
+        # Cloud-agnostic first: once no LoadBalancer Services remain, the
+        # provider has been told to release them. Deletion is asynchronous, so
+        # the provider-specific check below confirms it actually happened.
+        for i in $(seq 1 60); do
+          SVCS=$(kubectl get svc -A --field-selector spec.type=LoadBalancer --no-headers 2>/dev/null | wc -l | tr -d ' ')
+          [ "${SVCS:-0}" = "0" ] && break
+          echo "  $SVCS LoadBalancer Service(s) still present..."
+          sleep 5
+        done
+
+        case "{{.PROFILE}}" in
+          eks)
+            for i in $(seq 1 60); do
+              REMAINING=$(aws elbv2 describe-load-balancers \
+                --query "length(LoadBalancers[?starts_with(LoadBalancerName, 'k8s-')])" \
+                --output text 2>/dev/null || echo 0)
+              [ "${REMAINING:-0}" = "0" ] && { echo "  all released"; break; }
+              echo "  $REMAINING load balancer(s) still present..."
+              sleep 5
+            done
+
+            # The AWS Load Balancer Controller creates a shared backend security
+            # group ("k8s-traffic-<cluster>-<hash>") that Terraform never knows
+            # about, and removing the controller leaves it behind. A non-default
+            # security group blocks VPC deletion, so `tofu destroy` gets all the
+            # way to the VPC and then fails on a dependency with no obvious
+            # owner. Security groups are free, so this is about being able to
+            # finish the destroy, not about cost.
+            for SG in $(aws ec2 describe-security-groups \
+              --filters "Name=group-name,Values=k8s-traffic-*" \
+              --query 'SecurityGroups[].GroupId' --output text 2>/dev/null); do
+              echo "  removing orphaned controller security group $SG"
+              aws ec2 delete-security-group --group-id "$SG" 2>/dev/null || \
+                echo "    (still in use -- it will be retried by the destroy)"
+            done
+            ;;
+          gke)
+            # GKE leaves forwarding rules and target pools behind for a few
+            # seconds after the Service goes. Destroying the network under them
+            # fails, so wait them out.
+            for i in $(seq 1 60); do
+              REMAINING=$(gcloud compute forwarding-rules list \
+                --format="value(name)" 2>/dev/null | wc -l | tr -d ' ')
+              [ "${REMAINING:-0}" = "0" ] && { echo "  all released"; break; }
+              echo "  $REMAINING forwarding rule(s) still present..."
+              sleep 5
+            done
+            ;;
+          *)
+            echo "  no cloud load balancers for profile '{{.PROFILE}}'"
+            ;;
+        esac
+      - |
+        echo ""
+        echo "=========================================="
+        echo "4/4  Destroying the infrastructure"
+        echo "=========================================="
+        if [ ! -d "{{.TF_DIR}}" ]; then
+          echo "  No Terraform layer for profile '{{.PROFILE}}' -- nothing to destroy."
+          echo "  (bare-metal clusters are not provisioned by this repo)"
+          exit 0
+        fi
+        cd {{.TF_DIR}} && tofu destroy -auto-approve
       - |
         echo ""
         echo "Done. Verify nothing is still billable with:"
         echo "  task teardown:verify"
 
   teardown:verify:
-    desc: List any AWS resources still running that would incur charges
+    desc: List any cloud resources still running that would incur charges
     silent: true
     cmds:
       - |
         echo "=========================================="
         echo "Still-billable resources"
+        echo "  profile: {{.PROFILE}}"
         echo "=========================================="
-        printf "%-22s %s\n" "EKS clusters:"   "$(aws eks list-clusters --query 'clusters' --output text 2>/dev/null || echo '?')"
-        printf "%-22s %s\n" "EC2 instances:"  "$(aws ec2 describe-instances --filters Name=instance-state-name,Values=running,pending --query 'Reservations[].Instances[].InstanceId' --output text 2>/dev/null)"
-        printf "%-22s %s\n" "Load balancers:" "$(aws elbv2 describe-load-balancers --query 'LoadBalancers[].LoadBalancerName' --output text 2>/dev/null)"
-        printf "%-22s %s\n" "NAT gateways:"   "$(aws ec2 describe-nat-gateways --filter Name=state,Values=available,pending --query 'NatGateways[].NatGatewayId' --output text 2>/dev/null)"
-        printf "%-22s %s\n" "Elastic IPs:"    "$(aws ec2 describe-addresses --query 'Addresses[].AllocationId' --output text 2>/dev/null)"
-        printf "%-22s %s\n" "EBS volumes:"    "$(aws ec2 describe-volumes --query 'Volumes[].VolumeId' --output text 2>/dev/null)"
-        printf "%-22s %s\n" "EBS snapshots:"  "$(aws ec2 describe-snapshots --owner-ids self --query 'Snapshots[].SnapshotId' --output text 2>/dev/null)"
-        printf "%-22s %s\n" "EFS filesystems:" "$(aws efs describe-file-systems --query 'FileSystems[].FileSystemId' --output text 2>/dev/null)"
+        case "{{.PROFILE}}" in
+          eks)
+            printf "%-24s %s\n" "EKS clusters:"    "$(aws eks list-clusters --query 'clusters' --output text 2>/dev/null)"
+            printf "%-24s %s\n" "EC2 instances:"   "$(aws ec2 describe-instances --filters Name=instance-state-name,Values=running,pending --query 'Reservations[].Instances[].InstanceId' --output text 2>/dev/null)"
+            printf "%-24s %s\n" "Load balancers:"  "$(aws elbv2 describe-load-balancers --query 'LoadBalancers[].LoadBalancerName' --output text 2>/dev/null)"
+            printf "%-24s %s\n" "NAT gateways:"    "$(aws ec2 describe-nat-gateways --filter Name=state,Values=available,pending --query 'NatGateways[].NatGatewayId' --output text 2>/dev/null)"
+            printf "%-24s %s\n" "Elastic IPs:"     "$(aws ec2 describe-addresses --query 'Addresses[].AllocationId' --output text 2>/dev/null)"
+            printf "%-24s %s\n" "EBS volumes:"     "$(aws ec2 describe-volumes --query 'Volumes[].VolumeId' --output text 2>/dev/null)"
+            printf "%-24s %s\n" "EBS snapshots:"   "$(aws ec2 describe-snapshots --owner-ids self --query 'Snapshots[].SnapshotId' --output text 2>/dev/null)"
+            printf "%-24s %s\n" "EFS filesystems:" "$(aws efs describe-file-systems --query 'FileSystems[].FileSystemId' --output text 2>/dev/null)"
+            echo ""
+            echo "NOTE: AWS only, and the CURRENT region only."
+            ;;
+          gke)
+            # Every one of these bills while it exists. Disks and addresses are
+            # the ones that outlive a cluster deletion and quietly keep charging.
+            printf "%-24s %s\n" "GKE clusters:"     "$(gcloud container clusters list --format='value(name)' 2>/dev/null | tr '\n' ' ')"
+            printf "%-24s %s\n" "Compute instances:" "$(gcloud compute instances list --format='value(name)' 2>/dev/null | tr '\n' ' ')"
+            printf "%-24s %s\n" "Forwarding rules:" "$(gcloud compute forwarding-rules list --format='value(name)' 2>/dev/null | tr '\n' ' ')"
+            printf "%-24s %s\n" "Static addresses:" "$(gcloud compute addresses list --format='value(name)' 2>/dev/null | tr '\n' ' ')"
+            printf "%-24s %s\n" "Persistent disks:" "$(gcloud compute disks list --format='value(name)' 2>/dev/null | tr '\n' ' ')"
+            printf "%-24s %s\n" "Disk snapshots:"   "$(gcloud compute snapshots list --format='value(name)' 2>/dev/null | tr '\n' ' ')"
+            printf "%-24s %s\n" "Cloud NAT:"        "$(gcloud compute routers list --format='value(name)' 2>/dev/null | tr '\n' ' ')"
+            printf "%-24s %s\n" "Filestore:"        "$(gcloud filestore instances list --format='value(name)' 2>/dev/null | tr '\n' ' ')"
+            echo ""
+            echo "NOTE: GCP only, and project '$(gcloud config get-value project 2>/dev/null)'."
+            echo "      Pass PROFILE=eks to check AWS instead."
+            ;;
+          *)
+            echo "No cloud resources for profile '{{.PROFILE}}'."
+            echo "Pass PROFILE=eks or PROFILE=gke to sweep a cloud account."
+            ;;
+        esac
         echo ""
         echo "Empty on every line means nothing is accruing charges."
-        echo "NOTE: this checks the CURRENT region only."
 
   uninstall:
     desc: Remove BMC installation from cluster
@@ -269,7 +386,7 @@ tasks:
     desc: Verify all prerequisites are installed
     silent: true
     cmds:
-      - "{{.SCRIPTS_DIR}}/verify-prerequisites.sh"
+      - PROFILE={{.PROFILE}} {{.SCRIPTS_DIR}}/verify-prerequisites.sh
 
   help:
     desc: Show available tasks

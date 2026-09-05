@@ -66,6 +66,8 @@ GAME_EDGE=$(read_value '.global.edge.game.type')
 # Whether the install will bring its own ingress controller, in which case a
 # missing IngressClass is expected rather than disqualifying.
 INSTALL_NGINX=$(read_value '.global.ingressNginx.install')
+# Whether BMC brings its own RWX storage provider on this profile.
+INSTALL_NFS=$(read_value '.global.nfsServer.install')
 
 cleanup() { kubectl delete namespace "$NS" --wait=false &>/dev/null || true; }
 trap cleanup EXIT
@@ -157,7 +159,14 @@ if [ -z "$SHARED_CLASS" ] || [ "$SHARED_CLASS" = "null" ] || [ "$SHARED_CLASS" =
 fi
 # Two replicas: BMC mounts a deployment's volume into the game pod, an SFTP pod
 # and a file-edit pod at once, so binding alone is not enough.
-if probe_storage preflight-shared "$SHARED_CLASS" "$SHARED_MODE" 2; then
+# `task install` runs `task storage` first so this probe tests a real class. Run
+# on its own against a fresh cluster it will not exist yet, and probing it would
+# just wait for a PVC that can never bind.
+if [ "$INSTALL_NFS" = "true" ] && ! kubectl get storageclass "$SHARED_CLASS" &>/dev/null; then
+  warn "StorageClass '$SHARED_CLASS' not found yet (BMC installs its own NFS server)"
+  skip "run 'task storage PROFILE=$PROFILE' first to test ReadWriteMany for real"
+  skip "'task install' does this automatically, before preflight"
+elif probe_storage preflight-shared "$SHARED_CLASS" "$SHARED_MODE" 2; then
   pass "two pods mount a '${SHARED_CLASS:-<default>}' ${SHARED_MODE} claim simultaneously"
   NODE_COUNT=$(kubectl get nodes --no-headers 2>/dev/null | wc -l | tr -d ' ')
   if [ "${NODE_COUNT:-1}" -le 1 ] 2>/dev/null; then
