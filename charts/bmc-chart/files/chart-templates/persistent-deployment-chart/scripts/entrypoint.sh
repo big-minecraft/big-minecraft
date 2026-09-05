@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -e
 
+  
+
 if ! command -v redis-cli &> /dev/null; then
   apt-get update &> /dev/null && apt-get install -y redis-tools &> /dev/null
 fi
