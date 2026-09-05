@@ -10,7 +10,7 @@ things that fail in ways the error message does not explain.
 Two tools, one seam.
 
 ```
-terraform/          builds the cluster and everything under it
+terraform/eks/      builds the cluster and everything under it
     │
     │   profiles/eks.yaml  ← the contract between them
     ▼
@@ -60,7 +60,29 @@ release means the first `helmfile apply` fights Terraform over the CRDs.
 | `kubectl`, `helm`, `helmfile` | the install layer |
 | `task`, `yq` | the task runner and its value merging |
 
-`terraform` and `tofu` are interchangeable throughout; nothing in `terraform/`
+On macOS:
+
+```bash
+brew install kubectl helm helmfile yq go-task/tap/go-task opentofu awscli
+```
+
+Linux install commands are in the [README](../README.md#prerequisites-local).
+Authenticate before building anything:
+
+```bash
+aws configure
+```
+
+Then confirm the whole set, cloud tooling included:
+
+```bash
+task verify PROFILE=eks
+```
+
+The cluster-connection check at the end fails until a cluster exists; the tool
+checks above it still report.
+
+`terraform` and `tofu` are interchangeable throughout; nothing in `terraform/eks/`
 uses syntax specific to either.
 
 ---
@@ -68,7 +90,7 @@ uses syntax specific to either.
 ## 1. Build the infrastructure
 
 ```bash
-cd terraform
+cd terraform/eks
 cp terraform.tfvars.example terraform.tfvars
 $EDITOR terraform.tfvars
 tofu init
@@ -413,7 +435,7 @@ had. It still fails hard when nothing will install a controller.
 
 ```bash
 helmfile destroy        # FIRST
-cd terraform && tofu destroy
+cd terraform/eks && tofu destroy
 ```
 
 The other order hangs. Kubernetes-created NLBs leave ENIs in the subnets, and

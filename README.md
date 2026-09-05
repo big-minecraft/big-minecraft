@@ -33,10 +33,77 @@ Redis, Prometheus — is ClusterIP.
 
 ### Prerequisites (local)
 
-- kubectl, helm, helmfile
-- [yq](https://github.com/mikefarah/yq) (mikefarah/yq, not the Python one)
-- [Task](https://taskfile.dev)
-- A domain pointing at your cluster's entrypoint
+Every profile needs these four, plus [Task](https://taskfile.dev) to run the
+commands in this README:
+
+| Tool | Why |
+|---|---|
+| `kubectl` | talks to the cluster |
+| `helm` | renders and installs the charts |
+| `helmfile` | orders the releases and their dependencies |
+| `yq` | **mikefarah/yq**, not the Python one — the Python build emits JSON and quotes string values, which silently corrupts every merged value |
+
+Cloud profiles need two more: OpenTofu (or Terraform) to build the cluster, and
+your provider's CLI, authenticated.
+
+**macOS**
+
+```bash
+brew install kubectl helm helmfile yq go-task/tap/go-task
+
+brew install opentofu          # cloud profiles
+brew install awscli            # eks
+brew install --cask gcloud-cli # gke
+```
+
+**Linux (Debian/Ubuntu)**
+
+```bash
+# kubectl
+curl -fsSLo /usr/share/keyrings/kubernetes.gpg https://pkgs.k8s.io/core:/stable:/v1.31/deb/Release.key
+echo "deb [signed-by=/usr/share/keyrings/kubernetes.gpg] https://pkgs.k8s.io/core:/stable:/v1.31/deb/ /" | sudo tee /etc/apt/sources.list.d/kubernetes.list
+sudo apt update && sudo apt install -y kubectl
+
+# helm
+curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+# helmfile, yq, task -- release binaries
+curl -fsSL https://github.com/helmfile/helmfile/releases/latest/download/helmfile_linux_amd64.tar.gz | sudo tar xz -C /usr/local/bin helmfile
+sudo curl -fsSLo /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 && sudo chmod +x /usr/local/bin/yq
+sh -c "$(curl -fsSL https://taskfile.dev/install.sh)" -- -d -b /usr/local/bin
+
+# cloud profiles
+curl -fsSL https://get.opentofu.org/install-opentofu.sh | sh -s -- --install-method deb   # opentofu
+curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o a.zip && unzip -q a.zip && sudo ./aws/install   # eks
+curl -fsSL https://sdk.cloud.google.com | bash   # gke
+```
+
+Then check what you have. Pass the profile so the cloud tooling is checked too:
+
+```bash
+task verify PROFILE=eks
+```
+
+The tool checks print first and the cluster connection is checked last, so this
+is still useful before any cluster exists — it will report every tool, then fail
+on the connection. That last failure is expected until you have built or joined
+a cluster.
+
+You also need a domain you control, pointing at your cluster's entrypoint.
+
+**Authenticate your provider CLI** before building a cloud cluster:
+
+```bash
+aws configure          # eks
+
+gcloud auth login                        # gke -- gcloud commands use this
+gcloud auth application-default login    # gke -- Terraform uses this
+```
+
+On GCP those are two separate credential stores. `gcloud` keeps working from
+the first while Terraform fails on the second, so a half-authenticated machine
+looks fine until `tofu apply` dies with `invalid_grant`. The ADC store also
+expires quietly. `task verify PROFILE=gke` tests it by minting a token.
 
 ---
 
@@ -48,8 +115,9 @@ a YAML file, never editing a template.
 
 | Profile | For |
 |---|---|
-| `baremetal-metallb` | Bare metal / k3s with MetalLB + Longhorn (the default) |
-| `eks` | Amazon EKS — see [`terraform/`](terraform/) to build the cluster itself |
+| `baremetal-metallb` | Bare metal / k3s with MetalLB + Longhorn (the default) — see [docs/baremetal-install.md](docs/baremetal-install.md) |
+| `eks` | Amazon EKS — see [`terraform/eks/`](terraform/eks/) to build the cluster |
+| `gke` | Google Kubernetes Engine — see [`terraform/gke/`](terraform/gke/) |
 | `generic` | Any other conformant cluster — managed Kubernetes, VMs, k3d |
 
 Provider-specific load balancer settings are supplied as
@@ -93,20 +161,40 @@ mkdir -p backups && mv charts/bmc-chart/values.custom.yaml backups/values.custom
 task config:init PROFILE=<other-profile>
 ```
 
-### On EKS
+### On bare metal
 
-Full guide: **[docs/eks-install.md](docs/eks-install.md)** — install, DNS,
-costs, and the failure modes worth knowing in advance.
+Full guide: **[docs/baremetal-install.md](docs/baremetal-install.md)** — k3s,
+MetalLB, Longhorn, port forwarding, and the failure modes specific to owning
+every layer yourself. There is no Terraform layer for this profile.
 
-The cluster itself — VPC, EKS, EFS, CSI drivers, load balancer controller,
-Karpenter — is built by the OpenTofu/Terraform layer in
-[`terraform/`](terraform/). Build it first, then the steps above are the same:
+### On a cloud
+
+The cluster itself is built by the OpenTofu/Terraform layer under
+[`terraform/`](terraform/), one root module per cloud. Build it first; the
+steps above are then identical apart from the profile name.
+
+**EKS** — full guide: **[docs/eks-install.md](docs/eks-install.md)**
 
 ```bash
-cd terraform && cp terraform.tfvars.example terraform.tfvars && tofu apply
+cd terraform/eks && cp terraform.tfvars.example terraform.tfvars && tofu apply
 aws eks update-kubeconfig --region <region> --name <cluster>
-cd .. && task config:init PROFILE=eks
+cd ../.. && task config:init PROFILE=eks
 task preflight PROFILE=eks && task secrets:generate && task install PROFILE=eks
+```
+
+**GKE** — full guide: **[docs/gke-install.md](docs/gke-install.md)**
+
+```bash
+cd terraform/gke && cp terraform.tfvars.example terraform.tfvars && tofu apply
+gcloud container clusters get-credentials <cluster> --region <region>
+cd ../.. && task config:init PROFILE=gke
+task preflight PROFILE=gke && task secrets:generate && task install PROFILE=gke
+```
+
+To tear either down completely:
+
+```bash
+task teardown PROFILE=<eks|gke>
 ```
 
 ---
@@ -170,21 +258,28 @@ source in this order:
 ## Available Tasks
 
 ```bash
-task verify           # Verify local prerequisites
+task verify           # Verify local prerequisites (and cloud CLIs, per profile)
 task preflight        # Verify the cluster satisfies the capability contract
 task conformance      # Preflight, plus render every profile
 task config:init      # Initialize configuration for PROFILE
 task validate         # Check required config values are set
 task secrets:generate # Generate secrets
+task storage          # Install the in-cluster storage provider, if the profile uses one
 task diff             # Show what an apply would change
 task install          # Complete installation
 task upgrade          # Upgrade an existing installation
-task uninstall        # Remove installation
+task sftp:info        # Connection details for open file sessions
+task uninstall        # Remove BMC, leaving the cluster
+task teardown         # Destroy BMC *and* the cloud infrastructure under it
+task teardown:verify  # List cloud resources that would still incur charges
 task help             # Show all tasks
 ```
 
+Local testing has its own set — see [Local testing](#local-testing) above.
+
 All cluster-facing tasks accept `PROFILE=<name>`, defaulting to
-`baremetal-metallb`.
+`baremetal-metallb`. Everything is driven through `task`; nothing in `scripts/`
+is meant to be run directly.
 
 ---
 
