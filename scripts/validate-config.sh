@@ -104,6 +104,30 @@ echo ""
 EDGE_TYPE=$(echo "$MERGED" | yq '.global.edge.game.type' - 2>/dev/null || echo "")
 echo -e "${GREEN}✓${NC} Game edge type: $EDGE_TYPE"
 
+# An SFTP session is a credentialed door into game data, and the Service's
+# loadBalancerSourceRanges is the ONLY thing gating who can knock on it.
+#
+# On a cloud load balancer an empty list does not mean "closed", it means
+# "0.0.0.0/0": the chart omits loadBalancerSourceRanges entirely, and the
+# provider's controller then opens the listener to the whole internet. That is
+# the opposite of the safe default it looks like, so it is a hard failure here
+# rather than a warning.
+FILE_EDGE_TYPE=$(echo "$MERGED" | yq '.global.edge.file.type' - 2>/dev/null || echo "")
+FILE_RANGES=$(echo "$MERGED" | yq '.global.edge.file.sourceRanges | length' - 2>/dev/null || echo "0")
+if [ "$FILE_EDGE_TYPE" = "LoadBalancer" ]; then
+  if [ "${FILE_RANGES:-0}" -gt 0 ] 2>/dev/null; then
+    echo -e "${GREEN}✓${NC} File session edge: LoadBalancer, restricted to ${FILE_RANGES} source range(s)"
+  else
+    echo -e "${RED}✗${NC} global.edge.file.sourceRanges is empty with edge.file.type=LoadBalancer"
+    echo "   Every open SFTP session would be reachable from the whole internet."
+    echo "   Set it to your operators' addresses, e.g.:"
+    echo "     global.edge.file.sourceRanges: [\"203.0.113.4/32\"]"
+    VALIDATION_FAILED=true
+  fi
+else
+  echo -e "${GREEN}✓${NC} File session edge type: $FILE_EDGE_TYPE"
+fi
+
 # MetalLB resources need an address pool; nothing else does.
 INSTALL_METALLB=$(echo "$MERGED" | yq '.global.metallb.installResources' - 2>/dev/null || echo "false")
 if [ "$INSTALL_METALLB" = "true" ]; then

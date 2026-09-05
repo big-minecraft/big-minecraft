@@ -57,6 +57,17 @@ echo -e "${GREEN}✓${NC} Generated SFTP password"
 echo ""
 
 # Create Kubernetes secret
+# The namespace is normally created by helmfile (createNamespace: true), but
+# that runs during `task install`, which refuses to start until these secrets
+# exist. On a fresh cluster that is a deadlock: no namespace, so no secret; no
+# secret, so no install. Create it here -- idempotent, and it is the same
+# namespace helmfile would have made.
+if ! kubectl get namespace "$NAMESPACE" &>/dev/null; then
+  echo "Namespace '$NAMESPACE' does not exist yet; creating it..."
+  kubectl create namespace "$NAMESPACE"
+  echo ""
+fi
+
 echo "Creating Kubernetes secret '$SECRET_NAME' in namespace '$NAMESPACE'..."
 echo ""
 

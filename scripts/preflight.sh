@@ -63,6 +63,9 @@ TLS_MODE=$(read_value '.global.ingress.tls.mode')
 TLS_ISSUER=$(read_value '.global.ingress.tls.issuer')
 ISSUER_NAME=$(read_value '.global.certManager.clusterIssuerName')
 GAME_EDGE=$(read_value '.global.edge.game.type')
+# Whether the install will bring its own ingress controller, in which case a
+# missing IngressClass is expected rather than disqualifying.
+INSTALL_NGINX=$(read_value '.global.ingressNginx.install')
 
 cleanup() { kubectl delete namespace "$NS" --wait=false &>/dev/null || true; }
 trap cleanup EXIT
@@ -194,6 +197,13 @@ if [ -z "$INGRESS_CLASS" ] || [ "$INGRESS_CLASS" = "null" ] || [ "$INGRESS_CLASS
   fi
 elif kubectl get ingressclass "$INGRESS_CLASS" &>/dev/null; then
   pass "IngressClass '$INGRESS_CLASS' exists"
+elif [ "$INSTALL_NGINX" = "true" ]; then
+  # Same reasoning as the cert-manager check below: this profile installs its
+  # own ingress controller during `task deploy`, which runs AFTER preflight.
+  # Failing here would make a fresh cluster impossible to install onto -- the
+  # gate would demand something the very next step creates.
+  warn "IngressClass '$INGRESS_CLASS' not found yet (the install will add it)"
+  skip "global.ingressNginx.install is true, so helmfile installs ingress-nginx"
 else
   AVAILABLE=$(kubectl get ingressclass -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true)
   fail "IngressClass '$INGRESS_CLASS' not found; cluster offers: ${AVAILABLE:-<none>}"
