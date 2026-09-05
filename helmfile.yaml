@@ -14,6 +14,8 @@ repositories:
     url: https://traefik.github.io/charts
   - name: ingress-nginx
     url: https://kubernetes.github.io/ingress-nginx
+  - name: nfs-ganesha
+    url: https://kubernetes-sigs.github.io/nfs-ganesha-server-and-external-provisioner/
 ---
 releases:
   - name: traefik
@@ -33,6 +35,34 @@ releases:
     # IPAddressPools and L2Advertisements this install depends on -- including
     # any the cluster operator manages themselves. The pinned chart version
     # above is what keeps CRD drift under control.
+
+  # ReadWriteMany storage, for clusters with no affordable managed option.
+  #
+  # Must exist before big-minecraft: the panel's PVC and every game deployment
+  # claim against the class this creates, and a PVC naming a class that does not
+  # exist stays Pending indefinitely rather than failing.
+  - name: nfs-server-provisioner
+    namespace: nfs
+    createNamespace: true
+    chart: nfs-ganesha/nfs-server-provisioner
+    version: 1.8.0
+    installed: {{ .Values.global.nfsServer.install }}
+    values:
+      - persistence:
+          enabled: true
+          storageClass: {{ .Values.global.nfsServer.backingStorageClass | quote }}
+          size: {{ .Values.global.nfsServer.size | quote }}
+        storageClass:
+          create: true
+          name: {{ .Values.global.nfsServer.storageClassName | quote }}
+          # Game data outlives a session. Deleting a PVC should not silently
+          # take the world with it.
+          reclaimPolicy: Retain
+          mountOptions:
+            # Keep a server restart from turning into permanent EIO in the game
+            # servers: block and retry rather than failing the I/O.
+            - hard
+            - nfsvers=4.1
 
   # Installed by helmfile rather than by the Terraform layer: ingress-nginx
   # needs nothing from any cloud provider, so keeping it here preserves one
@@ -99,4 +129,7 @@ releases:
       {{- end }}
       {{- if .Values.global.ingressNginx.install }}
       - ingress-nginx/ingress-nginx
+      {{- end }}
+      {{- if .Values.global.nfsServer.install }}
+      - nfs/nfs-server-provisioner
       {{- end }}

@@ -138,6 +138,29 @@ global:
       mariaDB: "5Gi"
       mongoDB: "5Gi"
 
+  # In-cluster NFS server, providing the ReadWriteMany storage class on clouds
+  # whose managed RWX filesystem is disproportionately expensive.
+  #
+  # On GKE the managed option is Filestore, whose smallest instance is 1 TiB at
+  # roughly $200/month regardless of how little you store -- more than the rest
+  # of a small cluster costs. This runs an NFS server backed by an ordinary
+  # block volume instead, so you pay for the size you ask for.
+  #
+  # The trade is availability: one NFS server pod serves every deployment's game
+  # data, so while it restarts, mounts hang. It is a single point of failure in
+  # a way Filestore and EFS are not. Storage is on a normal PVC, so the data
+  # survives the pod; only availability blips.
+  nfsServer:
+    install: false
+    # Storage class for the NFS server's own backing volume. Empty uses the
+    # cluster default. This wants ReadWriteOnce block storage, not a network
+    # filesystem.
+    backingStorageClass: ""
+    size: "100Gi"
+    # Name of the ReadWriteMany class this creates. Point
+    # storage.classes.shared.name at it.
+    storageClassName: "nfs"
+
   # MetalLB resources. Not a core capability -- purely an opt-in extra that a
   # bare-metal profile enables. The chart contains no other MetalLB logic; the
   # Service annotations come from edge.game.annotations like any other
