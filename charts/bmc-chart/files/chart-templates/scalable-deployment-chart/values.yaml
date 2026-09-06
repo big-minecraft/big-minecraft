@@ -6,7 +6,15 @@
 # injection surfaces as a wrong-but-rendered value instead of a nil-pointer
 # panic deep in template evaluation -- and lets `helm template` check the
 # contract in CI.
+# Set by the panel from the deployment manifest once something has been
+# published. Empty means fall back to mounting the shared volume.
+artifactVersion: ""
+
 global:
+  artifactStore:
+    enabled: false
+    endpoint: ""
+    bucket: "bmc-artifacts"
   # Injected by the panel. Authoritative over the per-deployment server.redis
   # block, which is a historical default that would otherwise keep pointing at
   # the in-cluster redis-service.

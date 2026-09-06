@@ -5,11 +5,17 @@ if ! command -v redis-cli &> /dev/null; then
   apt-get update &> /dev/null && apt-get install -y redis-tools &> /dev/null
 fi
 
+{{- if and .Values.global.artifactStore.enabled .Values.artifactVersion }}
+# The init container already staged this version into the mount, which is a
+# pod-local emptyDir rather than shared storage. Nothing to copy.
+POD_LOCAL_DIR="{{ .Values.volume.mountPath }}"
+{{- else }}
 POD_LOCAL_DIR="/tmp/minecraft-server"
 mkdir -p "$POD_LOCAL_DIR"
 
 echo "Copying server files to pod-local directory..."
 cp -r {{ .Values.volume.mountPath }}/* "$POD_LOCAL_DIR/"
+{{- end }}
 
 cd "$POD_LOCAL_DIR"
 if [ ! -f "./{{ .Values.server.jarName }}" ]; then

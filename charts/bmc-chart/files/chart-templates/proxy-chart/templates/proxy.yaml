@@ -39,6 +39,13 @@ spec:
     storageClass: {{ .Values.global.storage.classes.shared.name | default "longhorn" }}
     size: {{ .Values.global.storage.volumeSize.proxy | default "5Gi" }}
     readOnly: true
+  {{- if and .Values.global.artifactStore.enabled .Values.artifactVersion }}
+  artifact:
+    endpoint: {{ .Values.global.artifactStore.endpoint | quote }}
+    bucket: {{ .Values.global.artifactStore.bucket | quote }}
+    deployment: {{ .Values.name | default "proxy" | quote }}
+    version: {{ .Values.artifactVersion | quote }}
+  {{- end }}
   redis:
     host: {{ .Values.global.redis.host | default .Values.server.redis.host | quote }}
     port: {{ .Values.global.redis.port | default .Values.server.redis.port | quote }}
@@ -64,7 +71,7 @@ metadata:
     app: proxy
     kyriji.dev/deployment-type: "proxy"
 spec:
-  accessModes: [{{ .Values.global.storage.classes.shared.accessMode | default "ReadWriteMany" | quote }}]
+  accessModes: [{{ .Values.global.storage.classes.shared.accessMode | default "ReadWriteOnce" | quote }}]
   storageClassName: {{ .Values.global.storage.classes.shared.name | default "longhorn" }}
   resources:
     requests:

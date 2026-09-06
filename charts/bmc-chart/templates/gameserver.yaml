@@ -98,6 +98,21 @@ spec:
                       type: string
                     readOnly:
                       type: boolean
+                artifact:
+                  type: object
+                  description: >-
+                    Published artifact to pull at startup. When set, instances
+                    fetch this version into an emptyDir instead of mounting the
+                    deployment's shared volume.
+                  properties:
+                    endpoint:
+                      type: string
+                    bucket:
+                      type: string
+                    deployment:
+                      type: string
+                    version:
+                      type: string
                 redis:
                   type: object
                   properties:

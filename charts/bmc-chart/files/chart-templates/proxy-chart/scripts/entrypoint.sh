@@ -25,11 +25,17 @@ if ! command -v curl &> /dev/null; then
 fi
 fi
 
+{{- if and .Values.global.artifactStore.enabled .Values.artifactVersion }}
+# The init container already staged this version into the mount, which is a
+# pod-local emptyDir rather than shared storage. Nothing to copy.
+POD_LOCAL_DIR="{{ .Values.volume.mountPath }}"
+{{- else }}
 POD_LOCAL_DIR="/tmp/minecraft-server"
 mkdir -p "$POD_LOCAL_DIR"
 
 echo "Copying server files to pod-local directory..."
 cp -r {{ .Values.volume.mountPath }}/* "$POD_LOCAL_DIR/"
+{{- end }}
 
 PLUGINS_DIR="$POD_LOCAL_DIR/plugins"
 mkdir -p "$PLUGINS_DIR"
