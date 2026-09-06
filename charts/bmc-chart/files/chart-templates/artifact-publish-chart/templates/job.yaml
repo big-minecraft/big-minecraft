@@ -24,6 +24,13 @@ spec:
         deployment: {{ .Values.publish.deploymentName }}
     spec:
       restartPolicy: Never
+      {{- if .Values.publish.nodeName }}
+      # A ReadWriteOnce volume may already be attached elsewhere by a running
+      # instance or an open session, and the scheduler cannot see that -- an EBS
+      # PV's node affinity is only zone-wide. Without this the Job lands on a
+      # second node and hangs on multi-attach.
+      nodeName: {{ .Values.publish.nodeName | quote }}
+      {{- end }}
       containers:
         - name: publish
           image: quay.io/minio/mc:latest
