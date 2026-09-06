@@ -18,6 +18,12 @@ repositories:
     url: https://kubernetes-sigs.github.io/nfs-ganesha-server-and-external-provisioner/
   - name: minio
     url: https://charts.min.io/
+  - name: ot-helm
+    url: https://ot-container-kit.github.io/helm-charts
+  - name: mariadb-operator
+    url: https://helm.mariadb.com/mariadb-operator
+  - name: mongodb-helm
+    url: https://mongodb.github.io/helm-charts
 ---
 releases:
   - name: traefik
@@ -38,11 +44,61 @@ releases:
     # any the cluster operator manages themselves. The pinned chart version
     # above is what keeps CRD drift under control.
 
+  # Datastore operators, installed only for the datastores set to mode: ha.
+  #
+  # Each owns its own pods and Services; the bmc-chart creates the cluster
+  # resources and aliases redis-service / mariadb-service / mongodb-service onto
+  # them, so nothing that already resolves those names changes.
+  - name: redis-operator
+    namespace: {{ .Values.global.namespace }}
+    createNamespace: true
+    chart: ot-helm/redis-operator
+    version: 0.26.1
+    installed: {{ eq .Values.global.redis.mode "ha" }}
+    # Wait for the operator to be Ready, not merely created. Its validating
+    # webhook has no endpoints until the pod is up, and a cluster resource
+    # applied before then is rejected outright.
+    wait: true
+    timeout: 300
+
+  - name: mariadb-operator
+    namespace: {{ .Values.global.namespace }}
+    createNamespace: true
+    chart: mariadb-operator/mariadb-operator
+    version: 26.6.0
+    installed: {{ eq .Values.global.mariaDB.mode "ha" }}
+    # Wait for the operator to be Ready, not merely created. Its validating
+    # webhook has no endpoints until the pod is up, and a cluster resource
+    # applied before then is rejected outright.
+    wait: true
+    timeout: 300
+    values:
+      - crds:
+          enabled: true
+
+  - name: mongodb-operator
+    namespace: {{ .Values.global.namespace }}
+    createNamespace: true
+    chart: mongodb-helm/community-operator
+    version: 0.13.0
+    installed: {{ eq .Values.global.mongoDB.mode "ha" }}
+    # Wait for the operator to be Ready, not merely created. Its validating
+    # webhook has no endpoints until the pod is up, and a cluster resource
+    # applied before then is rejected outright.
+    wait: true
+    timeout: 300
+    values:
+      - community-operator-crds:
+          enabled: true
+
   # Object storage for deployment artifacts, where there is no managed
   # equivalent. Must exist before big-minecraft: a deployment whose artifact
   # cannot be fetched will not start.
   - name: minio
-    namespace: minio
+    # BMC's namespace, not its own: it authenticates with bmc-secrets, and
+    # secrets are namespaced. The publish Job and the fetch init container read
+    # the same secret from the same place.
+    namespace: {{ .Values.global.namespace }}
     createNamespace: true
     chart: minio/minio
     version: 5.4.0
@@ -165,5 +221,14 @@ releases:
       - nfs/nfs-server-provisioner
       {{- end }}
       {{- if .Values.global.artifactStore.install }}
-      - minio/minio
+      - {{ .Values.global.namespace }}/minio
+      {{- end }}
+      {{- if eq .Values.global.redis.mode "ha" }}
+      - {{ .Values.global.namespace }}/redis-operator
+      {{- end }}
+      {{- if eq .Values.global.mariaDB.mode "ha" }}
+      - {{ .Values.global.namespace }}/mariadb-operator
+      {{- end }}
+      {{- if eq .Values.global.mongoDB.mode "ha" }}
+      - {{ .Values.global.namespace }}/mongodb-operator
       {{- end }}

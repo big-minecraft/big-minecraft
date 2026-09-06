@@ -36,12 +36,25 @@ global:
 
   storage:
     classes:
+      # Staging, and instances that pull artifacts: one pod at a time.
       shared:
         name: ""
-        accessMode: ReadWriteMany
+        accessMode: ReadWriteOnce
       database:
         name: ""
         accessMode: ReadWriteOnce
+      # Persistent deployments only. Set storage.persistentDeployments false if
+      # this cluster has no ReadWriteMany class.
+      persistent:
+        name: ""
+        accessMode: ReadWriteMany
+
+  # Deployment artifacts, proved here first: local-test.sh runs this profile, so
+  # `task test:all` exercises publish and pull end to end before a cloud profile
+  # turns them on.
+  artifactStore:
+    enabled: true
+    install: true
 
   # No MetalLB on a generic cluster -- the provider's own controller handles
   # LoadBalancer Services.

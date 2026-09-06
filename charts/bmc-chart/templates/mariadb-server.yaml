@@ -1,6 +1,19 @@
 {{- /* Skipped entirely when using a managed database. host/port/username
      from global.mariaDB are then used as-is by the panel. */ -}}
-{{- if not .Values.global.mariaDB.external }}
+{{- if eq .Values.global.mariaDB.mode "ha" }}
+{{- /*
+The operator owns the pods and their Services. This aliases the name everything
+already uses onto the operator's primary Service.
+*/ -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: mariadb-service
+  labels: { app: mariadb, bmc/db-mode: ha }
+spec:
+  type: ExternalName
+  externalName: bmc-mariadb-primary.{{ .Release.Namespace }}.svc.cluster.local
+{{- else if not .Values.global.mariaDB.external }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -28,8 +41,8 @@ spec:
         - name: MARIADB_ROOT_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: bmc-secrets
-              key: mariadb-root-password
+              name: {{ include "bmc.dbSecret" (dict "db" .Values.global.mariaDB "kind" "mariadb") }}
+              key: {{ include "bmc.dbSecretKey" (dict "db" .Values.global.mariaDB "kind" "mariadb") }}
         - name: MARIADB_DATABASE
           value: "bmc"
         - name: MARIADB_ROOT_HOST

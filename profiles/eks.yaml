@@ -100,14 +100,23 @@ global:
       # it empty. An empty name silently selects the cluster default, which on
       # EKS is EBS gp2/gp3 and is RWO-only, and the failure surfaces as a
       # file-edit pod that will not schedule alongside its running server.
+      # Staging and artifact-pulling instances: one pod at a time, so EBS is
+      # enough and EFS is not needed here.
       shared:
-        name: "efs-sc"
-        accessMode: ReadWriteMany
+        name: "gp3"
+        accessMode: ReadWriteOnce
       # EBS. gp3 is cheaper and faster than the gp2 that older clusters default
       # to; the class must exist (the EBS CSI driver does not create one).
       database:
         name: "gp3"
         accessMode: ReadWriteOnce
+
+      # Persistent deployments only. This is the sole reason the EFS filesystem
+      # exists -- set storage.persistentDeployments false and enable_efs can go
+      # false in terraform.tfvars too.
+      persistent:
+        name: "efs-sc"
+        accessMode: ReadWriteMany
 
   # No MetalLB on EKS -- the AWS Load Balancer Controller owns Services of type
   # LoadBalancer.
@@ -164,27 +173,16 @@ global:
   # route means className "alb", tls.mode "none", and accepting that TLS ends
   # at the load balancer with plain HTTP behind it.
 
-  # ElastiCache, provisioned by the Terraform layer, which also creates the
-  # redis-service alias since only it knows the endpoint. Everything still
-  # connects to "redis-service".
-  #
-  # enable_ha_redis = false in terraform.tfvars falls back to the in-cluster
-  # pod; set external back to false here too.
-  redis:
-    external: true
-    createService: false
-
   ingress:
     className: "nginx"
     tls:
       mode: cluster-issuer
 
-  # Managed databases are a good fit on EKS and remove two RWO volumes plus two
-  # single-replica Deployments from the cluster. Set external: true here, point
-  # host/port/username at RDS and DocumentDB, and put the passwords in the
-  # bmc-secrets keys the chart already reads. Preflight skips the database
-  # storage probe entirely when both are external.
+  # Datastores run in-cluster. Set mode to "ha" for operator-managed clusters;
+  # see charts/bmc-chart/values.yaml for what each mode installs.
+  redis:
+    mode: single
   mariaDB:
-    external: false
+    mode: single
   mongoDB:
-    external: false
+    mode: single

@@ -121,14 +121,36 @@ global:
       # mounts a deployment's game volume into a file-edit pod and an SFTP pod
       # concurrently with the running server, so multiple pods hold the same
       # claim whenever a file session is open.
+      # Staging volumes, and the PVCs of deployment types whose instances pull
+      # artifacts rather than mounting this. One pod holds it at a time -- the
+      # file session -- so ReadWriteOnce is enough.
       shared:
         name: "longhorn"
-        accessMode: ReadWriteMany
+        accessMode: ReadWriteOnce
       # MariaDB and MongoDB. Single writer each -- these do not want a network
       # filesystem.
       database:
         name: "longhorn"
         accessMode: ReadWriteOnce
+
+      # Persistent deployments only. Their server runs in place on this volume
+      # while a file session can mount it too, so two pods hold it at once and
+      # ReadWriteMany is unavoidable. It is also cheap there: a persistent
+      # deployment is one instance, so the volume never sees more than a
+      # handful of mounts.
+      persistent:
+        name: "longhorn"
+        accessMode: ReadWriteMany
+    # Whether this installation runs persistent deployments.
+    #
+    # false lets a cluster skip ReadWriteMany entirely -- no EFS on EKS, no NFS
+    # server on GKE, no nfs-common on every bare-metal node. Preflight only
+    # probes for RWX when this is true.
+    #
+    # Turn it on before creating your first persistent deployment; leaving it
+    # false and creating one gives you a PVC that never binds.
+    persistentDeployments: true
+
     volumeSize:
       persistent: "10Gi"
       scalable: "5Gi"
@@ -147,6 +169,9 @@ global:
   artifactStore:
     enabled: false
     install: false
+    # Leave empty when install is true: the panel resolves it to the in-cluster
+    # MinIO Service, which lives in BMC's namespace. Set it to an S3 or GCS
+    # endpoint to use managed object storage instead.
     endpoint: ""
     bucket: "bmc-artifacts"
     region: "us-east-1"
@@ -186,50 +211,63 @@ global:
     advertisementMode: l2
 
   redis:
-    # Leave host alone. When external is true the chart keeps this name
-    # resolvable by pointing it at externalHost, so anything already using
-    # "redis-service" keeps working.
+    # single: one pod, no failover. The state is coordination data, rebuilt
+    #         from running instances on restart.
+    # ha:     operator-managed replication with Sentinel. The operator tracks
+    #         the master and keeps a Service pointing at it, so clients connect
+    #         to one name and failover needs no client support.
+    mode: single
+    replicas: 3
+
+    # What everything connects to, in every mode.
     host: "redis-service"
     port: 6379
 
-    # Run Redis outside the cluster. Skips the Deployment and repoints
-    # redis-service at externalHost.
+    # Point at a Redis you run yourself. Skips the in-cluster install entirely.
     external: false
-
-    # false when something else owns the redis-service alias -- on the cloud
-    # profiles that is Terraform, which creates the managed instance and the
-    # alias in one apply because only it knows the endpoint.
-    createService: true
-
-    # A hostname becomes an ExternalName Service; a bare IP becomes a ClusterIP
-    # plus EndpointSlice, which is what allows the port to be remapped.
     externalHost: ""
     externalPort: 6379
 
-    # LIMITATION: clients connect without authentication or TLS -- Jedis is a
-    # plain `new JedisPool(config, host, port)` in the manager, panel and
-    # Velocity plugin. An external Redis must be reachable unauthenticated on a
-    # private network. AUTH and Sentinel both need a client change first; see
-    # docs/scaling-architecture.md, track B.
-
   mariaDB:
-    # Set external: true to use a managed database (RDS, Cloud SQL, ...). The
-    # in-cluster Deployment and its PVC are then not created, and host/port/
-    # username below are used as-is.
-    external: false
+    # single: one pod on one volume.
+    # ha:     Galera via mariadb-operator. Wants at least 3 nodes for quorum --
+    #         on a single-node cluster the members die together.
+    mode: single
+    replicas: 3
+
     host: mariadb-service
     port: 3306
     username: root
     database: bmc
-    # Password stored in secret 'bmc-secrets' key 'mariadb-root-password'
+
+    # Point at a database you run yourself.
+    external: false
+
+    # Derived from mode and external; set only for a database neither
+    # `task secrets:generate` nor the operator created.
+    existingSecret: ""
+    passwordKey: ""
 
   mongoDB:
-    external: false
+    # single: one pod on one volume.
+    # ha:     replica set via the MongoDB Community Operator. The driver does
+    #         failover natively once given a replica-set URI.
+    mode: single
+    replicas: 3
+
     host: mongodb-service
     port: 27017
     username: admin
     database: admin
-    # Password stored in secret 'bmc-secrets' key 'mongodb-root-password'
+
+    external: false
+
+    # Used verbatim when non-empty, instead of building one from host/port.
+    # A replica set needs this: mongodb://u:p@h1,h2,h3/db?replicaSet=rs0
+    uri: ""
+
+    existingSecret: ""
+    passwordKey: ""
 
   prometheus:
     host: prometheus-service

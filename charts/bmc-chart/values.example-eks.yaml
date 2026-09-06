@@ -66,29 +66,18 @@ global:
       # public by default.
       sourceRanges: []
 
-  # Managed databases are a good fit on EKS: RDS and DocumentDB remove two RWO
-  # volumes and two single-replica Deployments from the cluster. Set external
-  # true, point host/port/username at them, and keep the passwords in the
-  # bmc-secrets keys the chart already reads.
-  mariaDB:
-    external: false
-  mongoDB:
-    external: false
-
-  # Redis is the busiest component in BMC -- every server publishes status to it
-  # and the manager consumes that for scaling decisions -- and in-cluster it is
-  # a single replica with no failover.
+  # Datastores run in-cluster on every profile. Set mode to "ha" for
+  # operator-managed clusters (Redis replication with Sentinel, MariaDB
+  # Galera, MongoDB replica set); "single" is one pod each.
   #
-  # external: true keeps the "redis-service" name resolvable and repoints it at
-  # externalHost, so nothing that already uses that name has to change. Works
-  # with ElastiCache (a hostname).
-  #
-  # NOTE: clients connect without authentication or TLS today, so the endpoint
-  # must be reachable unauthenticated on a private network. AUTH needs a client
-  # change first -- see docs/scaling-architecture.md, track B.
+  # ha wants at least three nodes so quorum members do not share a failure
+  # domain.
   redis:
-    external: false
-    # externalHost: "10.20.30.40"
+    mode: single
+  mariaDB:
+    mode: single
+  mongoDB:
+    mode: single
 
   fileEditSession:
     # Each open session holds its own NLB, billed hourly with a one-hour

@@ -56,6 +56,9 @@ fi
 
 SHARED_CLASS=$(read_value '.global.storage.classes.shared.name')
 SHARED_MODE=$(read_value '.global.storage.classes.shared.accessMode')
+PERSISTENT_CLASS=$(read_value '.global.storage.classes.persistent.name')
+PERSISTENT_MODE=$(read_value '.global.storage.classes.persistent.accessMode')
+USES_PERSISTENT=$(read_value '.global.storage.persistentDeployments')
 DB_CLASS=$(read_value '.global.storage.classes.database.name')
 DB_MODE=$(read_value '.global.storage.classes.database.accessMode')
 INGRESS_CLASS=$(read_value '.global.ingress.className')
@@ -69,7 +72,6 @@ INSTALL_NGINX=$(read_value '.global.ingressNginx.install')
 # Whether BMC brings its own RWX storage provider on this profile.
 INSTALL_NFS=$(read_value '.global.nfsServer.install')
 REDIS_EXTERNAL=$(read_value '.global.redis.external')
-REDIS_CREATE_SVC=$(read_value '.global.redis.createService')
 REDIS_HOST=$(read_value '.global.redis.host')
 
 # The namespace BMC itself is installed into, as opposed to $NS, which is the
@@ -160,13 +162,16 @@ cleanup_probe() {
   kubectl delete pvc "$1" -n "$NS" --wait=false &>/dev/null || true
 }
 
-echo "Storage: shared (game data + panel manifests)"
+echo "Storage: shared (staging, and instances that do not pull artifacts)"
 if [ -z "$SHARED_CLASS" ] || [ "$SHARED_CLASS" = "null" ] || [ "$SHARED_CLASS" = '""' ]; then
   warn "global.storage.classes.shared.name is unset -- the cluster default StorageClass will be used"
   skip "on most clouds the default is RWO-only and will fail the next check"
 fi
-# Two replicas: BMC mounts a deployment's volume into the game pod, an SFTP pod
-# and a file-edit pod at once, so binding alone is not enough.
+# Replica count follows the declared access mode: probing ReadWriteOnce with two
+# pods would fail on a perfectly good class.
+SHARED_REPLICAS=1
+[ "$SHARED_MODE" = "ReadWriteMany" ] && SHARED_REPLICAS=2
+
 # `task install` runs `task storage` first so this probe tests a real class. Run
 # on its own against a fresh cluster it will not exist yet, and probing it would
 # just wait for a PVC that can never bind.
@@ -174,19 +179,42 @@ if [ "$INSTALL_NFS" = "true" ] && ! kubectl get storageclass "$SHARED_CLASS" &>/
   warn "StorageClass '$SHARED_CLASS' not found yet (BMC installs its own NFS server)"
   skip "run 'task storage PROFILE=$PROFILE' first to test ReadWriteMany for real"
   skip "'task install' does this automatically, before preflight"
-elif probe_storage preflight-shared "$SHARED_CLASS" "$SHARED_MODE" 2; then
-  pass "two pods mount a '${SHARED_CLASS:-<default>}' ${SHARED_MODE} claim simultaneously"
+elif probe_storage preflight-shared "$SHARED_CLASS" "$SHARED_MODE" "$SHARED_REPLICAS"; then
+  if [ "$SHARED_REPLICAS" = "2" ]; then
+    pass "two pods mount a '${SHARED_CLASS:-<default>}' ${SHARED_MODE} claim simultaneously"
+  else
+    pass "a '${SHARED_CLASS:-<default>}' claim binds and mounts with ${SHARED_MODE}"
+  fi
+else
+  fail "no claim bound for '${SHARED_CLASS:-<default>}' with ${SHARED_MODE}"
+  [ "$SHARED_REPLICAS" = "2" ] && skip "this class must allow several pods to mount one claim at once"
+fi
+cleanup_probe preflight-shared
+echo ""
+
+# ReadWriteMany, and only when something actually needs it.
+#
+# Persistent deployments run in place on their volume while a file session can
+# mount it too. Every other type pulls artifacts into a pod-local emptyDir, so an
+# installation with no persistent deployments needs no RWX class at all -- no
+# EFS, no NFS server, no nfs-common on every node.
+echo "Storage: persistent deployments (ReadWriteMany)"
+if [ "$USES_PERSISTENT" != "true" ]; then
+  pass "not in use (storage.persistentDeployments is false) -- no RWX class needed"
+  skip "turn it on before creating a persistent deployment, or its PVC will never bind"
+elif probe_storage preflight-persistent "$PERSISTENT_CLASS" "$PERSISTENT_MODE" 2; then
+  pass "two pods mount a '${PERSISTENT_CLASS:-<default>}' ${PERSISTENT_MODE} claim simultaneously"
   NODE_COUNT=$(kubectl get nodes --no-headers 2>/dev/null | wc -l | tr -d ' ')
   if [ "${NODE_COUNT:-1}" -le 1 ] 2>/dev/null; then
     warn "single-node cluster: this proves co-located access, not cross-node RWX"
     skip "a node-local class can pass here and still fail on a real multi-node cluster"
   fi
 else
-  fail "two pods could NOT share a '${SHARED_CLASS:-<default>}' claim with ${SHARED_MODE}"
-  skip "BMC needs a ReadWriteMany class (Longhorn/NFS, EFS, Filestore, Azure Files)"
-  skip "file sessions mount a deployment's volume alongside the running server"
+  fail "two pods could NOT share a '${PERSISTENT_CLASS:-<default>}' claim with ${PERSISTENT_MODE}"
+  skip "persistent deployments need RWX (Longhorn/NFS, EFS, Filestore, Azure Files)"
+  skip "or set storage.persistentDeployments to false if you do not use them"
 fi
-cleanup_probe preflight-shared
+cleanup_probe preflight-persistent
 echo ""
 
 echo "Storage: database (MariaDB + MongoDB)"
@@ -298,28 +326,6 @@ else
 fi
 echo ""
 
-# ----------------------------------------------------------------- redis ----
-# When the chart creates neither the Redis pod nor its Service, something else
-# must have. Checked hard because nothing else in the install would notice it
-# missing: pods would start, resolve nothing, and scaling would quietly stop.
-if [ "$REDIS_EXTERNAL" = "true" ] && [ "$REDIS_CREATE_SVC" = "false" ]; then
-  echo "Redis (managed, alias owned outside the chart)"
-  if kubectl get service "$REDIS_HOST" -n "$NS_TARGET" &>/dev/null; then
-    MODE=$(kubectl get service "$REDIS_HOST" -n "$NS_TARGET" -o jsonpath='{.metadata.labels.bmc/redis-mode}' 2>/dev/null)
-    TARGET=$(kubectl get service "$REDIS_HOST" -n "$NS_TARGET" -o jsonpath='{.spec.externalName}' 2>/dev/null)
-    [ -z "$TARGET" ] && TARGET=$(kubectl get endpointslice -n "$NS_TARGET" -l "kubernetes.io/service-name=$REDIS_HOST" -o jsonpath='{.items[0].endpoints[0].addresses[0]}' 2>/dev/null)
-    pass "Service '$REDIS_HOST' exists (${MODE:-unknown mode}) -> ${TARGET:-<no endpoint>}"
-    if [ -z "$TARGET" ]; then
-      fail "'$REDIS_HOST' resolves but has no endpoint behind it"
-      skip "the EndpointSlice is missing or empty -- check the Terraform layer applied cleanly"
-    fi
-  else
-    fail "Service '$REDIS_HOST' not found in namespace '$NS_TARGET'"
-    skip "global.redis.createService is false, so the chart will not create it"
-    skip "run the Terraform layer first (it provisions the managed Redis and this alias together)"
-  fi
-  echo ""
-fi
 
 # ---------------------------------------------------------------- egress ----
 echo "Outbound egress from a pod"

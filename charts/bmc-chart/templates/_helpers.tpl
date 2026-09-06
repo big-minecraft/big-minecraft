@@ -30,3 +30,19 @@ The path a flattened key must be mounted back to, relative to the volume root.
 {{- define "bmc.runtimePath" -}}
 {{- . | trimPrefix "files/" -}}
 {{- end -}}
+
+{{/*
+Which secret holds a database password, and under which key.
+
+Defaults to the secret `task secrets:generate` writes. Overridable for a
+database that something else created.
+
+Usage: include "bmc.dbSecret" (dict "db" .Values.global.mariaDB "kind" "mariadb")
+*/}}
+{{- define "bmc.dbSecret" -}}
+{{- if .db.existingSecret }}{{ .db.existingSecret }}{{ else }}bmc-secrets{{ end }}
+{{- end }}
+
+{{- define "bmc.dbSecretKey" -}}
+{{- if .db.passwordKey }}{{ .db.passwordKey }}{{ else }}{{ .kind }}-root-password{{ end }}
+{{- end }}

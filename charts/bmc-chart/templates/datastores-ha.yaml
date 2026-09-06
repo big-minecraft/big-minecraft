@@ -1,0 +1,145 @@
+{{- /*
+Anti-affinity is `preferred`, not `required`: required would leave pods Pending
+forever on a single-node cluster. So ha runs anywhere, protecting against pod
+failure on one node and node failure on three.
+*/ -}}
+{{- define "bmc.softAntiAffinity" -}}
+podAntiAffinity:
+  preferredDuringSchedulingIgnoredDuringExecution:
+    - weight: 100
+      podAffinityTerm:
+        topologyKey: kubernetes.io/hostname
+        labelSelector:
+          matchLabels:
+            {{- toYaml .labels | nindent 12 }}
+{{- end -}}
+
+{{- if eq .Values.global.redis.mode "ha" }}
+apiVersion: redis.redis.opstreelabs.in/v1beta2
+kind: RedisReplication
+metadata:
+  name: bmc-redis
+  labels:
+    app: bmc-redis
+spec:
+  clusterSize: {{ .Values.global.redis.replicas }}
+  # redisExporter is omitted rather than disabled: the CRD requires
+  # spec.redisExporter.image whenever the block is present at all.
+  kubernetesConfig:
+    image: quay.io/opstree/redis:v7.0.15
+    imagePullPolicy: IfNotPresent
+  storage:
+    volumeClaimTemplate:
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- with .Values.global.storage.classes.database.name }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: 1Gi
+  affinity:
+    {{- include "bmc.softAntiAffinity" (dict "labels" (dict "app" "bmc-redis")) | nindent 4 }}
+---
+# The operator watches Sentinel for the current master and keeps the master
+# Service pointing there, so a plain single-endpoint client survives failover.
+apiVersion: redis.redis.opstreelabs.in/v1beta2
+kind: RedisSentinel
+metadata:
+  name: bmc-redis-sentinel
+  labels:
+    app: bmc-redis-sentinel
+spec:
+  clusterSize: 3
+  redisSentinelConfig:
+    redisReplicationName: bmc-redis
+  kubernetesConfig:
+    image: quay.io/opstree/redis-sentinel:v7.0.15
+    imagePullPolicy: IfNotPresent
+  affinity:
+    {{- include "bmc.softAntiAffinity" (dict "labels" (dict "app" "bmc-redis-sentinel")) | nindent 4 }}
+{{- end }}
+
+{{- if eq .Values.global.mariaDB.mode "ha" }}
+---
+apiVersion: k8s.mariadb.com/v1alpha1
+kind: MariaDB
+metadata:
+  name: bmc-mariadb
+  labels:
+    app: bmc-mariadb
+spec:
+  rootPasswordSecretKeyRef:
+    name: {{ include "bmc.dbSecret" (dict "db" .Values.global.mariaDB "kind" "mariadb") }}
+    key: {{ include "bmc.dbSecretKey" (dict "db" .Values.global.mariaDB "kind" "mariadb") }}
+  replicas: {{ .Values.global.mariaDB.replicas }}
+  galera:
+    enabled: true
+  # The operator enables TLS on Galera's replication channel by default, and the
+  # members fail the handshake against each other -- no primary view forms and
+  # MariaDB refuses every connection. Disabled deliberately: pod-to-pod traffic
+  # in one namespace, matching the other datastores here.
+  tls:
+    enabled: false
+  storage:
+    size: {{ .Values.global.storage.volumeSize.mariaDB }}
+    {{- with .Values.global.storage.classes.database.name }}
+    storageClassName: {{ . | quote }}
+    {{- end }}
+  affinity:
+    antiAffinityEnabled: false
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            topologyKey: kubernetes.io/hostname
+            labelSelector:
+              matchLabels:
+                app.kubernetes.io/instance: bmc-mariadb
+---
+# In single mode the container creates this from MARIADB_DATABASE. The operator
+# does not create any database implicitly, so it has to be declared -- without
+# it the panel connects to a schema that does not exist and its pool times out.
+apiVersion: k8s.mariadb.com/v1alpha1
+kind: Database
+metadata:
+  name: {{ .Values.global.mariaDB.database }}
+spec:
+  mariaDbRef:
+    name: bmc-mariadb
+  characterSet: utf8mb4
+  collate: utf8mb4_unicode_ci
+{{- end }}
+
+{{- if eq .Values.global.mongoDB.mode "ha" }}
+---
+apiVersion: mongodbcommunity.mongodb.com/v1
+kind: MongoDBCommunity
+metadata:
+  name: bmc-mongodb
+  labels:
+    app: bmc-mongodb
+spec:
+  members: {{ .Values.global.mongoDB.replicas }}
+  type: ReplicaSet
+  version: "6.0.5"
+  security:
+    authentication:
+      modes: ["SCRAM"]
+  users:
+    - name: {{ .Values.global.mongoDB.username }}
+      db: admin
+      passwordSecretRef:
+        name: {{ include "bmc.dbSecret" (dict "db" .Values.global.mongoDB "kind" "mongodb") }}
+        key: {{ include "bmc.dbSecretKey" (dict "db" .Values.global.mongoDB "kind" "mongodb") }}
+      roles:
+        - name: root
+          db: admin
+      scramCredentialsSecretName: bmc-mongodb-scram
+  statefulSet:
+    spec:
+      template:
+        spec:
+          affinity:
+            {{- include "bmc.softAntiAffinity" (dict "labels" (dict "app" "bmc-mongodb-svc")) | nindent 12 }}
+{{- end }}

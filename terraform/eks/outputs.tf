@@ -48,7 +48,3 @@ output "next_steps" {
   EOT
 }
 
-output "redis_endpoint" {
-  description = "ElastiCache primary endpoint. Already wired into the redis-service Service, so this is for reference and debugging rather than configuration."
-  value       = var.enable_ha_redis ? aws_elasticache_replication_group.redis[0].primary_endpoint_address : "in-cluster (enable_ha_redis = false)"
-}

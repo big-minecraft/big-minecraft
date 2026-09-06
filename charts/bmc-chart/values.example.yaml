@@ -111,23 +111,18 @@ global:
     ipAddressPool:
       - "192.168.1.100/32"  # CHANGE THIS
 
-  # Databases. Set external: true to use a managed service (RDS, Cloud SQL,
-  # Atlas) -- the in-cluster Deployment and PVC are then not created and the
-  # host/port/username below are used as-is.
+  # Datastores, all in-cluster on every profile.
+  #
+  # mode: single -- one pod each. Fine for a small install.
+  # mode: ha     -- operator-managed clusters: Redis replication with Sentinel,
+  #                 MariaDB Galera, MongoDB replica set. Wants at least three
+  #                 nodes so quorum members do not share a failure domain.
+  #
+  # external: true points at a datastore you run yourself instead.
   mariaDB:
-    external: false
-    host: mariadb-service
-    port: 3306
-    username: root
-    database: bmc
-    # Password lives in the 'bmc-secrets' Kubernetes secret
-
+    mode: single
   mongoDB:
-    external: false
-    host: mongodb-service
-    port: 27017
-    username: admin
-    database: admin
+    mode: single
 
   redis:
     host: "redis-service"

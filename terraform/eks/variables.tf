@@ -266,32 +266,3 @@ variable "sftp_passthrough_port_count" {
   default     = 20
 }
 
-# -------------------------------------------------------------- HA redis ----
-
-variable "enable_ha_redis" {
-  description = <<-EOT
-    Provision ElastiCache and point redis-service at it, instead of running the
-    single in-cluster Redis pod.
-
-    On by default because Redis is the one component whose loss stops scaling
-    cluster-wide, and the in-cluster default has no failover.
-
-    Costs roughly $45/month for two cache.t4g.small nodes (primary plus a
-    replica in another AZ). Set false for a test cluster, and the chart falls
-    back to the in-cluster pod with no other configuration change.
-  EOT
-  type        = bool
-  default     = true
-}
-
-variable "redis_node_type" {
-  description = "ElastiCache node type. BMC stores coordination state, not bulk data, so the smallest current-generation node is usually enough."
-  type        = string
-  default     = "cache.t4g.small"
-}
-
-variable "namespace" {
-  description = "Namespace BMC is installed into. Must match global.namespace in the chart -- the redis-service alias is created here, so the two have to agree."
-  type        = string
-  default     = "bmc"
-}
