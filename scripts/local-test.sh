@@ -297,6 +297,25 @@ $(printf '      - %s\n' "${incompatible[@]}")
   PROFILE="$PROFILE" BMC_VALUES_FILE="$effective" \
     helmfile -f "$ROOT/helmfile.yaml" apply --skip-diff-on-install 2>&1 | tail -12 || true
 
+  # helmfile can print happily while a release ends up `failed` -- a rejected
+  # custom resource, a webhook with no endpoints. Unchecked, that surfaces later
+  # as something inexplicable, so fail here where the cause is still on screen.
+  local failed
+  failed=$(helm --kubeconfig "$KUBECONFIG" list -n "$NS" --failed --pending -q 2>/dev/null || true)
+  if [ -n "$failed" ]; then
+    echo ""
+    warn "these releases did not install cleanly:"
+    printf '      - %s\n' $failed
+    echo ""
+    echo "  Why:"
+    for r in $failed; do
+      helm --kubeconfig "$KUBECONFIG" history "$r" -n "$NS" --max 1 -o json 2>/dev/null \
+        | python3 -c "import sys,json;print('    '+json.load(sys.stdin)[-1]['description'].replace(chr(92)+'n','\n    '))" 2>/dev/null \
+        || echo "    (no detail available)"
+    done
+    die "install did not complete - fix the above and re-run '$0 install'"
+  fi
+
   ok "install complete - run '$0 status'"
 }
 

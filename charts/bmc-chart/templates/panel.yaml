@@ -33,6 +33,33 @@ spec:
               {{- end }}
       securityContext:
         fsGroup: 1000
+      # The panel gives up after ten database attempts and never retries. A cold
+      # Galera bootstrap takes about that long, so without this the panel loses
+      # the race on a fresh install and stays broken until restarted by hand.
+      initContainers:
+        - name: wait-for-datastores
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              for target in \
+                "{{ .Values.global.mariaDB.host }} {{ .Values.global.mariaDB.port }}" \
+                "{{ .Values.global.mongoDB.host }} {{ .Values.global.mongoDB.port }}" \
+                "{{ .Values.global.redis.host }} {{ .Values.global.redis.port }}"; do
+                set -- $target
+                echo "waiting for $1:$2..."
+                i=0
+                until nc -z "$1" "$2" 2>/dev/null; do
+                  i=$((i+1))
+                  if [ $i -ge 200 ]; then
+                    echo "gave up waiting for $1:$2 after 10 minutes"
+                    exit 1
+                  fi
+                  sleep 3
+                done
+                echo "$1:$2 is up"
+              done
       containers:
         - name: panel
           image: "{{ .Values.images.panel.repository }}:{{ .Values.images.panel.tag }}"
@@ -58,9 +85,37 @@ spec:
                   key: panelSecret
             {{- $secret := lookup "v1" "Secret" .Release.Namespace "bmc-secrets" }}
             {{- $globalWithSecrets := deepCopy .Values.global }}
+            {{- if and .Values.global.artifactStore.install (not .Values.global.artifactStore.endpoint) }}
+            {{- $_ := set $globalWithSecrets.artifactStore "endpoint" (printf "http://minio.%s.svc.cluster.local:9000" .Release.Namespace) }}
+            {{- end }}
             {{- if $secret }}
-            {{- $_ := set $globalWithSecrets.mariaDB "initPassword" (index $secret.data "mariadb-root-password" | b64dec) }}
-            {{- $_ := set $globalWithSecrets.mongoDB "initPassword" (index $secret.data "mongodb-root-password" | b64dec) }}
+            {{- $mariaName := include "bmc.dbSecret" (dict "db" .Values.global.mariaDB "kind" "mariadb") }}
+            {{- $mariaKey := include "bmc.dbSecretKey" (dict "db" .Values.global.mariaDB "kind" "mariadb") }}
+            {{- $mariaSecret := lookup "v1" "Secret" .Release.Namespace $mariaName }}
+            {{- if $mariaSecret }}
+            {{- $_ := set $globalWithSecrets.mariaDB "initPassword" (index $mariaSecret.data $mariaKey | b64dec) }}
+            {{- end }}
+            {{- $mongoName := include "bmc.dbSecret" (dict "db" .Values.global.mongoDB "kind" "mongodb") }}
+            {{- $mongoKey := include "bmc.dbSecretKey" (dict "db" .Values.global.mongoDB "kind" "mongodb") }}
+            {{- $mongoSecret := lookup "v1" "Secret" .Release.Namespace $mongoName }}
+            {{- if $mongoSecret }}
+            {{- $_ := set $globalWithSecrets.mongoDB "initPassword" (index $mongoSecret.data $mongoKey | b64dec) }}
+            {{- end }}
+            {{- /*
+            A replica set needs every member and the set name in the URI, which
+            host/port cannot express. Built here because this is the only place
+            that has the password.
+            */}}
+            {{- if and (eq .Values.global.mongoDB.mode "ha") (not .Values.global.mongoDB.uri) (not .Values.global.mongoDB.external) }}
+            {{- if $mongoSecret }}
+            {{- $pw := index $mongoSecret.data $mongoKey | b64dec }}
+            {{- $members := list }}
+            {{- range $i := until (int .Values.global.mongoDB.replicas) }}
+            {{- $members = append $members (printf "bmc-mongodb-%d.bmc-mongodb-svc.%s.svc.cluster.local:27017" $i $.Release.Namespace) }}
+            {{- end }}
+            {{- $_ := set $globalWithSecrets.mongoDB "uri" (printf "mongodb://%s:%s@%s/%s?replicaSet=bmc-mongodb" $.Values.global.mongoDB.username $pw (join "," $members) $.Values.global.mongoDB.database) }}
+            {{- end }}
+            {{- end }}
             {{- $_ := set $globalWithSecrets.panel "panelSecret" (index $secret.data "panelSecret" | b64dec) }}
             {{- $_ := set $globalWithSecrets.panel "initialInviteCode" (index $secret.data "initialInviteCode" | b64dec) }}
             {{- $_ := set $globalWithSecrets.sftp "password" (index $secret.data "sftp-password" | b64dec) }}

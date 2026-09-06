@@ -91,11 +91,21 @@ echo ""
 check_value '.global.storage.classes.shared.name'   "Shared storage class (RWX)" "longhorn"
 check_value '.global.storage.classes.database.name' "Database storage class"     "longhorn"
 
-SHARED_MODE=$(echo "$MERGED" | yq '.global.storage.classes.shared.accessMode' - 2>/dev/null || echo "")
-if [ "$SHARED_MODE" != "ReadWriteMany" ]; then
-  echo -e "${RED}✗${NC} storage.classes.shared.accessMode is '$SHARED_MODE', must be ReadWriteMany"
-  echo "   File-edit and SFTP pods mount a deployment's volume alongside the running server."
-  VALIDATION_FAILED=true
+# ReadWriteMany is only required for persistent deployments now: their server
+# runs in place while a file session can mount the same volume. Everything else
+# pulls artifacts into a pod-local emptyDir.
+USES_PERSISTENT=$(echo "$MERGED" | yq '.global.storage.persistentDeployments' - 2>/dev/null || echo "true")
+if [ "$USES_PERSISTENT" = "true" ]; then
+  check_value '.global.storage.classes.persistent.name' "Persistent storage class (RWX)" "longhorn"
+  PERSISTENT_MODE=$(echo "$MERGED" | yq '.global.storage.classes.persistent.accessMode' - 2>/dev/null || echo "")
+  if [ "$PERSISTENT_MODE" != "ReadWriteMany" ]; then
+    echo -e "${RED}✗${NC} storage.classes.persistent.accessMode is '$PERSISTENT_MODE', must be ReadWriteMany"
+    echo "   A persistent deployment's server runs in place while a file session"
+    echo "   can mount the same volume, so two pods hold it at once."
+    VALIDATION_FAILED=true
+  fi
+else
+  echo -e "${GREEN}✓${NC} No persistent deployments -- ReadWriteMany not required"
 fi
 
 # An external Redis needs somewhere to point. The chart keeps the

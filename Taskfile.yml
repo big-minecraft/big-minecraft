@@ -120,6 +120,9 @@ tasks:
       - |
         echo "Installing storage provider (no-op unless the profile enables one)..."
       - helmfile apply --selector name=nfs-server-provisioner
+      - helmfile apply --selector name=redis-operator
+      - helmfile apply --selector name=mariadb-operator
+      - helmfile apply --selector name=mongodb-operator
       - helmfile apply --selector name=minio
 
   deploy:
