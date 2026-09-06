@@ -32,7 +32,7 @@ spec:
       cpu: {{ .Values.resources.limits.cpu }}
   volume:
     mountPath: {{ .Values.volume.mountPath }}
-    storageClass: {{ .Values.global.storage.classes.shared.name | default "longhorn" }}
+    storageClass: {{ .Values.global.storage.classes.persistent.name | default "longhorn" }}
     size: {{ .Values.global.storage.volumeSize.persistent | default "10Gi" }}
   redis:
     host: {{ .Values.global.redis.host | default .Values.server.redis.host | quote }}
@@ -55,8 +55,8 @@ metadata:
     app: {{ .Values.name }}
     kyriji.dev/deployment-type: "persistent"
 spec:
-  accessModes: [{{ .Values.global.storage.classes.shared.accessMode | default "ReadWriteMany" | quote }}]
-  storageClassName: {{ .Values.global.storage.classes.shared.name | default "longhorn" }}
+  accessModes: [{{ .Values.global.storage.classes.persistent.accessMode | default "ReadWriteMany" | quote }}]
+  storageClassName: {{ .Values.global.storage.classes.persistent.name | default "longhorn" }}
   resources:
     requests:
       storage: {{ .Values.global.storage.volumeSize.persistent | default "10Gi" }}

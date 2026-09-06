@@ -31,14 +31,21 @@ global:
 
   storage:
     classes:
-      # Provided by the in-cluster NFS provisioner that local-test.sh installs.
-      # k3d's built-in local-path is RWO-only and cannot host game data.
+      # k3d's built-in local-path is ReadWriteOnce, which is now all the shared
+      # class needs: staging is held by one pod, and instances pull artifacts
+      # into a pod-local emptyDir. Using it here means the local test exercises
+      # the ReadWriteOnce path rather than a friendlier one than production.
       shared:
-        name: "nfs"
-        accessMode: ReadWriteMany
+        name: "local-path"
+        accessMode: ReadWriteOnce
       database:
         name: "local-path"
         accessMode: ReadWriteOnce
+      # Persistent deployments still need RWX, from the NFS provisioner
+      # local-test.sh installs.
+      persistent:
+        name: "nfs"
+        accessMode: ReadWriteMany
     volumeSize:
       persistent: "1Gi"
       scalable: "1Gi"
@@ -47,6 +54,24 @@ global:
       manifests: "1Gi"
       mariaDB: "2Gi"
       mongoDB: "2Gi"
+
+  # Datastores in HA mode, so the local test exercises the operators, the
+  # cluster resources and the aliases rather than the single-pod path.
+  #
+  # This is nine stateful pods plus three operators on one k3d node. Anti-affinity
+  # is `preferred`, so they co-schedule happily -- on a single node this protects
+  # against pod failure, not node failure, which is the whole node's data anyway.
+  #
+  # Set these back to single for a lighter run.
+  redis:
+    mode: ha
+    replicas: 3
+  mariaDB:
+    mode: ha
+    replicas: 3
+  mongoDB:
+    mode: ha
+    replicas: 3
 
   metallb:
     installResources: false       # k3d has its own LoadBalancer controller

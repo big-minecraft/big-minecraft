@@ -17,6 +17,11 @@ global:
     classes:
       shared:
         name: "longhorn"
+      # This deployment type runs in place on its volume while a file session
+      # can mount it too, so two pods hold it at once.
+      persistent:
+        name: "longhorn"
+        accessMode: ReadWriteMany
         # RWX is required: file-edit and SFTP pods mount a deployment's volume
         # alongside the running server.
         accessMode: ReadWriteMany
