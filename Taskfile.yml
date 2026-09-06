@@ -10,12 +10,14 @@ vars:
   NAMESPACE:
     sh: '{ yq ".global.namespace" {{.CHART_DIR}}/values.yaml 2>/dev/null || echo bmc; } | tr -d ''"'''
   SCRIPTS_DIR: scripts
-  # Which Terraform root module belongs to this profile. Profiles with no cloud
-  # layer (bare metal) resolve to a directory that does not exist, and the
-  # teardown task checks before using it.
-  TF_DIR: 'terraform/{{if eq .PROFILE "eks"}}eks{{else if eq .PROFILE "gke"}}gke{{else}}none{{end}}'
   # Which kind of environment this cluster is. See profiles/.
   PROFILE: '{{.PROFILE | default "baremetal-metallb"}}'
+  # Which Terraform root module belongs to this profile. Profiles with no cloud
+  # layer (bare metal) resolve to a directory that does not exist, and the
+  # teardown task checks before using it. Anchored to the Taskfile: a relative
+  # path resolves against wherever `task` was invoked from, so teardown run from
+  # a subdirectory skipped the destroy and still reported success.
+  TF_DIR: '{{.ROOT_DIR}}/terraform/{{if eq .PROFILE "eks"}}eks{{else if eq .PROFILE "gke"}}gke{{else}}none{{end}}'
 
 env:
   # helmfile reads this to pick the profile layer.
