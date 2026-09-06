@@ -1,0 +1,44 @@
+# Copy to terraform.tfvars and edit. Do not commit terraform.tfvars.
+
+# Leave empty to use ARM_SUBSCRIPTION_ID from the environment, which is what
+# `az login` plus `az account set` already gives you.
+subscription_id = ""
+
+location     = "eastus"
+cluster_name = "bmc-aks"
+
+# Narrow this to your operators once you know their addresses. Empty means the
+# API server is reachable from anywhere, which is the AKS default.
+api_server_authorized_cidrs = []
+
+# Free has no API server SLA and is fine for testing. Standard buys a 99.95%
+# SLA and a control plane that scales past a handful of nodes.
+sku_tier = "Free"
+
+# --------------------------------------------------------------- capacity --
+#
+# How large the cluster may grow, and how much subscription quota it consumes
+# on the way. Quotas are account-level and cannot be set from Terraform -- raise
+# them in the portal or with `az quota`. Check your regional vCPU headroom
+# before scaling up:
+#
+#   az vm list-usage --location eastus \
+#     --query "[?contains(name.value, 'cores')].{Name:localName,Used:currentValue,Limit:limit}" \
+#     --output table
+
+node_vm_size   = "Standard_D4s_v5"
+node_min_count = 2
+node_max_count = 6
+
+# OS disk per node. Container images live here, and so does each instance's
+# artifact: game pods pull into an emptyDir backed by this disk.
+node_disk_size = 50
+
+# Spread nodes across availability zones. Set to [] in regions that have none,
+# or the node pool fails to create.
+node_zones = ["1", "2", "3"]
+
+# Spot VMs are far cheaper and can be reclaimed with 30 seconds' notice,
+# restarting every Minecraft server on the node. They go in a second pool --
+# AKS will not make the system pool spot.
+node_spot = false

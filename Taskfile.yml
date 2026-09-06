@@ -21,7 +21,7 @@ vars:
   # tfvars is the source of truth; the fallback matches variables.tf's default.
   CLUSTER_NAME:
     sh: 'sed -n ''s/^cluster_name *= *"\(.*\)"/\1/p'' {{.ROOT_DIR}}/terraform/eks/terraform.tfvars 2>/dev/null | head -1 | grep . || echo bmc'
-  TF_DIR: '{{.ROOT_DIR}}/terraform/{{if eq .PROFILE "eks"}}eks{{else if eq .PROFILE "gke"}}gke{{else}}none{{end}}'
+  TF_DIR: '{{.ROOT_DIR}}/terraform/{{if eq .PROFILE "eks"}}eks{{else if eq .PROFILE "gke"}}gke{{else if eq .PROFILE "aks"}}aks{{else}}none{{end}}'
 
 env:
   # helmfile reads this to pick the profile layer.
@@ -271,6 +271,18 @@ tasks:
               sleep 5
             done
             ;;
+          aks)
+            # AKS puts Service load balancers and their public IPs in the node
+            # resource group, which the cluster delete takes with it. The wait
+            # still matters: a public IP that is mid-release when the cluster
+            # goes can be orphaned into the subscription with nothing owning it.
+            for i in $(seq 1 60); do
+              REMAINING=$(kubectl get svc -A --field-selector spec.type=LoadBalancer --no-headers 2>/dev/null | wc -l | tr -d ' ')
+              [ "${REMAINING:-0}" = "0" ] && { echo "  all released"; break; }
+              echo "  $REMAINING LoadBalancer service(s) still present..."
+              sleep 5
+            done
+            ;;
           *)
             echo "  no cloud load balancers for profile '{{.PROFILE}}'"
             ;;
@@ -376,9 +388,30 @@ tasks:
             echo "NOTE: GCP only, and project '$(gcloud config get-value project 2>/dev/null)'."
             echo "      Pass PROFILE=eks to check AWS instead."
             ;;
+          aks)
+            # Resource groups first: on Azure almost everything here lives in
+            # one, so a leftover group is the clearest signal that a destroy
+            # did not finish. AKS also creates its own node resource group
+            # (MC_<group>_<cluster>_<region>) holding the VMSS, disks and
+            # public IPs -- it should disappear with the cluster.
+            printf "%-24s %s\n" "Resource groups:"  "$(az group list --query '[].name' --output tsv 2>/dev/null | tr '\n' ' ')"
+            printf "%-24s %s\n" "AKS clusters:"     "$(az aks list --query '[].name' --output tsv 2>/dev/null | tr '\n' ' ')"
+            printf "%-24s %s\n" "Virtual machines:" "$(az vm list --query '[].name' --output tsv 2>/dev/null | tr '\n' ' ')"
+            printf "%-24s %s\n" "Scale sets:"       "$(az vmss list --query '[].name' --output tsv 2>/dev/null | tr '\n' ' ')"
+            printf "%-24s %s\n" "Public IPs:"       "$(az network public-ip list --query '[].name' --output tsv 2>/dev/null | tr '\n' ' ')"
+            printf "%-24s %s\n" "Load balancers:"   "$(az network lb list --query '[].name' --output tsv 2>/dev/null | tr '\n' ' ')"
+            printf "%-24s %s\n" "Managed disks:"    "$(az disk list --query '[].name' --output tsv 2>/dev/null | tr '\n' ' ')"
+            printf "%-24s %s\n" "Disk snapshots:"   "$(az snapshot list --query '[].name' --output tsv 2>/dev/null | tr '\n' ' ')"
+            # Azure Files shares back the ReadWriteMany class, so a storage
+            # account outliving the cluster keeps billing for stored data.
+            printf "%-24s %s\n" "Storage accounts:" "$(az storage account list --query '[].name' --output tsv 2>/dev/null | tr '\n' ' ')"
+            echo ""
+            echo "NOTE: Azure only, and subscription '$(az account show --query name --output tsv 2>/dev/null)'."
+            echo "      This lists the WHOLE subscription, so anything unrelated to BMC shows too."
+            ;;
           *)
             echo "No cloud resources for profile '{{.PROFILE}}'."
-            echo "Pass PROFILE=eks or PROFILE=gke to sweep a cloud account."
+            echo "Pass PROFILE=eks, PROFILE=gke or PROFILE=aks to sweep a cloud account."
             ;;
         esac
         echo ""

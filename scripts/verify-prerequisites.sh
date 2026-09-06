@@ -65,7 +65,7 @@ fi
 # rather than always, so a bare-metal install is not asked for an AWS CLI it
 # will never use.
 case "$PROFILE" in
-  eks|gke)
+  eks|gke|aks)
     echo ""
     echo "Cloud tooling for profile '$PROFILE':"
 
@@ -94,6 +94,40 @@ case "$PROFILE" in
       else
         echo -e "${RED}✗${NC} aws CLI not found"
         echo "   Install: https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html"
+        exit 1
+      fi
+    fi
+
+    if [ "$PROFILE" = "aks" ]; then
+      if command -v az &> /dev/null; then
+        echo -e "${GREEN}✓${NC} az $(az version -o tsv --query '"azure-cli"' 2>/dev/null)"
+        # A logged-in account is not enough on its own: azurerm 4 needs to know
+        # which subscription to build in, and an account with several selects
+        # none by default. Terraform then fails at plan time rather than login.
+        SUB=$(az account show --query name --output tsv 2>/dev/null)
+        if [ -n "$SUB" ]; then
+          echo -e "${GREEN}✓${NC} Azure subscription: $SUB"
+        else
+          echo -e "${RED}✗${NC} Azure CLI is not logged in"
+          echo "   Run: az login"
+          exit 1
+        fi
+
+        # The AKS credential plugin. kubectl shells out to it for a token, and
+        # `az aks get-credentials` writes a kubeconfig referencing it whether or
+        # not it is installed -- so the failure arrives from kubectl after the
+        # cluster is already built.
+        if command -v kubelogin &> /dev/null; then
+          echo -e "${GREEN}✓${NC} kubelogin"
+        else
+          echo -e "${YELLOW}!${NC} kubelogin not found"
+          echo "   Only needed for Entra-integrated clusters. terraform/aks builds"
+          echo "   a local-account cluster, which kubectl reaches without it."
+          echo "   Install: az aks install-cli"
+        fi
+      else
+        echo -e "${RED}✗${NC} az CLI not found"
+        echo "   Install: https://learn.microsoft.com/cli/azure/install-azure-cli"
         exit 1
       fi
     fi

@@ -54,6 +54,7 @@ brew install kubectl helm helmfile yq go-task/tap/go-task
 brew install opentofu          # cloud profiles
 brew install awscli            # eks
 brew install --cask gcloud-cli # gke
+brew install azure-cli         # aks
 ```
 
 **Linux (Debian/Ubuntu)**
@@ -76,6 +77,7 @@ sh -c "$(curl -fsSL https://taskfile.dev/install.sh)" -- -d -b /usr/local/bin
 curl -fsSL https://get.opentofu.org/install-opentofu.sh | sh -s -- --install-method deb   # opentofu
 curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o a.zip && unzip -q a.zip && sudo ./aws/install   # eks
 curl -fsSL https://sdk.cloud.google.com | bash   # gke
+curl -fsSL https://aka.ms/InstallAzureCLIDeb | sudo bash   # aks
 ```
 
 Then check what you have. Pass the profile so the cloud tooling is checked too:
@@ -98,6 +100,9 @@ aws configure          # eks
 
 gcloud auth login                        # gke -- gcloud commands use this
 gcloud auth application-default login    # gke -- Terraform uses this
+
+az login                                 # aks
+az account set --subscription "<name>"   # aks -- azurerm 4 needs one selected
 ```
 
 On GCP those are two separate credential stores. `gcloud` keeps working from
@@ -118,6 +123,7 @@ a YAML file, never editing a template.
 | `baremetal-metallb` | Bare metal / k3s with MetalLB + Longhorn (the default) — see [docs/baremetal-install.md](docs/baremetal-install.md) |
 | `eks` | Amazon EKS — see [`terraform/eks/`](terraform/eks/) to build the cluster |
 | `gke` | Google Kubernetes Engine — see [`terraform/gke/`](terraform/gke/) |
+| `aks` | Azure Kubernetes Service — see [`terraform/aks/`](terraform/aks/) |
 | `generic` | Any other conformant cluster — managed Kubernetes, VMs, k3d |
 
 Provider-specific load balancer settings are supplied as
