@@ -23,6 +23,17 @@ spec:
     - tags:
         karpenter.sh/discovery: {{ .Values.clusterName | quote }}
 
+  # Without this Karpenter's nodes take the AMI's default root volume, which is
+  # far smaller than the JDK images and pulled artifacts need. Every game pod
+  # writes its artifact to an emptyDir, which lives on this disk.
+  blockDeviceMappings:
+    - deviceName: /dev/xvda
+      ebs:
+        volumeSize: {{ .Values.nodeDiskSize | quote }}
+        volumeType: gp3
+        encrypted: true
+        deleteOnTermination: true
+
   {{- with .Values.tags }}
   tags:
     {{- range $k, $v := . }}

@@ -111,7 +111,20 @@ module "eks" {
       max_size     = var.node_group_max_size
       desired_size = var.node_group_desired_size
 
-      disk_size = var.node_disk_size
+      # Not disk_size: this module builds a custom launch template, and
+      # disk_size is silently ignored there. Nodes came up on the AMI default
+      # instead, which is a fraction of what JDK images need.
+      block_device_mappings = {
+        xvda = {
+          device_name = "/dev/xvda"
+          ebs = {
+            volume_size           = var.node_disk_size
+            volume_type           = "gp3"
+            encrypted             = true
+            delete_on_termination = true
+          }
+        }
+      }
     }
   }
 

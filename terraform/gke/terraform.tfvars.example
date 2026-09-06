@@ -11,9 +11,26 @@ master_authorized_cidrs = ["0.0.0.0/0"]
 # plus per GB). false: public node IPs, no NAT charge, larger attack surface.
 private_nodes = true
 
+# --------------------------------------------------------------- capacity --
+#
+# How large the cluster may grow, and how much cloud quota it consumes on the
+# way. The quotas themselves are account-level and cannot be set from
+# Terraform -- raise them in the GCP console. Check yours before scaling up:
+#
+#   gcloud compute regions describe us-central1 --flatten="quotas[]" \
+#     --format="table(quotas.metric,quotas.usage,quotas.limit)"
+
 node_machine_type = "n2-standard-4"
 node_min_count    = 1   # per zone; a regional cluster spans three
-node_max_count    = 3
+node_max_count    = 3   # per zone, so the real ceiling is this x3
+
+# Boot disk per node. pd-balanced and pd-ssd both count against the region's
+# SSD_TOTAL_GB quota, and that quota usually stops a scale-up well before
+# node_max_count does: every node's disk plus every PVC has to fit under it.
+# A cluster at the cap fails to add nodes with "GCE quota exceeded", leaving
+# pods Pending. pd-standard draws on a separate quota but is far slower.
+node_disk_size = 50
+node_disk_type = "pd-balanced"
 
 # Spot VMs are 60-90% cheaper and can be reclaimed with 30 seconds' notice,
 # restarting every Minecraft server on the node. Fine for testing.

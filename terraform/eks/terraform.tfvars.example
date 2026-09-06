@@ -24,7 +24,36 @@ file_session_allowed_cidrs = ["0.0.0.0/0"]
 # Set false for one NAT gateway per AZ: ~3x the hourly cost, survives an AZ loss.
 single_nat_gateway = true
 
+# --------------------------------------------------------------- capacity --
+#
+# Karpenter provisions the nodes that run game servers; the managed node group
+# below carries the cluster's own add-ons. AWS service quotas are account-level
+# and cannot be set from Terraform -- raise them in Service Quotas. Check your
+# on-demand vCPU ceiling before scaling up:
+#
+#   aws service-quotas get-service-quota --service-code ec2 \
+#     --quota-code L-1216C47A --query 'Quota.[QuotaName,Value]' --output text
+
 node_instance_types     = ["m6i.xlarge"]
 node_group_min_size     = 2
 node_group_max_size     = 6
 node_group_desired_size = 2
+
+# Root volume for every node, managed group and Karpenter alike. Container
+# images live here, and so does each instance's artifact: game pods pull into
+# an emptyDir, which is backed by this disk.
+node_disk_size = 50
+
+# The ceiling on everything Karpenter may provision, and the backstop against a
+# runaway scale-up billing you for a fleet. Raise it to grow past a few hundred
+# game servers.
+karpenter_cpu_limit = "200"
+
+# Instance categories Karpenter may choose from: general, compute, memory.
+karpenter_instance_categories = ["m", "c", "r"]
+
+# WhenEmpty reclaims a node only once nothing runs on it, so a node left with a
+# single idle server is never reclaimed and bills in full.
+# WhenEmptyOrUnderutilized repacks them, at the cost of restarting the servers
+# it moves.
+karpenter_consolidation_policy = "WhenEmpty"

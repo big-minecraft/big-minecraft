@@ -9,6 +9,7 @@ instanceCategories:
   - c
   - r
 cpuLimit: "200"
+nodeDiskSize: 50Gi
 consolidationPolicy: WhenEmpty
 consolidateAfter: 5m
 expireAfter: 720h

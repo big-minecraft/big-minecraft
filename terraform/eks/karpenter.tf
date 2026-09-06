@@ -83,6 +83,7 @@ resource "helm_release" "karpenter_nodes" {
     capacityTypes       = var.karpenter_capacity_types
     instanceCategories  = var.karpenter_instance_categories
     cpuLimit            = var.karpenter_cpu_limit
+    nodeDiskSize        = "${var.node_disk_size}Gi"
     consolidationPolicy = var.karpenter_consolidation_policy
     consolidateAfter    = var.karpenter_consolidate_after
     expireAfter         = var.karpenter_expire_after
