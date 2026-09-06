@@ -51,6 +51,16 @@ release means the first `helmfile apply` fights Terraform over the CRDs.
 
 ---
 
+## ReadWriteMany is conditional
+
+Every deployment type except persistent pulls its files from the artifact store
+into a pod-local emptyDir, so only one pod ever holds a deployment's volume: the
+file session. That needs ReadWriteOnce.
+
+**EFS is only needed for persistent deployments.** Set `storage.persistentDeployments` false and the filesystem, its CSI driver and its mount targets are all unnecessary — `gp3` covers everything else.
+
+---
+
 ## Prerequisites
 
 | Tool | Purpose |
@@ -330,6 +340,37 @@ the panel and the Velocity plugin. Security here is network isolation — the
 instance is reachable only from this cluster's private network. Enabling AUTH
 needs a client change first; see
 [docs/scaling-architecture.md](scaling-architecture.md), track B.
+
+---
+
+## Optional: managed databases
+
+RDS (MariaDB, Multi-AZ) and DocumentDB can replace the in-cluster MariaDB and MongoDB pods, which are otherwise
+`replicas: 1` on a single volume each.
+
+**Off by default**, unlike Redis — this is the expensive piece, at roughly
+~$60/month. Turning it on takes a change in two places, and both are needed:
+
+```hcl
+# terraform.tfvars
+enable_ha_databases = true
+```
+
+```yaml
+# values.custom.yaml
+mariaDB:
+  external: true
+mongoDB:
+  external: true
+```
+
+Terraform owns the passwords and writes them to `bmc-managed-db`, because
+`task secrets:generate` runs after this layer and cannot hand a password to a
+database that does not exist yet. It also points `mariadb-service` (and
+`mongodb-service` where applicable) at the managed instances, so nothing that
+already resolves those names has to change.
+
+DocumentDB is Mongo-*compatible*, not MongoDB. Ordinary CRUD and indexes work; not every server command does. Smoke-test the panel against it before relying on it.
 
 ---
 

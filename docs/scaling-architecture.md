@@ -110,7 +110,7 @@ several proxies starting at once all wrote the same file concurrently. It now
 downloads into the pod-local copy instead. That change is worth having on its
 own, independent of the read-only mount.
 
-### Phase A2 — Artifact store and publish  🚧 in progress
+### Phase A2 — Artifact store and publish  ✅ done
 
 | Where | Change |
 |---|---|
@@ -143,16 +143,28 @@ to be in that path. It is also the only way to publish without an open file
 session, because `PVCFileOperationsService` reaches deployment files only by
 exec-ing into a session pod.
 
-**Still to do:** the panel side — `artifactService.ts` to create the Job and
-watch it, an `artifactVersion` field in the deployment manifest, and
-auto-publish when a file session closes. The store stays `enabled: false` until
-A3 makes it load-bearing, so nothing provisions storage it does not use yet.
+**Panel side:** `artifactService.ts` allocates the next version (`v1`, `v2`, …
+monotonic, so "roll back one" means something obvious),
+`PulumiDeploymentService.publishArtifact` applies the chart, and
+`DeploymentManifestManager.setArtifactVersion` records the result in the
+deployment's own YAML alongside `sftpPort`. The version is written only after
+the Job applies, so a failed publish leaves the deployment pointing at the last
+version that actually exists.
+
+`terminateSession` publishes before tearing the session down, while the files
+are final. A failed publish is logged and does not block termination — the
+session pod holds the deployment's volume, so a stuck session is worse than a
+missed publish.
+
+The store stays `enabled: false` until A3 makes it load-bearing, so nothing
+provisions storage it does not use yet, and `publish()` returns undefined
+rather than failing when it is off.
 
 **Auto-publish on session close is what keeps the UX unchanged.** Sessions
 already have a lifecycle and a timeout, so "edit, close, restart" feels like
 today's "edit, restart".
 
-### Phase A3 — Instances pull artifacts
+### Phase A3 — Instances pull artifacts  ✅ done
 
 | Where | Change |
 |---|---|
@@ -177,9 +189,19 @@ with a checksum check, a retry/backoff in the init container, and an explicit
 today's "empty filesystem → `Jar file not found!` crash loop" bootstrap
 problem, which is currently indistinguishable from a real failure.
 
-**Rollback:** keep the `cp -r` path behind a flag for one release.
+**Rollback:** the `cp -r` path is still there. Artifact mode engages only when
+`artifactStore.enabled` is true *and* the deployment has an `artifactVersion`,
+so anything not yet published behaves exactly as before.
 
-### Phase A4 — Make RWX conditional on persistent deployments
+Implementation note: the publish Job and the fetch init container both use
+`mc mirror` rather than a tarball, because the `mc` image ships coreutils and mc
+but **no tar** — verified by running it. Mirroring also keeps the version prefix
+browsable in the bucket.
+
+`readOnly` from A1 is ignored in artifact mode: the init container has to write
+into the emptyDir, and nothing else shares it.
+
+### Phase A4 — Make RWX conditional on persistent deployments  ✅ done
 
 Not "remove RWX". Persistent deployments genuinely need it — the server pod
 holds the volume while a session mounts it — and there it is cheap, because a
@@ -200,6 +222,12 @@ run persistent deployments.**
 | docs | The capability contract in README and all three install guides |
 
 Roughly 50–80 lines, all in `big-minecraft`. No panel or manager code.
+
+Landed as `storage.classes.persistent` (RWX, persistent and process deployments)
+alongside `storage.classes.shared` (now RWO, staging and every type that pulls
+artifacts), gated by `storage.persistentDeployments`. Preflight probes with two
+pods only where two pods actually mount, and `validate-config` requires RWX only
+when the flag is on.
 
 **What this is worth, concretely** — for a network with no persistent
 deployments:
@@ -255,71 +283,69 @@ happening.
 **Still missing for a managed Redis:** the clients connect with no
 authentication or TLS. That is B2's territory.
 
-### B1.5 — Managed HA Redis on the cloud profiles  ✅ done
+### B1.5 — Managed HA on the cloud profiles  ❌ superseded
 
-Not in the original plan, and it turned out to deliver the whole of track B's
-value on cloud without B2.
+Built, then removed. ElastiCache/Memorystore for Redis and RDS/DocumentDB/Cloud
+SQL for the databases all worked, but they meant two code paths, a per-cloud
+story that did not exist on bare metal, DocumentDB being Mongo-*compatible*
+rather than MongoDB, and no managed MongoDB on GCP at all.
 
-Self-hosted Sentinel needs the *client* to discover which node is master, which
-is why B2 exists. Managed cloud Redis does not: the provider keeps one stable
-endpoint and repoints it internally, so BMC's plain single-endpoint pool works
-unchanged.
+Replaced by B4, which is one story everywhere.
 
-| | EKS | GKE |
-|---|---|---|
-| Service | ElastiCache, cluster mode **disabled**, Multi-AZ | Memorystore **STANDARD_HA** |
-| Alias | `ExternalName` → primary endpoint | ClusterIP + `EndpointSlice` → the IP |
-| Failover | AWS repoints the endpoint | the IP is preserved |
-| Cost | ~$45/month | ~$35/month |
+### B2 — Sentinel-aware clients  ❌ likely unnecessary
 
-Cluster mode **enabled** is specifically avoided: it shards the keyspace, and
-the manager enumerates instances with `SCAN`, which in a sharded cluster is
-per-node and would silently return partial lists.
+The reason to need this was self-hosted Redis failover. The OT operator tracks
+the current master via Sentinel and keeps a Service pointing at it, so a plain
+single-endpoint `JedisPool` follows failover without knowing Sentinel exists --
+the same trick the managed endpoints used.
 
-Terraform provisions the instance *and* creates the `redis-service` alias in the
-same apply, because it is the only thing that knows the endpoint — the same
-arrangement as the EFS filesystem and its storage class. The chart's new
-`redis.createService: false` tells it to stay out of the way, and preflight
-hard-fails if the alias is missing, since nothing else in the install would
-notice.
+Confirmed structurally: `bmc-redis-master` exists and the alias resolves to it.
+Not yet confirmed behaviourally: nothing has killed the master and watched the
+Service move. Until that test runs, treat this as likely-retired rather than
+retired.
 
-**Bare metal is deliberately excluded.** Three reasons, in order:
+### B3 — Databases  ❌ superseded by B4
 
-1. The obvious chart is currently broken — `bitnami/redis` 20.6.2 pins
-   `bitnami/redis:7.4.2-debian-12-r0`, which 404s on Docker Hub since Bitnami
-   moved older tags to `bitnamilegacy`.
-2. Its master-service feature, which is what would let a plain pool work, is
-   marked experimental.
-3. HA Redis wants three nodes for a Sentinel quorum, and many bare-metal BMC
-   clusters are single-node, where three Redis pods die together.
+### B4 — Self-hosted HA for all three datastores  ✅ done
 
-The exposure there is also smaller: Redis holds coordination state, not durable
-data — the manager's discovery tasks rebuild it from what is actually running —
-so losing the pod pauses scaling for about a minute and self-heals.
+One `mode: single | ha` per datastore, identical on every profile.
 
-### B2 — Sentinel, not Cluster  *(bare metal only, after B1.5)*
+| | Operator | Cluster resource | Alias |
+|---|---|---|---|
+| Redis | ot-container-kit redis-operator | RedisReplication + RedisSentinel | `redis-service` → `bmc-redis-master` |
+| MariaDB | mariadb-operator | MariaDB (Galera) + Database | `mariadb-service` → `bmc-mariadb-primary` |
+| MongoDB | MongoDB Community Operator | MongoDBCommunity ReplicaSet | `mongodb-service` → `bmc-mongodb-svc` |
 
-`bmc-manager` `controllers/RedisManager.java` line 31 constructs
-`new JedisPool(poolConfig, redisHost, redisPort)` — a single-endpoint pool. Two
-consequences:
+Anti-affinity is `preferred`, not `required`: `ha` schedules on a single node
+and protects against pod failure there, and spreads for node-level protection
+as soon as there is somewhere to spread to. `required` would leave pods Pending
+forever on a one-node cluster.
 
-- Sentinel needs `JedisSentinelPool`; Cluster needs `JedisCluster`.
-- The manager enumerates instances with `SCAN`. In Redis **Cluster**, SCAN is
-  per-node over sharded keys and would silently return partial results.
+Four things only a live cluster found:
 
-**Sentinel is the path**: one master, three sentinels, automatic failover,
-identical semantics for both SCAN and pub/sub. Change the pool type in
-`bmc-manager`, `bmc-panel`, and `bmc-velocity`, then deploy a Sentinel-mode
-Redis chart. Cluster would be a rewrite of the key-scanning access pattern.
+- Operators must be **Ready**, not merely installed, before their custom
+  resources are applied. helmfile's `needs` orders releases but helm returns as
+  soon as objects exist, so the MariaDB webhook had no endpoints and the
+  resource was rejected. Fixed with `wait: true`.
+- `RedisReplication` requires `spec.redisExporter.image` whenever the
+  `redisExporter` block is present at all, so the block is omitted rather than
+  disabled.
+- The operator enables **TLS on Galera's replication channel by default**, and
+  the members fail the handshake against each other -- no primary view forms
+  and MariaDB refuses every connection. Disabled deliberately: pod-to-pod
+  traffic in one namespace, matching the posture of the other two datastores.
+- The operator creates **no database implicitly**. In `single` mode the
+  container creates one from `MARIADB_DATABASE`; in `ha` mode a `Database`
+  resource is required, or the panel connects to a schema that does not exist
+  and its pool times out.
 
-### B3 — Databases
+MongoDB additionally needed the panel change: `mongodbService.ts` built a
+single-host URI, which cannot express a replica set. It now uses
+`mongoDB.uri` verbatim when set, and `panel.yaml` assembles it -- the only place
+that has the password.
 
-Both already support `external: true`, so this is mostly infrastructure:
-MariaDB Galera (3 nodes on RWO) and MongoDB as a replica set. The one code
-concern is the Mongo connection URI — check whether the panel builds it from
-`host`/`port` alone, which a replica set needs to be told about.
-
----
+**Still unproven:** Redis failover, and the replica-set URI in a panel image
+that actually contains the change (the local test runs the published image).
 
 ## Track C — Manager throughput
 

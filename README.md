@@ -22,8 +22,8 @@ specific capabilities. `task preflight` verifies all of them.
 | Requirement | Why |
 |---|---|
 | Kubernetes **1.26+** | The game entrypoint is one Service carrying both TCP and UDP (`MixedProtocolLBService`, GA in 1.26) |
-| A **ReadWriteMany** storage class, mountable by several pods at once | The panel mounts a deployment's game volume into a file-edit pod and an SFTP pod *while the server is running* |
-| A **ReadWriteOnce** storage class | MariaDB and MongoDB. Use block storage, not a network filesystem |
+| A **ReadWriteOnce** storage class | Databases, staging volumes, and every deployment type that pulls artifacts |
+| A **ReadWriteMany** class — **only if you run persistent deployments** | A persistent deployment's server runs in place on its volume while a file session can mount the same volume |
 | An **IngressClass** | Serves the web panel |
 | A **LoadBalancer** implementation | The game entrypoint. MetalLB on bare metal, the provider's controller on cloud |
 | **Outbound internet egress from pods** | The proxy downloads its plugin jar from GitHub on every start |

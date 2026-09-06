@@ -35,6 +35,16 @@ task install        installs BMC onto it
 
 ---
 
+## ReadWriteMany is conditional
+
+Every deployment type except persistent pulls its files from the artifact store
+into a pod-local emptyDir, so only one pod ever holds a deployment's volume: the
+file session. That needs ReadWriteOnce.
+
+**`nfs-common` is only needed for persistent deployments.** Longhorn's RWX is NFS-backed, and that is the only thing requiring it. An installation with no persistent deployments can set `storage.persistentDeployments` false and skip it on every node.
+
+---
+
 ## Prerequisites
 
 On your workstation: `kubectl`, `helm`, `helmfile`, `yq` (mikefarah's), and

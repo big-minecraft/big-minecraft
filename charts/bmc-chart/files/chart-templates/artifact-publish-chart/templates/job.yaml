@@ -50,20 +50,13 @@ spec:
 
               mc alias set store "$ARTIFACT_ENDPOINT" "$ARTIFACT_ACCESS_KEY" "$ARTIFACT_SECRET_KEY"
 
-              echo "Packing {{ .Values.publish.deploymentName }} {{ .Values.publish.version }}..."
-              # -C so archive paths are relative, not absolute.
-              tar czf /tmp/artifact.tar.gz -C {{ .Values.publish.mountPath }} .
+              echo "Publishing {{ .Values.publish.deploymentName }} {{ .Values.publish.version }}..."
 
-              SIZE=$(stat -c %s /tmp/artifact.tar.gz)
-              echo "Packed ${SIZE} bytes"
-
-              # Versioned object first, then the pointer. In that order a
-              # reader that catches the window sees the previous version rather
-              # than a "latest" naming an object that does not exist yet.
-              mc cp /tmp/artifact.tar.gz \
-                "store/${ARTIFACT_BUCKET}/deployments/{{ .Values.publish.deploymentName }}/{{ .Values.publish.version }}.tar.gz"
-              mc cp /tmp/artifact.tar.gz \
-                "store/${ARTIFACT_BUCKET}/deployments/{{ .Values.publish.deploymentName }}/latest.tar.gz"
+              # mirror, not tar: this image ships mc and coreutils but no tar.
+              # Mirroring also means the version prefix is browsable, and a
+              # single changed file does not re-upload the whole deployment.
+              mc mirror --overwrite {{ .Values.publish.mountPath }} \
+                "store/${ARTIFACT_BUCKET}/deployments/{{ .Values.publish.deploymentName }}/{{ .Values.publish.version }}/"
 
               echo "Published {{ .Values.publish.version }}"
           volumeMounts:

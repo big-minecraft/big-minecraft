@@ -55,6 +55,16 @@ The GKE root module is about a third the size as a result.
 
 ---
 
+## ReadWriteMany is conditional
+
+Every deployment type except persistent pulls its files from the artifact store
+into a pod-local emptyDir, so only one pod ever holds a deployment's volume: the
+file session. That needs ReadWriteOnce.
+
+**The NFS server is only needed for persistent deployments** — it exists solely to provide ReadWriteMany. Set `storage.persistentDeployments` false and it, its 100 GiB disk, and its single point of failure all go away; `standard-rwo` covers everything else.
+
+---
+
 ## Prerequisites
 
 | Tool | Purpose |
@@ -339,6 +349,35 @@ the panel and the Velocity plugin. Security here is network isolation — the
 instance is reachable only from this cluster's private network. Enabling AUTH
 needs a client change first; see
 [docs/scaling-architecture.md](scaling-architecture.md), track B.
+
+---
+
+## Optional: managed databases
+
+Cloud SQL for MySQL (REGIONAL) can replace the in-cluster MariaDB and MongoDB pods, which are otherwise
+`replicas: 1` on a single volume each.
+
+**Off by default**, unlike Redis — this is the expensive piece, at roughly
+~$50/month. Turning it on takes a change in two places, and both are needed:
+
+```hcl
+# terraform.tfvars
+enable_ha_databases = true
+```
+
+```yaml
+# values.custom.yaml
+mariaDB:
+  external: true
+```
+
+Terraform owns the passwords and writes them to `bmc-managed-db`, because
+`task secrets:generate` runs after this layer and cannot hand a password to a
+database that does not exist yet. It also points `mariadb-service` (and
+`mongodb-service` where applicable) at the managed instances, so nothing that
+already resolves those names has to change.
+
+**MongoDB is not covered.** GCP has no first-party managed MongoDB, so it stays in-cluster on GKE. MongoDB Atlas is the usual answer and is a separate third-party account. Cloud SQL also offers MySQL rather than MariaDB — wire-compatible for what BMC does, but a substitution worth knowing about.
 
 ---
 
