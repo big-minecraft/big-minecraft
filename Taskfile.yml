@@ -17,6 +17,10 @@ vars:
   # teardown task checks before using it. Anchored to the Taskfile: a relative
   # path resolves against wherever `task` was invoked from, so teardown run from
   # a subdirectory skipped the destroy and still reported success.
+  # The cluster's own name, for cleanup that has to run after its API is gone.
+  # tfvars is the source of truth; the fallback matches variables.tf's default.
+  CLUSTER_NAME:
+    sh: 'sed -n ''s/^cluster_name *= *"\(.*\)"/\1/p'' {{.ROOT_DIR}}/terraform/eks/terraform.tfvars 2>/dev/null | head -1 | grep . || echo bmc'
   TF_DIR: '{{.ROOT_DIR}}/terraform/{{if eq .PROFILE "eks"}}eks{{else if eq .PROFILE "gke"}}gke{{else}}none{{end}}'
 
 env:
@@ -186,13 +190,13 @@ tasks:
         # subnet deletion until it times out. Removing the Helm releases first
         # lets the load balancer controller clean its own ENIs up.
         echo "==========================================" 
-        echo "1/4  Removing BMC (releases the load balancers)"
+        echo "1/5  Removing BMC (releases the load balancers)"
         echo "=========================================="
         helmfile destroy || echo "  (nothing installed, or cluster already gone)"
       - |
         echo ""
         echo "=========================================="
-        echo "2/4  Deleting persistent volume claims"
+        echo "2/5  Deleting persistent volume claims"
         echo "=========================================="
         # Helm does not delete PVCs created from a StatefulSet's
         # volumeClaimTemplate -- that is deliberate, so an upgrade cannot eat
@@ -217,7 +221,7 @@ tasks:
       - |
         echo ""
         echo "=========================================="
-        echo "3/4  Waiting for cloud load balancers to disappear"
+        echo "3/5  Waiting for cloud load balancers to disappear"
         echo "=========================================="
         # Cloud-agnostic first: once no LoadBalancer Services remain, the
         # provider has been told to release them. Deletion is asynchronous, so
@@ -274,7 +278,55 @@ tasks:
       - |
         echo ""
         echo "=========================================="
-        echo "4/4  Destroying the infrastructure"
+        echo "4/5  Draining Karpenter nodes"
+        echo "=========================================="
+        # Karpenter launches its instances through the EC2 API, so Terraform has
+        # no record of them and never destroys them. Deleting the cluster kills
+        # the controller too, and the orphans keep ENIs in the private subnets --
+        # which Terraform cannot then delete, so destroy sits in DependencyViolation
+        # retries until it times out. Deleting the NodePool while Karpenter is
+        # still alive is what actually terminates them.
+        if kubectl get nodepools >/dev/null 2>&1; then
+          kubectl delete nodepools --all --wait=false 2>/dev/null || true
+          echo "  waiting for nodeclaims to drain..."
+          for i in $(seq 1 60); do
+            LEFT=$(kubectl get nodeclaims --no-headers 2>/dev/null | wc -l | tr -d ' ')
+            [ "$LEFT" = "0" ] && break
+            sleep 10
+          done
+          LEFT=$(kubectl get nodeclaims --no-headers 2>/dev/null | wc -l | tr -d ' ')
+          if [ "$LEFT" = "0" ]; then
+            echo "  all Karpenter nodes drained"
+          else
+            # Finalizers hold a NodeClaim open when the controller cannot reach
+            # the EC2 API. Clearing them lets the destroy proceed; the sweep
+            # below is what stops the instances from leaking.
+            echo "  ${LEFT} nodeclaim(s) still draining -- clearing finalizers"
+            for nc in $(kubectl get nodeclaims -o name 2>/dev/null); do
+              kubectl patch "$nc" --type=merge -p '{"metadata":{"finalizers":[]}}' 2>/dev/null || true
+            done
+          fi
+        else
+          echo "  no Karpenter NodePools (or cluster already gone)"
+        fi
+
+        # Whatever the cluster reported, make sure nothing tagged for it is left
+        # running: an instance that outlives its VPC blocks the subnet delete.
+        ORPHANS=$(aws ec2 describe-instances \
+          --filters "Name=tag:karpenter.sh/nodepool,Values=*" \
+                    "Name=tag:kubernetes.io/cluster/{{.CLUSTER_NAME}},Values=owned" \
+                    "Name=instance-state-name,Values=pending,running,stopping,stopped" \
+          --query 'Reservations[].Instances[].InstanceId' --output text 2>/dev/null)
+        if [ -n "$ORPHANS" ]; then
+          echo "  terminating orphaned Karpenter instances: $ORPHANS"
+          aws ec2 terminate-instances --instance-ids $ORPHANS >/dev/null 2>&1 || true
+          aws ec2 wait instance-terminated --instance-ids $ORPHANS 2>/dev/null || true
+          echo "  orphans terminated"
+        fi
+      - |
+        echo ""
+        echo "=========================================="
+        echo "5/5  Destroying the infrastructure"
         echo "=========================================="
         if [ ! -d "{{.TF_DIR}}" ]; then
           echo "  No Terraform layer for profile '{{.PROFILE}}' -- nothing to destroy."

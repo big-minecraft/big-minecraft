@@ -60,7 +60,12 @@ resource "helm_release" "karpenter" {
     }
   })]
 
-  depends_on = [module.eks]
+  # module.vpc, not just module.eks: uninstalling this runs Karpenter's
+  # finalizers, which call AWS APIs from a private subnet. Only the subnets are
+  # reached through module.eks, so the NAT gateway is otherwise a free-floating
+  # sibling that destroy removes in parallel -- Karpenter then loses egress
+  # mid-uninstall and blocks until Helm times out.
+  depends_on = [module.eks, module.vpc]
 }
 
 # NodePool and EC2NodeClass are custom resources, so they cannot be created
@@ -84,5 +89,5 @@ resource "helm_release" "karpenter_nodes" {
     tags                = var.tags
   })]
 
-  depends_on = [helm_release.karpenter]
+  depends_on = [helm_release.karpenter, module.vpc]
 }
