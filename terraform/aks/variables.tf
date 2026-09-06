@@ -127,7 +127,17 @@ variable "node_zones" {
 }
 
 variable "node_spot" {
-  description = "Spot VMs are far cheaper and can be reclaimed with 30 seconds' notice, restarting every Minecraft server on the node. Fine for testing."
+  description = <<-EOT
+    Add a spot node pool. Spot VMs are far cheaper and can be reclaimed with 30
+    seconds' notice, restarting every Minecraft server on the node.
+
+    It scales from zero and shares node_max_count as its ceiling. Spot draws on
+    a separate regional quota that is often tiny -- 3 vCPU on a trial account,
+    less than one 4-vCPU node -- so check before relying on it:
+
+      az vm list-usage --location <region> \
+        --query "[?contains(localName,'Low-priority')].{Name:localName,Used:currentValue,Limit:limit}" -o table
+  EOT
   type        = bool
   default     = false
 }

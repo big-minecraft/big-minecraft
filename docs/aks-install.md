@@ -299,6 +299,22 @@ az vm list-usage --location eastus \
 
 Quota is per subscription and per region and cannot be raised from Terraform.
 
+### `ErrCode_InsufficientVCPUQuota` creating the spot pool
+
+Spot draws on a **separate** regional quota from on-demand, and it is often
+tiny — 3 vCPU on a trial account, less than one 4-vCPU node:
+
+```bash
+az vm list-usage --location eastus \
+  --query "[?contains(localName,'Low-priority')].{Name:localName,Used:currentValue,Limit:limit}" \
+  --output table
+```
+
+The spot pool scales from zero, so it creates even on a small quota — but it
+can only scale as far as that quota allows. If the limit is below one node's
+worth of vCPU, spot is unusable at that VM size: pick a smaller size or set
+`node_spot = false`.
+
 ### PVCs on `azurefile-csi` stay Pending
 
 Azure Files provisioning creates a storage account on first use and is slower

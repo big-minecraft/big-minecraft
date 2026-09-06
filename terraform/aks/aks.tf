@@ -91,8 +91,14 @@ resource "azurerm_kubernetes_cluster_node_pool" "spot" {
   # for price. Anything else adds a second way for a node to vanish.
   spot_max_price = -1
 
+  # Scales from zero, unlike the system pool. Spot draws on a separate and
+  # usually much smaller regional quota, so a pool that demands its minimum up
+  # front fails to create at all -- ErrCode_InsufficientVCPUQuota -- on exactly
+  # the accounts most likely to be experimenting with spot. At zero it costs
+  # nothing until something needs it, and quota pressure shows up as pods
+  # staying Pending rather than as a failed apply.
   auto_scaling_enabled = true
-  min_count            = var.node_min_count
+  min_count            = 0
   max_count            = var.node_max_count
 
   os_disk_size_gb = var.node_disk_size

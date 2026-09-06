@@ -57,5 +57,12 @@ node_zones = []
 
 # Spot VMs are far cheaper and can be reclaimed with 30 seconds' notice,
 # restarting every Minecraft server on the node. They go in a second pool --
-# AKS will not make the system pool spot.
+# AKS will not make the system pool spot -- which scales from zero.
+#
+# Spot has its OWN regional quota, often far smaller than the standard one: a
+# trial account gets 3 vCPU, less than a single 4-vCPU node. Check it before
+# turning this on, or the pool creates and can never scale:
+#
+#   az vm list-usage --location eastus \
+#     --query "[?contains(localName,'Low-priority')].{Name:localName,Used:currentValue,Limit:limit}" -o table
 node_spot = false
