@@ -78,7 +78,19 @@ variable "api_server_authorized_cidrs" {
 # ---------------------------------------------------------------- capacity --
 
 variable "node_vm_size" {
-  description = "VM size for the node pool. Minecraft is single-threaded per server and latency-sensitive, so clock speed matters more than core count."
+  description = <<-EOT
+    VM size for the node pool. Minecraft is single-threaded per server and
+    latency-sensitive, so clock speed matters more than core count.
+
+    Availability varies by subscription, not just by region -- a size can be
+    NotAvailableForSubscription somewhere it plainly exists. Confirm before
+    applying, and note the zones it reports:
+
+      az vm list-skus --location <region> --resource-type virtualMachines \
+        --query "[?name=='<size>'].{Name:name,Zones:locationInfo[0].zones}" -o table
+
+    An empty result means the size is restricted for you; pass --all to see why.
+  EOT
   type        = string
   default     = "Standard_D4s_v5"
 }
@@ -102,9 +114,16 @@ variable "node_disk_size" {
 }
 
 variable "node_zones" {
-  description = "Availability zones to spread nodes across. Empty for regions that do not offer them."
+  description = <<-EOT
+    Availability zones to spread nodes across. Empty by default because zone
+    support is a property of the SKU *and* the subscription, not just the
+    region: a size the subscription cannot use in zones fails the cluster
+    create outright with AvailabilityZoneNotSupported, reporting the supported
+    zones as ''. Set ["1","2","3"] once you have confirmed the size you chose
+    offers them -- see node_vm_size for the command.
+  EOT
   type        = list(string)
-  default     = ["1", "2", "3"]
+  default     = []
 }
 
 variable "node_spot" {

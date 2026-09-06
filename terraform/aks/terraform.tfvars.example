@@ -26,7 +26,20 @@ sku_tier = "Free"
 #     --query "[?contains(name.value, 'cores')].{Name:localName,Used:currentValue,Limit:limit}" \
 #     --output table
 
+# Availability is per SUBSCRIPTION, not just per region: a size can be
+# NotAvailableForSubscription somewhere it plainly exists, and AKS then fails
+# the create with a confusing AvailabilityZoneNotSupported. Confirm first, and
+# note which zones it reports:
+#
+#   az vm list-skus --location eastus --resource-type virtualMachines \
+#     --query "[?name=='Standard_D4s_v5'].{Name:name,Zones:locationInfo[0].zones}" -o table
+#
+# An empty result means it is restricted for you. Add --all to see the reason.
 node_vm_size   = "Standard_D4s_v5"
+
+# Both counts are the whole pool, not per zone. Check they fit your regional
+# vCPU quota: a trial subscription is often capped at 10 total, which is two
+# 4-vCPU nodes and no more.
 node_min_count = 2
 node_max_count = 6
 
@@ -34,9 +47,13 @@ node_max_count = 6
 # artifact: game pods pull into an emptyDir backed by this disk.
 node_disk_size = 50
 
-# Spread nodes across availability zones. Set to [] in regions that have none,
-# or the node pool fails to create.
-node_zones = ["1", "2", "3"]
+# Spread nodes across availability zones. Empty by default: zone support
+# depends on the size and the subscription, and asking for zones that are not
+# available fails the cluster create rather than degrading gracefully. Set
+# ["1","2","3"] once the command above confirms your size offers them -- worth
+# doing for a real network, since HA datastores want their quorum members in
+# separate failure domains.
+node_zones = []
 
 # Spot VMs are far cheaper and can be reclaimed with 30 seconds' notice,
 # restarting every Minecraft server on the node. They go in a second pool --

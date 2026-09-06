@@ -255,10 +255,49 @@ az login
 az account set --subscription "<name or id>"
 ```
 
-### `Code="InvalidParameter"` — zones not supported in location
+### `AvailabilityZoneNotSupported` — "the supported zones ... are ''"
 
-The region has no availability zones. Set `node_zones = []` in
-`terraform.tfvars`.
+Almost never means the region has no zones. It usually means **the VM size is
+not available to your subscription**, so it has no zones *for you* — and the
+message reports the empty set rather than the real reason.
+
+Check the size directly:
+
+```bash
+az vm list-skus --location eastus --resource-type virtualMachines \
+  --query "[?name=='Standard_D4s_v5'].{Name:name,Zones:locationInfo[0].zones}" -o table
+```
+
+An empty result means it is restricted. Add `--all` to see why:
+
+```bash
+az vm list-skus --location eastus --resource-type virtualMachines --all \
+  --query "[?name=='Standard_D4s_v5'].restrictions[].{Type:type,Reason:reasonCode}" -o json
+```
+
+`NotAvailableForSubscription` means pick another size. To find one that works:
+
+```bash
+az vm list-skus --location eastus --resource-type virtualMachines \
+  --query "[?name=='Standard_D4s_v7'].{Name:name,Zones:locationInfo[0].zones}" -o table
+```
+
+Newer subscriptions are often offered the **v7** family where v5 is
+restricted. Set `node_vm_size` to whatever the check returns, and only set
+`node_zones` once that same command shows zones for it.
+
+### Nodes stop scaling well below `node_max_count`
+
+Regional vCPU quota. A trial subscription is commonly capped at **10 total**,
+which is two 4-vCPU nodes:
+
+```bash
+az vm list-usage --location eastus \
+  --query "[?contains(localName,'Total Regional vCPUs')].{Name:localName,Used:currentValue,Limit:limit}" \
+  --output table
+```
+
+Quota is per subscription and per region and cannot be raised from Terraform.
 
 ### PVCs on `azurefile-csi` stay Pending
 
@@ -275,12 +314,6 @@ not registered:
 ```bash
 az provider register --namespace Microsoft.Storage
 ```
-
-### Nodes will not scale past a certain count
-
-Regional vCPU quota, not the node pool maximum. Check with the `az vm
-list-usage` command above; `node_max_count` cannot exceed what the
-subscription permits.
 
 ## Known limitations
 

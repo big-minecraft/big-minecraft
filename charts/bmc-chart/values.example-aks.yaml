@@ -66,8 +66,8 @@ global:
   # Galera, MongoDB replica set); "single" is one pod each.
   #
   # ha wants at least three nodes so quorum members do not share a failure
-  # domain. terraform/aks spreads its pool across three availability zones by
-  # default, which satisfies that.
+  # domain. terraform/aks leaves node_zones empty by default, so set it there
+  # first if you want those members in separate zones.
   redis:
     mode: single
   mariaDB:
