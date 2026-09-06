@@ -40,7 +40,7 @@ commands in this README:
 |---|---|
 | `kubectl` | talks to the cluster |
 | `helm` | renders and installs the charts |
-| `helmfile` | orders the releases and their dependencies |
+| `helmfile` | orders the releases and their dependencies. v1+ -- the helmfile is `helmfile.yaml.gotmpl`, since v1 only templates files with that extension |
 | `yq` | **mikefarah/yq**, not the Python one — the Python build emits JSON and quotes string values, which silently corrupts every merged value |
 
 Cloud profiles need two more: OpenTofu (or Terraform) to build the cluster, and

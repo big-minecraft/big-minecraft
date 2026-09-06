@@ -46,7 +46,7 @@ because they cannot be expressed without an AWS resource ID: the load balancer
 controller needs an IRSA role ARN, and `efs-sc` needs the EFS filesystem ID.
 
 **cert-manager and ingress-nginx are deliberately not installed by Terraform.**
-`helmfile.yaml` installs them, gated on profile values. Two owners for one
+`helmfile.yaml.gotmpl` installs them, gated on profile values. Two owners for one
 release means the first `helmfile apply` fights Terraform over the CRDs.
 
 ---

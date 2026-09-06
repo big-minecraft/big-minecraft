@@ -295,7 +295,7 @@ $(printf '      - %s\n' "${incompatible[@]}")
   # BMC_VALUES_FILE redirects helmfile's installation-values layer at the
   # generated file. values.custom.yaml is never read or written.
   PROFILE="$PROFILE" BMC_VALUES_FILE="$effective" \
-    helmfile -f "$ROOT/helmfile.yaml" apply --skip-diff-on-install 2>&1 | tail -12 || true
+    helmfile -f "$ROOT/helmfile.yaml.gotmpl" apply --skip-diff-on-install 2>&1 | tail -12 || true
 
   # helmfile can print happily while a release ends up `failed` -- a rejected
   # custom resource, a webhook with no endpoints. Unchecked, that surfaces later

@@ -114,7 +114,7 @@ own, independent of the read-only mount.
 
 | Where | Change |
 |---|---|
-| `big-minecraft` `helmfile.yaml`, `values.yaml` | Optional MinIO release, gated on `global.artifactStore.install`, mirroring `nfsServer` |
+| `big-minecraft` `helmfile.yaml.gotmpl`, `values.yaml` | Optional MinIO release, gated on `global.artifactStore.install`, mirroring `nfsServer` |
 | `big-minecraft` `profiles/*.yaml` | Cloud profiles point at S3/GCS instead of installing MinIO |
 | `bmc-panel` `features/deployments/controllers/deploymentManifestManager.ts` | Record `artifactVersion` in the manifest |
 | `bmc-panel` new `services/artifactService.ts` | `publish(deployment)`: pack the deployment directory, upload as `deployments/<name>/<version>.tar.zst`, return version + checksum |

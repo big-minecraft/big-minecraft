@@ -131,9 +131,9 @@ tasks:
     cmds:
       - echo "Installing profile dependencies..."
       # Each release is selected by name. A release that is not named here is
-      # never installed, whatever `needs:` says in helmfile.yaml -- helmfile
+      # never installed, whatever `needs:` says in helmfile.yaml.gotmpl -- helmfile
       # only walks needs when passed --include-needs. Adding a dependency to
-      # helmfile.yaml therefore means adding a line here too.
+      # helmfile.yaml.gotmpl therefore means adding a line here too.
       #
       # Every one of these is a no-op unless the profile turns it on, so the
       # list is safe to keep in one order for all profiles.

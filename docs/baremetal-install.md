@@ -124,7 +124,7 @@ game. You will set it in step 5.
 
 > Do not add a presync hook that deletes the MetalLB CRDs. Deleting a CRD
 > cascades to its custom resources, so every apply would wipe the
-> IPAddressPools — including any your cluster operator manages. `helmfile.yaml`
+> IPAddressPools — including any your cluster operator manages. `helmfile.yaml.gotmpl`
 > carries this warning too.
 
 ---
