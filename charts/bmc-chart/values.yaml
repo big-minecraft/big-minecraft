@@ -167,8 +167,11 @@ global:
   # install runs MinIO in-cluster, for anywhere without managed object storage.
   # Credentials live in bmc-secrets.
   artifactStore:
-    enabled: false
-    install: false
+    # On by default: every deployment type except persistent pulls its files
+    # from here rather than mounting the shared volume, which is what lets that
+    # volume be ReadWriteOnce without pinning every instance to one node.
+    enabled: true
+    install: true
     # Leave empty when install is true: the panel resolves it to the in-cluster
     # MinIO Service, which lives in BMC's namespace. Set it to an S3 or GCS
     # endpoint to use managed object storage instead.

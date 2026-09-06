@@ -49,13 +49,6 @@ global:
         name: ""
         accessMode: ReadWriteMany
 
-  # Deployment artifacts, proved here first: local-test.sh runs this profile, so
-  # `task test:all` exercises publish and pull end to end before a cloud profile
-  # turns them on.
-  artifactStore:
-    enabled: true
-    install: true
-
   # No MetalLB on a generic cluster -- the provider's own controller handles
   # LoadBalancer Services.
   metallb:

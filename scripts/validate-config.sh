@@ -91,6 +91,23 @@ echo ""
 check_value '.global.storage.classes.shared.name'   "Shared storage class (RWX)" "longhorn"
 check_value '.global.storage.classes.database.name' "Database storage class"     "longhorn"
 
+# The shared class can only be ReadWriteOnce because instances pull artifacts
+# instead of mounting it. With artifacts off they mount it directly, and an RWO
+# volume attaches to one node -- the resulting multi-attach errors read like a
+# scheduling problem.
+ARTIFACTS_ON=$(echo "$MERGED" | yq '.global.artifactStore.enabled' - 2>/dev/null || echo "false")
+SHARED_MODE=$(echo "$MERGED" | yq '.global.storage.classes.shared.accessMode' - 2>/dev/null || echo "")
+if [ "$SHARED_MODE" = "ReadWriteOnce" ] && [ "$ARTIFACTS_ON" != "true" ]; then
+  echo -e "${RED}✗${NC} shared storage is ReadWriteOnce but artifactStore.enabled is false"
+  echo "   Instances would still mount that volume, and a ReadWriteOnce volume"
+  echo "   attaches to one node -- so a deployment cannot outgrow a single node."
+  echo "   Either enable the artifact store, or set the shared class to"
+  echo "   ReadWriteMany."
+  VALIDATION_FAILED=true
+else
+  echo -e "${GREEN}✓${NC} Shared storage: ${SHARED_MODE} with artifacts $([ "$ARTIFACTS_ON" = "true" ] && echo enabled || echo disabled)"
+fi
+
 # ReadWriteMany is only required for persistent deployments now: their server
 # runs in place while a file session can mount the same volume. Everything else
 # pulls artifacts into a pod-local emptyDir.
