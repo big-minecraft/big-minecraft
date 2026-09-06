@@ -28,6 +28,12 @@ spec:
   kubernetesConfig:
     image: quay.io/opstree/redis:v7.0.15
     imagePullPolicy: IfNotPresent
+  # EBS volumes mount root-owned, and the redis image runs as uid 1000, so
+  # without an fsGroup it fails with "Can't open or create append-only dir".
+  # k3d's local-path is permissive enough to hide this.
+  podSecurityContext:
+    runAsUser: 1000
+    fsGroup: 1000
   storage:
     volumeClaimTemplate:
       spec:
@@ -75,6 +81,18 @@ spec:
   replicas: {{ .Values.global.mariaDB.replicas }}
   galera:
     enabled: true
+    config:
+      # Galera's own state volume, separate from the data volume below. It
+      # inherits no class, so without this it waits on a cluster default -- EKS
+      # has none, and the PVC hangs Pending forever.
+      volumeClaimTemplate:
+        accessModes: ["ReadWriteOnce"]
+        {{- with .Values.global.storage.classes.database.name }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: 100Mi
   # The operator enables TLS on Galera's replication channel by default, and the
   # members fail the handshake against each other -- no primary view forms and
   # MariaDB refuses every connection. Disabled deliberately: pod-to-pod traffic
@@ -138,6 +156,29 @@ spec:
       scramCredentialsSecretName: bmc-mongodb-scram
   statefulSet:
     spec:
+      # Both volumes are named by the operator; overriding them here is the only
+      # way to give them a storage class.
+      volumeClaimTemplates:
+        - metadata:
+            name: data-volume
+          spec:
+            accessModes: ["ReadWriteOnce"]
+            {{- with .Values.global.storage.classes.database.name }}
+            storageClassName: {{ . | quote }}
+            {{- end }}
+            resources:
+              requests:
+                storage: {{ .Values.global.storage.volumeSize.mongoDB }}
+        - metadata:
+            name: logs-volume
+          spec:
+            accessModes: ["ReadWriteOnce"]
+            {{- with .Values.global.storage.classes.database.name }}
+            storageClassName: {{ . | quote }}
+            {{- end }}
+            resources:
+              requests:
+                storage: 1Gi
       template:
         spec:
           affinity:

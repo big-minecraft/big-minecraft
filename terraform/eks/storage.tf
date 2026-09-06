@@ -80,6 +80,12 @@ resource "kubernetes_storage_class_v1" "efs" {
 resource "kubernetes_storage_class_v1" "gp3" {
   metadata {
     name = "gp3"
+    annotations = {
+      # EKS ships no default StorageClass, so any chart that omits one leaves a
+      # PVC Pending with "must define a storage class" -- which reads like a
+      # cluster problem rather than a missing default.
+      "storageclass.kubernetes.io/is-default-class" = "true"
+    }
   }
 
   storage_provisioner    = "ebs.csi.aws.com"
