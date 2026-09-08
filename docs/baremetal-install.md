@@ -6,13 +6,13 @@ environment BMC was originally built for, and the one where you own every layer
 hand.
 
 There is no Terraform layer here. Nothing in this repo provisions your machines;
-`profiles/baremetal-metallb.yaml` describes what the cluster must already
+`profiles/baremetal.yaml` describes what the cluster must already
 provide, and `task preflight` checks it.
 
 ```
 your cluster        you build this -- k3s, MetalLB, Longhorn
     │
-    │   profiles/baremetal-metallb.yaml  ← what BMC expects of it
+    │   profiles/baremetal.yaml  ← what BMC expects of it
     ▼
 task install        installs BMC onto it
 ```
@@ -31,7 +31,7 @@ task install        installs BMC onto it
 | **Outbound egress from pods** | your network |
 | A **public IP** reachable on 25565/tcp and 19132/udp | your network |
 
-`task preflight PROFILE=baremetal-metallb` tests all of it behaviourally.
+`task preflight PROFILE=baremetal` tests all of it behaviourally.
 
 ---
 
@@ -47,72 +47,85 @@ file session. That needs ReadWriteOnce.
 
 ## Prerequisites
 
-On your workstation: `kubectl`, `helm`, `helmfile`, `yq` (mikefarah's), and
-`task` — see the [README](../README.md#prerequisites-local) for install
-commands. No cloud CLI and no OpenTofu are needed for this profile.
+On your workstation: `kubectl`, `helm`, `helmfile`, `yq` (mikefarah's), `task`
+and **`ansible`** — see the [README](../README.md#prerequisites-local) for
+install commands. No cloud CLI and no OpenTofu are needed for this profile;
+Ansible is what builds the cluster here, in place of Terraform.
 
 ```bash
-task verify PROFILE=baremetal-metallb
+brew install ansible          # macOS
+sudo apt install -y ansible   # Debian/Ubuntu
+```
+
+Only `ansible-core` modules are used, so nothing has to be installed from
+Galaxy.
+
+On the machines: a Linux distribution with `systemd` and either `apt` or `dnf`,
+reachable over SSH with a key, and an account that can `sudo`.
+
+```bash
+task verify PROFILE=baremetal
 ```
 
 ---
 
 ## 1. The cluster
 
-k3s is the path of least resistance. On the machine that will be your server:
+Ansible builds it: k3s on every machine, Longhorn's node prerequisites, and
+Longhorn itself. Physical machines and VMs are the same to it — it needs SSH
+and sudo, nothing else.
 
 ```bash
-curl -sfL https://get.k3s.io | sh -
-sudo cat /etc/rancher/k3s/k3s.yaml   # copy to your workstation as ~/.kube/config
+# Creates config/infrastructure/baremetal.inventory.yml and stops so you can edit it.
+task cluster PROFILE=baremetal
+
+$EDITOR config/infrastructure/baremetal.inventory.yml
+
+# Run it again to build.
+task cluster PROFILE=baremetal
 ```
 
-Replace `127.0.0.1` in that kubeconfig with the machine's reachable address.
+The inventory has two groups:
 
-**Disable k3s's built-in ServiceLB (Klipper).** It competes with MetalLB for
-Services of type LoadBalancer, and the symptom is a Service that gets an
-address which does not actually route:
+- **`k3s_servers`** — control-plane nodes. One is fine. Three gives a highly
+  available control plane with embedded etcd, and the count must be **odd** or
+  etcd cannot hold quorum. The playbook refuses an even number rather than
+  building something that loses quorum the first time a node dies.
+- **`k3s_agents`** — workers.
+
+BMC wants **three nodes in total** so the HA datastore modes place their quorum
+members in separate failure domains. Servers count toward that, so three
+servers and no agents is a valid three-node cluster. Fewer works; it just is
+not highly available, and the playbook says so as it runs.
+
+### What it does, and why
+
+- **k3s with `--disable servicelb`.** k3s ships Klipper, which also serves
+  Services of type LoadBalancer and competes with MetalLB. The symptom is a
+  Service that gets an address which does not route. Traefik stays enabled —
+  `profiles/baremetal.yaml` expects `ingress.className: traefik`.
+- **`open-iscsi` and `nfs-common` on every node**, before k3s. Longhorn backs
+  ReadWriteMany with an internal NFS share, so a node missing `nfs-common`
+  mounts ReadWriteOnce volumes perfectly well and fails only when a file
+  session opens a RWX volume — long after install, looking like a BMC bug.
+- **Longhorn**, sized to the cluster. Its replica count is clamped to the node
+  count: left at 3 on a one-node cluster, every volume sits permanently
+  Degraded.
+- **A kubeconfig**, merged into `~/.kube/config` as the context
+  `bmc-baremetal` — the same thing the cloud CLIs do. Your existing config is
+  backed up first, and your current context is **not** switched:
 
 ```bash
-curl -sfL https://get.k3s.io | sh -s - --disable servicelb
+kubectl config use-context bmc-baremetal
+kubectl get nodes
 ```
 
-Leave Traefik enabled — the profile expects `ingress.className: traefik`, and
-k3s installs it into `kube-system`.
-
-Multi-node: run the installer with `K3S_URL` and `K3S_TOKEN` on the other
-machines. BMC works on a single node, but see the RWX warning below.
+Re-running is safe. Nodes that already have k3s are left alone, so the playbook
+is also how you add a machine later.
 
 ---
 
-## 2. Longhorn (storage)
-
-**Every node needs `open-iscsi`, and every node needs `nfs-common`.** Longhorn's
-RWX volumes are NFS-backed internally, so a node missing `nfs-common` mounts
-ReadWriteOnce volumes happily and fails only when a file session tries to open —
-long after install, in a way that looks like a BMC bug.
-
-```bash
-# on EVERY node
-sudo apt install -y open-iscsi nfs-common
-sudo systemctl enable --now iscsid
-```
-
-Then:
-
-```bash
-helm repo add longhorn https://charts.longhorn.io
-helm install longhorn longhorn/longhorn --namespace longhorn-system --create-namespace
-kubectl -n longhorn-system rollout status deploy/longhorn-driver-deployer --timeout=300s
-```
-
-> **Single-node clusters:** preflight's RWX probe schedules two pods and passes
-> when both mount the claim — but on one node that only proves co-located
-> access, not real cross-node RWX. It warns about exactly this. A node-local
-> class can pass here and fail the moment you add a second node.
-
----
-
-## 3. MetalLB
+## 2. MetalLB
 
 Installed by `task install` (`global.metallb.installResources` is true in this
 profile), so there is nothing to do by hand. What you must decide is the
@@ -129,7 +142,7 @@ game. You will set it in step 5.
 
 ---
 
-## 4. DNS and ports
+## 3. DNS and ports
 
 Point an A record at your MetalLB address:
 
@@ -163,12 +176,12 @@ detail; it applies identically here.
 
 ---
 
-## 5. Configure
+## 4. Configure
 
 ```bash
-task config:init PROFILE=baremetal-metallb
-$EDITOR charts/bmc-chart/values.custom.yaml
-task validate PROFILE=baremetal-metallb
+task config:init PROFILE=baremetal
+$EDITOR config/baremetal.yaml
+task validate PROFILE=baremetal
 ```
 
 Beyond the usual `certManager.email`, `panel.panelHost` and `ingress.host`
@@ -196,11 +209,11 @@ otherwise BMC creates one and the two fight.
 
 ---
 
-## 6. Install
+## 5. Install
 
 ```bash
 task secrets:generate      # SAVE THE OUTPUT -- especially the invite code
-task install PROFILE=baremetal-metallb
+task install PROFILE=baremetal
 ```
 
 `install` runs verify → storage → preflight → validate → secrets:check →
@@ -219,7 +232,7 @@ Two bare-metal-only things happen inside `task deploy`, both automatic:
 
 ---
 
-## 7. Verify
+## 6. Verify
 
 ```bash
 kubectl get pods -n bmc
@@ -255,11 +268,48 @@ task sftp:info    # prints the address for any open session
 
 ---
 
+## Datastore mode is a one-way choice
+
+`global.redis.mode`, `global.mariaDB.mode` and `global.mongoDB.mode` each take
+`single` (one pod) or `ha` (an operator-managed cluster). **Pick before you have
+data you care about.**
+
+Switching is not a migration. The two modes use different storage:
+
+| | single | ha |
+|---|---|---|
+| Runs as | a Deployment | an operator StatefulSet |
+| Volume | `mariadb-pvc`, `mongodb-pvc` | `storage-bmc-mariadb-N`, `data-volume-bmc-mongodb-N`, … |
+
+The Service name — `mariadb-service`, `mongodb-service` — is identical in both,
+so nothing errors when you switch. The panel reconnects to what is now an
+**empty** database, recreates its schema, and carries on. The old volumes are
+not deleted (Kubernetes never deletes a StatefulSet's claims, so a database
+survives a scale-to-zero) and not used either.
+
+Two consequences:
+
+- **The old data is stranded, not destroyed.** To get it back, switch the mode
+  back. To move it, dump from one and restore into the other by hand.
+- **Both sets keep reserving disk.** With Longhorn replicating each volume, a
+  stranded HA set can quietly consume tens of gigabytes and push the node into
+  `DiskPressure` — at which point *new* volumes stop being schedulable and the
+  failure appears somewhere unrelated, like preflight's storage probes.
+
+`task validate PROFILE=baremetal` reports stranded volumes and what to do with
+them.
+
+Given `ha` wants three nodes to mean anything — its anti-affinity is a
+preference, so on fewer nodes the quorum members simply share a failure domain
+— `single` is the right choice on a one- or two-node cluster.
+
+---
+
 ## Trying it locally first
 
 `task test:all` stands up a disposable k3d cluster with RWX storage, builds the
 panel and manager images for your architecture, and installs BMC — without
-touching your kubeconfig or `values.custom.yaml`:
+touching your kubeconfig or `config/baremetal.yaml`:
 
 ```bash
 task test:all       # create cluster, build images, install, report
@@ -271,7 +321,7 @@ task test:down      # delete everything
 The steps are also available individually — `task test:up`, `task test:build`,
 `task test:install` — if you want to stop partway.
 
-It uses the `generic` profile and its own `values.local.yaml`, so it is a safe
+It uses the `baremetal` profile and its own `values.local.yaml`, so it is a safe
 rehearsal of the install flow rather than of MetalLB and Longhorn specifically.
 
 ---
@@ -326,19 +376,44 @@ kubectl annotate svc traefik -n kube-system metallb.io/allow-shared-ip=shared-ip
 
 ## Teardown
 
+Two levels, depending on how much you want gone.
+
+**Remove BMC, keep the cluster:**
+
 ```bash
-task uninstall PROFILE=baremetal-metallb
+task uninstall PROFILE=baremetal
 ```
 
-Removes the BMC releases. `task teardown` is for cloud profiles — there is no
-infrastructure layer to destroy here, and it will tell you so rather than doing
-anything surprising.
-
+Removes the BMC releases and leaves k3s, Longhorn and your volumes in place.
 Secrets are not deleted:
 
 ```bash
 kubectl delete secret bmc-secrets -n bmc
 ```
 
-Longhorn volumes outlive the release. Delete the PVCs in the `bmc` namespace if
-you want the disk space back, and be sure first — that is your worlds.
+Longhorn volumes outlive the release, so the worlds survive a reinstall. Delete
+the PVCs in the `bmc` namespace if you want the disk space back, and be sure
+first — that is your worlds.
+
+**Remove everything, including k3s:**
+
+```bash
+task teardown PROFILE=baremetal
+```
+
+This prompts, then removes BMC and runs `ansible/uninstall.yml` against your
+inventory. On each machine it runs k3s's own uninstall script, then clears
+`/var/lib/longhorn` — which those scripts know nothing about, so left alone it
+occupies disk that nothing references and feeds stale volume metadata to a
+rebuilt cluster. Finally it drops the `bmc-baremetal` context from your
+kubeconfig, so kubectl stops offering a cluster that cannot answer.
+
+Workers are uninstalled before the control plane: pulling the API server out
+from under a running agent just leaves it retrying against something that is
+gone.
+
+The machines themselves are untouched — only k3s and its data are removed, so
+they are ready to be rebuilt with `task cluster PROFILE=baremetal`.
+
+**Irreversible.** Every Longhorn volume, world and database on those machines
+is destroyed.

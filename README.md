@@ -44,7 +44,9 @@ commands in this README:
 | `yq` | **mikefarah/yq**, not the Python one — the Python build emits JSON and quotes string values, which silently corrupts every merged value |
 
 Cloud profiles need two more: OpenTofu (or Terraform) to build the cluster, and
-your provider's CLI, authenticated.
+your provider's CLI, authenticated. The bare-metal profile needs Ansible
+instead, which plays the same role there — it installs k3s and Longhorn on the
+machines you point it at.
 
 **macOS**
 
@@ -52,6 +54,7 @@ your provider's CLI, authenticated.
 brew install kubectl helm helmfile yq go-task/tap/go-task
 
 brew install opentofu          # cloud profiles
+brew install ansible           # baremetal -- builds the k3s cluster
 brew install awscli            # eks
 brew install --cask gcloud-cli # gke
 brew install azure-cli         # aks
@@ -75,6 +78,7 @@ sh -c "$(curl -fsSL https://taskfile.dev/install.sh)" -- -d -b /usr/local/bin
 
 # cloud profiles
 curl -fsSL https://get.opentofu.org/install-opentofu.sh | sh -s -- --install-method deb   # opentofu
+sudo apt install -y ansible   # baremetal -- builds the k3s cluster
 curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o a.zip && unzip -q a.zip && sudo ./aws/install   # eks
 curl -fsSL https://sdk.cloud.google.com | bash   # gke
 curl -fsSL https://aka.ms/InstallAzureCLIDeb | sudo bash   # aks
@@ -120,11 +124,20 @@ a YAML file, never editing a template.
 
 | Profile | For |
 |---|---|
-| `baremetal-metallb` | Bare metal / k3s with MetalLB + Longhorn (the default) — see [docs/baremetal-install.md](docs/baremetal-install.md) |
+| `baremetal` | Bare metal / k3s with MetalLB + Longhorn (the default) — see [docs/baremetal-install.md](docs/baremetal-install.md) |
 | `eks` | Amazon EKS — see [`terraform/eks/`](terraform/eks/) to build the cluster |
 | `gke` | Google Kubernetes Engine — see [`terraform/gke/`](terraform/gke/) |
 | `aks` | Azure Kubernetes Service — see [`terraform/aks/`](terraform/aks/) |
-| `generic` | Any other conformant cluster — managed Kubernetes, VMs, k3d |
+
+Every profile can build its own cluster with one command:
+
+```bash
+task cluster PROFILE=<profile>
+```
+
+It creates that profile's cluster config and stops so you can edit it, then
+builds when you run it again. Cloud profiles go through OpenTofu; bare metal
+goes through Ansible.
 
 Provider-specific load balancer settings are supplied as
 `global.edge.game.annotations`, which are passed through to the Service
@@ -139,33 +152,37 @@ verbatim. See `charts/bmc-chart/values.example.yaml` for AWS/GCP/Azure examples.
 task verify
 
 # 2. Create your config, pre-filled for your profile
-task config:init PROFILE=baremetal-metallb
-#    then edit charts/bmc-chart/values.custom.yaml -- every line marked CHANGE THIS
+task config:init PROFILE=baremetal
+#    then edit config/baremetal.yaml -- every line marked CHANGE THIS
 
 # 3. Check the cluster can actually run BMC
-task preflight PROFILE=baremetal-metallb
+task preflight PROFILE=baremetal
 
 # 4. Generate secrets -- SAVE THE OUTPUT, especially the invite code
 task secrets:generate
 
 # 5. Install
-task install PROFILE=baremetal-metallb
+task install PROFILE=baremetal
 ```
 
 Access the panel at your configured domain and use the invite code from step 4.
 
-There is exactly one active config file, `charts/bmc-chart/values.custom.yaml`,
-and the profile is what makes it environment-appropriate. `config:init` starts
-it from `values.example-<profile>.yaml` when that profile has a template, and
-from the generic `values.example.yaml` otherwise.
+Your configuration lives in `config/<profile>.yaml` — one file per profile,
+all of `config/` gitignored. `config:init` creates it from that profile's
+`values.example-<profile>.yaml`.
 
-To point this checkout at a different cluster, park the current config rather
-than keeping two:
+Because the file is keyed by profile, one checkout can hold configs for several
+clusters at once and nothing is overwritten when you switch:
 
 ```bash
-mkdir -p backups && mv charts/bmc-chart/values.custom.yaml backups/values.custom.<name>.yaml
-task config:init PROFILE=<other-profile>
+task config:init PROFILE=baremetal   # -> config/baremetal.yaml
+task config:init PROFILE=eks         # -> config/eks.yaml
+
+task install PROFILE=eks             # reads config/eks.yaml
 ```
+
+Every command takes `PROFILE`, and it selects the profile and the config
+together. `config:init` refuses to overwrite a config that already exists.
 
 ### On bare metal
 
@@ -182,7 +199,7 @@ steps above are then identical apart from the profile name.
 **EKS** — full guide: **[docs/eks-install.md](docs/eks-install.md)**
 
 ```bash
-cd terraform/eks && cp terraform.tfvars.example terraform.tfvars && tofu apply
+task cluster PROFILE=eks   # creates config/infrastructure/eks.tfvars, stops; edit it, run again
 aws eks update-kubeconfig --region <region> --name <cluster>
 cd ../.. && task config:init PROFILE=eks
 task preflight PROFILE=eks && task secrets:generate && task install PROFILE=eks
@@ -191,7 +208,7 @@ task preflight PROFILE=eks && task secrets:generate && task install PROFILE=eks
 **GKE** — full guide: **[docs/gke-install.md](docs/gke-install.md)**
 
 ```bash
-cd terraform/gke && cp terraform.tfvars.example terraform.tfvars && tofu apply
+task cluster PROFILE=gke   # creates config/infrastructure/gke.tfvars, stops; edit it, run again
 gcloud container clusters get-credentials <cluster> --region <region>
 cd ../.. && task config:init PROFILE=gke
 task preflight PROFILE=gke && task secrets:generate && task install PROFILE=gke
@@ -224,7 +241,7 @@ cannot run on your node.
 
 Two deliberate safety properties: it writes its own kubeconfig to
 `.local-test/kubeconfig` so **your default kubectl context is never switched**,
-and it uses `charts/bmc-chart/values.local.yaml` so **`values.custom.yaml` is
+and it uses `charts/bmc-chart/values.local.yaml` so **your `config/` files are
 never read or written**.
 
 **Runtime charts ship with the chart.** `charts/bmc-chart/files/chart-templates/`
@@ -284,7 +301,7 @@ task help             # Show all tasks
 Local testing has its own set — see [Local testing](#local-testing) above.
 
 All cluster-facing tasks accept `PROFILE=<name>`, defaulting to
-`baremetal-metallb`. Everything is driven through `task`; nothing in `scripts/`
+`baremetal`. Everything is driven through `task`; nothing in `scripts/`
 is meant to be run directly.
 
 ---

@@ -54,7 +54,7 @@ the blast radius is small. If a server misbehaves on it, switch to the same
 NFS server GKE uses:
 
 ```yaml
-# values.custom.yaml
+# config/aks.yaml
 global:
   nfsServer:
     install: true
@@ -104,11 +104,13 @@ export ARM_SUBSCRIPTION_ID=$(az account show --query id --output tsv)
 ## 1. Build the infrastructure
 
 ```bash
-cd terraform/aks
-cp terraform.tfvars.example terraform.tfvars
-# edit terraform.tfvars
-tofu init
-tofu apply
+# Creates config/infrastructure/aks.tfvars and stops so you can edit it.
+task cluster PROFILE=aks
+
+$EDITOR config/infrastructure/aks.tfvars
+
+# Run it again to build.
+task cluster PROFILE=aks
 ```
 
 Takes roughly 5–10 minutes. When it finishes, `tofu output next_steps` prints
@@ -128,9 +130,32 @@ Terraform.
 
 ## 2. Point kubectl at the cluster
 
+Use the resource group and cluster name from your `terraform.tfvars` — with the
+defaults in the example that is `bmc-aks-rg` and `bmc-aks`. `tofu output
+configure_kubectl` prints the exact command for what you actually built.
+
 ```bash
 az aks get-credentials --resource-group bmc-aks-rg --name bmc-aks
 ```
+
+Add `--overwrite-existing` if you have built this cluster before. Without it,
+`az` keeps the stale entry already in your kubeconfig and every later command
+talks to a cluster that no longer exists.
+
+Confirm what you are pointed at, and that the nodes arrived:
+
+```bash
+kubectl config current-context     # should be bmc-aks
+kubectl get nodes                  # all Ready
+```
+
+Everything from here targets whatever context is current, silently.
+`task secrets:generate` and `task install` do not ask.
+
+`terraform/aks` builds a local-account cluster, which kubectl reaches on its
+own. If you later enable Entra integration, kubectl needs `kubelogin` on PATH
+(`az aks install-cli`) — `az` writes a kubeconfig referencing it whether or not
+it is installed, so the failure comes from kubectl, not from `az`.
 
 ## 3. Configure
 
@@ -138,7 +163,7 @@ az aks get-credentials --resource-group bmc-aks-rg --name bmc-aks
 task config:init PROFILE=aks
 ```
 
-That writes `charts/bmc-chart/values.custom.yaml` from the AKS example. Set at
+That writes `config/aks.yaml` from the AKS example. Set at
 minimum:
 
 - `global.certManager.email`
@@ -160,21 +185,84 @@ in minutes.
 
 ## 5. DNS
 
-Azure load balancers hand out an **IP address**, not a hostname, so these are
-**A records**, not CNAMEs.
+**Azure load balancers hand out an IP**, not a hostname, so these are A
+records — the same as GKE, the opposite of EKS.
+
+Both addresses only exist once BMC is installed and the Services have been
+assigned. If either command prints nothing, the load balancer is still being
+provisioned; give it a minute.
 
 ```bash
-# panel
 kubectl get svc ingress-nginx-controller -n ingress-nginx \
-  -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
+  -o jsonpath='{.status.loadBalancer.ingress[0].ip}'   # panel
 
-# game edge
 kubectl get svc proxy-lb -n bmc \
-  -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
+  -o jsonpath='{.status.loadBalancer.ingress[0].ip}'   # game
 ```
 
-Point `panelHost` at the first and your game domain at the second. The
-certificate is issued once the panel record resolves.
+Create these at your DNS provider:
+
+| Record | Type | Target |
+|---|---|---|
+| `panel.yourdomain.com` | A | ingress-nginx IP |
+| `play.yourdomain.com` | A | proxy-lb IP |
+
+`panel.yourdomain.com` must match `global.ingress.host` and
+`global.panel.panelHost` exactly, or the certificate will not match the name
+the browser asks for.
+
+Because they are IPs, a bare apex domain works without the ALIAS-record
+workaround AWS needs.
+
+Check the records resolve before moving on — cert-manager cannot complete the
+ACME HTTP-01 challenge until the panel name resolves to the ingress IP from the
+public internet:
+
+```bash
+dig +short panel.yourdomain.com
+dig +short play.yourdomain.com
+```
+
+### Keeping the game address stable
+
+By default Azure allocates the game IP dynamically, and it changes if the
+Service is recreated — which means every player's server address breaks. To
+pin it, create a **static** public IP and set `global.edge.game.loadBalancerIP`
+in `config/aks.yaml`; the chart writes it onto the Service.
+
+The address must live in the cluster's **node resource group**, the
+`MC_<group>_<cluster>_<region>` one AKS manages, or the load balancer cannot
+claim it:
+
+```bash
+NODE_RG=$(az aks show --resource-group bmc-aks-rg --name bmc-aks \
+  --query nodeResourceGroup --output tsv)
+
+az network public-ip create \
+  --resource-group "$NODE_RG" --name bmc-game-ip \
+  --sku Standard --allocation-method Static \
+  --query publicIp.ipAddress --output tsv
+```
+
+Put the printed address in `global.edge.game.loadBalancerIP` and reinstall. It
+survives cluster rebuilds only if you also keep the resource group, so for a
+truly permanent address create it in your own group instead and add
+`service.beta.kubernetes.io/azure-load-balancer-resource-group: <your-group>`
+to `global.edge.game.annotations` — the cluster identity needs Network
+Contributor on that group.
+
+### If you use Cloudflare, turn the proxy OFF
+
+Both records must be **DNS only** (grey cloud), for the same reasons as on EKS
+and GKE:
+
+- **The game record cannot work proxied at all.** Cloudflare's proxy carries
+  only HTTP/HTTPS on standard ports, so 25565 and 19132 will not traverse it.
+- **A proxied panel record breaks TLS on a deep subdomain**, and blocks the
+  ACME HTTP-01 challenge.
+
+The [EKS guide](eks-install.md#if-you-use-cloudflare-turn-the-proxy-off) covers
+the detail; it is identical here.
 
 ## 6. Verify
 

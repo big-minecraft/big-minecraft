@@ -100,11 +100,13 @@ uses syntax specific to either.
 ## 1. Build the infrastructure
 
 ```bash
-cd terraform/eks
-cp terraform.tfvars.example terraform.tfvars
-$EDITOR terraform.tfvars
-tofu init
-tofu apply
+# Creates config/infrastructure/eks.tfvars and stops so you can edit it.
+task cluster PROFILE=eks
+
+$EDITOR config/infrastructure/eks.tfvars
+
+# Run it again to build.
+task cluster PROFILE=eks
 ```
 
 Budget 15–20 minutes. The EKS control plane alone takes 9–12.
@@ -140,7 +142,7 @@ Everything from here targets whatever context is current, silently.
 ```bash
 cd ..
 task config:init PROFILE=eks
-$EDITOR charts/bmc-chart/values.custom.yaml
+$EDITOR config/eks.yaml
 task validate PROFILE=eks
 ```
 
@@ -151,13 +153,14 @@ panel is served on.
 
 Everything else — storage classes, edge types, ingress class, load balancer
 annotations — comes from `profiles/eks.yaml`. Restating any of it in
-`values.custom.yaml` is how the two drift apart, and the copy here wins.
+`config/eks.yaml` is how the two drift apart, and the copy here wins.
 
 **There is exactly one active config file.** To point this checkout at a
 different cluster, park the current one rather than keeping two:
 
 ```bash
-mkdir -p backups && mv charts/bmc-chart/values.custom.yaml backups/values.custom.<name>.yaml
+# configs are per profile, so switching clusters overwrites nothing
+task config:init PROFILE=<other-profile>
 task config:init PROFILE=<other-profile>
 ```
 
@@ -332,7 +335,7 @@ install would notice.
 
 Cost is ~$45/month for two cache.t4g.small nodes. Set `enable_ha_redis` to false in `terraform.tfvars` for a
 test cluster — the chart then falls back to the in-cluster pod, and you set
-`global.redis.external` back to `false` in `values.custom.yaml`.
+`global.redis.external` back to `false` in `config/eks.yaml`.
 
 **One limitation worth knowing:** the clients connect with no authentication or
 TLS, because Jedis is constructed as a plain single-endpoint pool in the manager,
@@ -357,7 +360,7 @@ enable_ha_databases = true
 ```
 
 ```yaml
-# values.custom.yaml
+# config/eks.yaml
 mariaDB:
   external: true
 mongoDB:

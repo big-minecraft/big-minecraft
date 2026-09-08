@@ -141,11 +141,13 @@ gcloud services enable compute.googleapis.com container.googleapis.com
 ## 1. Build the infrastructure
 
 ```bash
-cd terraform/gke
-cp terraform.tfvars.example terraform.tfvars
-$EDITOR terraform.tfvars      # project_id is required and has no default
-tofu init
-tofu apply
+# Creates config/infrastructure/gke.tfvars and stops so you can edit it.
+task cluster PROFILE=gke
+
+$EDITOR config/infrastructure/gke.tfvars     # project_id is required and has no default
+
+# Run it again to build.
+task cluster PROFILE=gke
 ```
 
 Budget 10–15 minutes.
@@ -185,7 +187,7 @@ Everything from here targets whatever context is current, silently.
 ```bash
 cd ../..
 task config:init PROFILE=gke
-$EDITOR charts/bmc-chart/values.custom.yaml
+$EDITOR config/gke.yaml
 task validate PROFILE=gke
 ```
 
@@ -194,7 +196,7 @@ and `ingress.host` — the last two must match, or the issued certificate will
 not match the address the panel is served on.
 
 Everything else comes from `profiles/gke.yaml`. Restating any of it in
-`values.custom.yaml` is how the two drift apart, and the copy here wins.
+`config/gke.yaml` is how the two drift apart, and the copy here wins.
 
 ---
 
@@ -341,7 +343,7 @@ install would notice.
 
 Cost is ~$35/month for a 1 GB instance. Set `enable_ha_redis` to false in `terraform.tfvars` for a
 test cluster — the chart then falls back to the in-cluster pod, and you set
-`global.redis.external` back to `false` in `values.custom.yaml`.
+`global.redis.external` back to `false` in `config/gke.yaml`.
 
 **One limitation worth knowing:** the clients connect with no authentication or
 TLS, because Jedis is constructed as a plain single-endpoint pool in the manager,
@@ -366,7 +368,7 @@ enable_ha_databases = true
 ```
 
 ```yaml
-# values.custom.yaml
+# config/gke.yaml
 mariaDB:
   external: true
 ```
