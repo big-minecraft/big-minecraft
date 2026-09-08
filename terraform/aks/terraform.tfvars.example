@@ -1,0 +1,68 @@
+# Copy to terraform.tfvars and edit. Do not commit terraform.tfvars.
+
+# Leave empty to use ARM_SUBSCRIPTION_ID from the environment, which is what
+# `az login` plus `az account set` already gives you.
+subscription_id = ""
+
+location     = "eastus"
+cluster_name = "bmc-aks"
+
+# Narrow this to your operators once you know their addresses. Empty means the
+# API server is reachable from anywhere, which is the AKS default.
+api_server_authorized_cidrs = []
+
+# Free has no API server SLA and is fine for testing. Standard buys a 99.95%
+# SLA and a control plane that scales past a handful of nodes.
+sku_tier = "Free"
+
+# --------------------------------------------------------------- capacity --
+#
+# How large the cluster may grow, and how much subscription quota it consumes
+# on the way. Quotas are account-level and cannot be set from Terraform -- raise
+# them in the portal or with `az quota`. Check your regional vCPU headroom
+# before scaling up:
+#
+#   az vm list-usage --location eastus \
+#     --query "[?contains(name.value, 'cores')].{Name:localName,Used:currentValue,Limit:limit}" \
+#     --output table
+
+# Availability is per SUBSCRIPTION, not just per region: a size can be
+# NotAvailableForSubscription somewhere it plainly exists, and AKS then fails
+# the create with a confusing AvailabilityZoneNotSupported. Confirm first, and
+# note which zones it reports:
+#
+#   az vm list-skus --location eastus --resource-type virtualMachines \
+#     --query "[?name=='Standard_D4s_v5'].{Name:name,Zones:locationInfo[0].zones}" -o table
+#
+# An empty result means it is restricted for you. Add --all to see the reason.
+node_vm_size   = "Standard_D4s_v5"
+
+# Both counts are the whole pool, not per zone. Check they fit your regional
+# vCPU quota: a trial subscription is often capped at 10 total, which is two
+# 4-vCPU nodes and no more.
+node_min_count = 2
+node_max_count = 6
+
+# OS disk per node. Container images live here, and so does each instance's
+# artifact: game pods pull into an emptyDir backed by this disk.
+node_disk_size = 50
+
+# Spread nodes across availability zones. Empty by default: zone support
+# depends on the size and the subscription, and asking for zones that are not
+# available fails the cluster create rather than degrading gracefully. Set
+# ["1","2","3"] once the command above confirms your size offers them -- worth
+# doing for a real network, since HA datastores want their quorum members in
+# separate failure domains.
+node_zones = []
+
+# Spot VMs are far cheaper and can be reclaimed with 30 seconds' notice,
+# restarting every Minecraft server on the node. They go in a second pool --
+# AKS will not make the system pool spot -- which scales from zero.
+#
+# Spot has its OWN regional quota, often far smaller than the standard one: a
+# trial account gets 3 vCPU, less than a single 4-vCPU node. Check it before
+# turning this on, or the pool creates and can never scale:
+#
+#   az vm list-usage --location eastus \
+#     --query "[?contains(localName,'Low-priority')].{Name:localName,Used:currentValue,Limit:limit}" -o table
+node_spot = false

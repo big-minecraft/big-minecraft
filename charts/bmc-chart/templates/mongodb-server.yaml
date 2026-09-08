@@ -1,3 +1,19 @@
+{{- /* Skipped entirely when using a managed database. host/port/username
+     from global.mongoDB are then used as-is by the panel. */ -}}
+{{- if eq .Values.global.mongoDB.mode "ha" }}
+{{- /*
+The operator owns the pods and their Services. This aliases the name everything
+already uses onto the operator's primary Service.
+*/ -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongodb-service
+  labels: { app: mongodb, bmc/db-mode: ha }
+spec:
+  type: ExternalName
+  externalName: bmc-mongodb-svc.{{ .Release.Namespace }}.svc.cluster.local
+{{- else if not .Values.global.mongoDB.external }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -25,7 +41,10 @@ spec:
         - name: MONGO_INITDB_ROOT_USERNAME
           value: "admin"
         - name: MONGO_INITDB_ROOT_PASSWORD
-          value: {{ .Values.global.mongoDB.initPassword }}
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "bmc.dbSecret" (dict "db" .Values.global.mongoDB "kind" "mongodb") }}
+              key: {{ include "bmc.dbSecretKey" (dict "db" .Values.global.mongoDB "kind" "mongodb") }}
         volumeMounts:
         - name: mongodb-data
           mountPath: /data/db
@@ -39,22 +58,23 @@ kind: Service
 metadata:
   name: mongodb-service
 spec:
+  # ClusterIP by design -- see the note on mariadb-service.
+  type: ClusterIP
   selector:
     app: mongodb
   ports:
     - protocol: TCP
       port: 27017
       targetPort: 27017
-      nodePort: 30017
-  type: NodePort
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: mongodb-pvc
 spec:
-  accessModes: ["ReadWriteMany"]
-  storageClassName: {{ .Values.global.storage.storageClass }}
+  accessModes: [{{ .Values.global.storage.classes.database.accessMode | quote }}]
+  storageClassName: {{ .Values.global.storage.classes.database.name }}
   resources:
     requests:
       storage: {{ .Values.global.storage.volumeSize.mongoDB }}
+{{- end }}

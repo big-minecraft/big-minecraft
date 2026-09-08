@@ -1,0 +1,699 @@
+version: '3'
+
+vars:
+  CHART_DIR: charts/bmc-chart
+  # One file per profile, so switching clusters does not clobber the last one.
+  CONFIG_DIR: config
+  # What builds the cluster, kept apart from what configures BMC on it.
+  INFRA_DIR: config/infrastructure
+  # Task evaluates `sh:` vars eagerly, for EVERY invocation. Without the
+  # fallback a machine with no yq cannot even run `task verify` or `task help`
+  # -- it dies with exit status 127 before reaching the prerequisite check.
+  # The `tr -d '"'` also normalises kislyuk/yq (Python), which emits JSON and
+  # would otherwise yield a namespace with literal quotes in it.
+  NAMESPACE:
+    sh: '{ yq ".global.namespace" {{.CHART_DIR}}/values.yaml 2>/dev/null || echo bmc; } | tr -d ''"'''
+  SCRIPTS_DIR: scripts
+  # Which kind of environment this cluster is. See profiles/.
+  # No default on purpose: a silent fallback means `task teardown` with no
+  # PROFILE acts on whichever cluster the default happens to name. Pass it per
+  # command or export it.
+  PROFILE: '{{.PROFILE}}'
+  # Which Terraform root module belongs to this profile. Profiles with no cloud
+  # layer (bare metal) resolve to a directory that does not exist, and the
+  # teardown task checks before using it. Anchored to the Taskfile: a relative
+  # path resolves against wherever `task` was invoked from, so teardown run from
+  # a subdirectory skipped the destroy and still reported success.
+  # The cluster's own name, for cleanup that has to run after its API is gone.
+  # tfvars is the source of truth; the fallback matches variables.tf's default.
+  CLUSTER_NAME:
+    sh: 'sed -n ''s/^cluster_name *= *"\(.*\)"/\1/p'' {{.ROOT_DIR}}/terraform/eks/terraform.tfvars 2>/dev/null | head -1 | grep . || echo bmc'
+  TF_DIR: '{{.ROOT_DIR}}/terraform/{{if eq .PROFILE "eks"}}eks{{else if eq .PROFILE "gke"}}gke{{else if eq .PROFILE "aks"}}aks{{else}}none{{end}}'
+
+env:
+  # helmfile reads this to pick the profile layer.
+  PROFILE: '{{.PROFILE}}'
+
+tasks:
+  _require-profile:
+    internal: true
+    silent: true
+    cmds:
+      - |
+        if [ -z "{{.PROFILE}}" ]; then
+          echo ""
+          echo "PROFILE is required."
+          echo ""
+          # NOT {{.TASK}}: this runs as a subtask, so that resolves to
+          # _require-profile rather than whatever the user actually typed.
+          echo "  Per command:  task <command> PROFILE=<profile>"
+          echo "  Or exported:  export PROFILE=<profile>"
+          echo ""
+          echo "  Available:"
+          for f in {{.ROOT_DIR}}/profiles/*.yaml; do
+            echo "    $(basename "$f" .yaml)"
+          done
+          echo ""
+          exit 1
+        fi
+        if [ ! -f "{{.ROOT_DIR}}/profiles/{{.PROFILE}}.yaml" ]; then
+          echo ""
+          echo "Unknown profile '{{.PROFILE}}' -- no profiles/{{.PROFILE}}.yaml"
+          echo ""
+          echo "  Available:"
+          for f in {{.ROOT_DIR}}/profiles/*.yaml; do
+            echo "    $(basename "$f" .yaml)"
+          done
+          echo ""
+          exit 1
+        fi
+
+  install:
+    desc: Complete installation (verify, storage, preflight, validate, deploy)
+    silent: true
+    cmds:
+      - task: _require-profile
+      - task: verify
+      # Before storage: storage installs MinIO, which mounts bmc-secrets, so
+      # without this the failure is five minutes deep in a Helm timeout instead
+      # of a one-second "run task secrets:generate".
+      - task: secrets:check
+      # Before preflight, not after. On profiles where the cluster has no
+      # managed RWX filesystem, BMC brings its own NFS server -- and preflight's
+      # shared-storage probe is the single most valuable check it makes. Running
+      # it against a storage class that does not exist yet would either fail
+      # spuriously or have to be skipped, and skipping it means never testing
+      # ReadWriteMany at all on exactly the profiles where it is least certain.
+      - task: storage
+      # Same reasoning as storage above: preflight provisions a REAL
+      # LoadBalancer Service, so whatever assigns addresses has to exist
+      # first. On the clouds that is the provider's own controller and this is
+      # a no-op; on bare metal MetalLB is ours to install, and installing it
+      # after preflight meant the probe could never pass on a new cluster.
+      - task: edge
+      - task: preflight
+      - task: validate
+      - echo ""
+      - echo "=========================================="
+      - echo "Ready to deploy BMC to Kubernetes"
+      - 'echo "  profile:   {{.PROFILE}}"'
+      - 'echo "  namespace: {{.NAMESPACE}}"'
+      - echo "=========================================="
+      - echo ""
+      - task: deploy
+      - task: wait-for-webhooks
+      - task: deploy-bmc
+
+  preflight:
+    desc: Verify the cluster satisfies the capability contract
+    silent: true
+    cmds:
+      - task: _require-profile
+      - PROFILE={{.PROFILE}} CHART_DIR={{.CHART_DIR}} {{.SCRIPTS_DIR}}/preflight.sh
+
+  conformance:
+    desc: Render every profile and check the cluster against the contract
+    silent: true
+    cmds:
+      - task: _require-profile
+      - PROFILE={{.PROFILE}} CHART_DIR={{.CHART_DIR}} {{.SCRIPTS_DIR}}/conformance.sh
+
+  validate:
+    desc: Validate required configuration values
+    silent: true
+    cmds:
+      - task: _require-profile
+      - PROFILE={{.PROFILE}} {{.SCRIPTS_DIR}}/validate-config.sh
+
+  sftp:info:
+    desc: Print connection details for open SFTP / file-edit sessions
+    silent: true
+    cmds:
+      - NAMESPACE={{.NAMESPACE}} {{.SCRIPTS_DIR}}/sftp-info.sh
+
+  secrets:check:
+    desc: Check if secrets exist in cluster
+    silent: true
+    cmds:
+      - NAMESPACE={{.NAMESPACE}} {{.SCRIPTS_DIR}}/check-secrets.sh
+
+  secrets:generate:
+    desc: Generate and create Kubernetes secrets
+    prompt: This will create secrets in the '{{.NAMESPACE}}' namespace. Continue?
+    silent: true
+    cmds:
+      - NAMESPACE={{.NAMESPACE}} {{.SCRIPTS_DIR}}/generate-secrets.sh
+
+  config:init:
+    desc: Create config/PROFILE.yaml from that profile's example
+    silent: true
+    cmds:
+      - task: _require-profile
+      - |
+        CONFIG={{.CONFIG_DIR}}/{{.PROFILE}}.yaml
+
+        if [ -f "$CONFIG" ]; then
+          echo "⚠️  $CONFIG already exists!"
+          echo "   Edit it directly, or delete it to start over."
+          exit 1
+        fi
+
+        TEMPLATE={{.CHART_DIR}}/values.example-{{.PROFILE}}.yaml
+        if [ ! -f "$TEMPLATE" ]; then
+          # Only reached by a profile someone added without an example next to
+          # it. The fallback template still produces a working starting point.
+          TEMPLATE={{.CHART_DIR}}/values.example.yaml
+          echo "No example for profile '{{.PROFILE}}' -- starting from the fallback template."
+        fi
+
+        mkdir -p {{.CONFIG_DIR}}
+        cp "$TEMPLATE" "$CONFIG"
+        echo "✓ Created $CONFIG from $(basename "$TEMPLATE")"
+        echo ""
+        echo "Next steps:"
+        echo "  1. Edit $CONFIG (every line marked CHANGE THIS)"
+        echo "  2. Run 'task validate PROFILE={{.PROFILE}}' to check it"
+        echo "  3. Run 'task secrets:generate' to create secrets"
+        echo "  4. Run 'task install PROFILE={{.PROFILE}}' to deploy"
+
+  cluster:
+    desc: Build the cluster for PROFILE (cloud via OpenTofu, bare metal via Ansible)
+    silent: true
+    cmds:
+      - task: _require-profile
+      - task: cluster:init
+      - |
+        case "{{.PROFILE}}" in
+          eks|gke|aks)
+            cd {{.TF_DIR}} && tofu apply -var-file={{.ROOT_DIR}}/{{.INFRA_DIR}}/{{.PROFILE}}.tfvars
+            ;;
+          baremetal)
+            # Check the inventory parses before handing it to Ansible. A YAML
+            # error there makes Ansible fall back to implicit localhost, and
+            # the playbook then reports an empty k3s_servers group -- which
+            # reads as "you forgot to add hosts" rather than "line 45 is
+            # malformed", buried under four parser warnings.
+            INV={{.ROOT_DIR}}/{{.INFRA_DIR}}/baremetal.inventory.yml
+            if ! yq '.' "$INV" >/dev/null 2>&1; then
+              echo ""
+              echo "✗ $INV is not valid YAML:"
+              echo ""
+              yq '.' "$INV" 2>&1 | head -5 | sed 's/^/    /'
+              echo ""
+              echo "  A common cause is writing 'hosts: {}' and then indenting"
+              echo "  hosts under it -- the {} closes the mapping. Use a bare"
+              echo "  'hosts:' instead."
+              exit 1
+            fi
+
+            cd {{.ROOT_DIR}}/ansible && ansible-playbook site.yml -i "$INV"
+            ;;
+          *)
+            echo "Profile '{{.PROFILE}}' brings its own cluster -- nothing to build."
+            echo "Point kubectl at it, then run: task preflight PROFILE={{.PROFILE}}"
+            ;;
+        esac
+
+  cluster:init:
+    desc: Create the cluster config for PROFILE, and stop so you can edit it
+    silent: true
+    cmds:
+      - task: _require-profile
+      - |
+        # A gate, not a prompt: an unedited config cannot build a cluster (no
+        # project, no subscription, no host addresses), and a prompt here would
+        # make the whole flow unscriptable. Stopping with the path is
+        # re-runnable and impossible to blunder past.
+        case "{{.PROFILE}}" in
+          eks|gke|aks)
+            TARGET={{.INFRA_DIR}}/{{.PROFILE}}.tfvars
+            TEMPLATE={{.TF_DIR}}/terraform.tfvars.example
+            WHAT="infrastructure variables"
+            ;;
+          baremetal)
+            TARGET={{.INFRA_DIR}}/baremetal.inventory.yml
+            TEMPLATE={{.ROOT_DIR}}/ansible/inventory.example.yml
+            WHAT="inventory (the machines to build on)"
+            ;;
+          *)
+            exit 0
+            ;;
+        esac
+
+        if [ -f "$TARGET" ]; then
+          exit 0
+        fi
+
+        mkdir -p {{.INFRA_DIR}}
+        cp "$TEMPLATE" "$TARGET"
+        echo ""
+        echo "=========================================="
+        echo "Created $TARGET"
+        echo "=========================================="
+        echo "This is your $WHAT, and it cannot build anything unedited."
+        echo ""
+        echo "  1. Edit $TARGET (every line marked CHANGE THIS)"
+        echo "  2. Run 'task cluster PROFILE={{.PROFILE}}' again to build"
+        echo ""
+        exit 1
+
+  storage:
+    desc: Install the in-cluster storage provider, if this profile uses one
+    silent: true
+    cmds:
+      - task: _require-profile
+      - |
+        echo "Installing storage provider (no-op unless the profile enables one)..."
+      - helmfile apply --selector name=nfs-server-provisioner
+      - helmfile apply --selector name=redis-operator
+      - helmfile apply --selector name=mariadb-operator
+      - helmfile apply --selector name=mongodb-operator
+      - helmfile apply --selector name=minio
+
+  edge:
+    desc: Install the LoadBalancer provider, if this profile uses one
+    silent: true
+    cmds:
+      - task: _require-profile
+      - |
+        echo "Installing LoadBalancer provider (no-op unless the profile enables one)..."
+      - helmfile apply --selector name=metallb
+      - |
+        # The IPAddressPool applied below goes through MetalLB's validating
+        # webhook, which is not serving the instant the chart reports installed.
+        if kubectl get deployment metallb-controller -n metallb-system >/dev/null 2>&1; then
+          kubectl wait --for=condition=available --timeout=300s \
+            deployment/metallb-controller -n metallb-system
+        fi
+      - "{{.SCRIPTS_DIR}}/apply-metallb-config.sh"
+      # k3s's Traefik is already a LoadBalancer Service and claims the pool's
+      # address on sight. On a single-address pool that leaves nothing for
+      # anything else -- including preflight's probe, which carries the game
+      # edge's allow-shared-ip annotation but cannot share with a Traefik that
+      # does not. Annotating it here, before preflight, is what makes one
+      # address serve both.
+      - "{{.SCRIPTS_DIR}}/configure-traefik-sharing.sh"
+
+  deploy:
+    desc: Deploy dependencies (ingress controller, cert-manager, MetalLB, per profile)
+    silent: true
+    cmds:
+      - task: _require-profile
+      - echo "Installing profile dependencies..."
+      # Each release is selected by name. A release that is not named here is
+      # never installed, whatever `needs:` says in helmfile.yaml.gotmpl -- helmfile
+      # only walks needs when passed --include-needs. Adding a dependency to
+      # helmfile.yaml.gotmpl therefore means adding a line here too.
+      #
+      # Every one of these is a no-op unless the profile turns it on, so the
+      # list is safe to keep in one order for all profiles.
+      - helmfile apply --selector name=ingress-nginx
+      - helmfile apply --selector name=cert-manager
+      - helmfile apply --selector name=metallb
+      - "{{.SCRIPTS_DIR}}/apply-metallb-config.sh"
+      - "{{.SCRIPTS_DIR}}/configure-traefik-sharing.sh"
+
+  wait-for-webhooks:
+    desc: Wait for cert-manager and MetalLB webhooks to be ready
+    silent: true
+    cmds:
+      - "{{.SCRIPTS_DIR}}/wait-for-webhooks.sh"
+
+  deploy-bmc:
+    desc: Deploy big-minecraft chart
+    silent: true
+    cmds:
+      - task: _require-profile
+      # The chart that actually creates the datastores, so this is the last
+      # place a mode change can be caught. install and upgrade both validate
+      # before reaching here; running this standalone would otherwise skip it.
+      - task: validate
+      - echo "=========================================="
+      - echo "Deploying BMC..."
+      - echo "=========================================="
+      - helmfile apply --selector name=big-minecraft
+
+  upgrade:
+    desc: Upgrade existing BMC installation
+    cmds:
+      - task: _require-profile
+      - task: preflight
+      # preflight asks whether the cluster can run BMC; validate asks whether
+      # this config is safe to apply to it -- where a datastore mode change is
+      # caught. Upgrade is the likelier path for that, not install.
+      - task: validate
+      - helmfile apply
+
+  diff:
+    desc: Show what an apply would change, without applying it
+    silent: true
+    cmds:
+      - task: _require-profile
+      - helmfile diff
+
+  teardown:
+    desc: Destroy EVERYTHING - BMC and the cluster under it (irreversible)
+    prompt: This DESTROYS the cluster and every volume, world and database in it. Continue?
+    silent: true
+    cmds:
+      - task: _require-profile
+      - |
+        # Order matters, and getting it wrong wastes twenty minutes.
+        #
+        # Kubernetes-created load balancers (the game edge, the ingress) leave
+        # ENIs in the VPC subnets. Terraform cannot delete a VPC out from under
+        # them, so `tofu destroy` first gets most of the way and then hangs on
+        # subnet deletion until it times out. Removing the Helm releases first
+        # lets the load balancer controller clean its own ENIs up.
+        echo "==========================================" 
+        echo "1/5  Removing BMC (releases the load balancers)"
+        echo "=========================================="
+        helmfile destroy || echo "  (nothing installed, or cluster already gone)"
+      - |
+        echo ""
+        echo "=========================================="
+        echo "2/5  Deleting persistent volume claims"
+        echo "=========================================="
+        # Helm does not delete PVCs created from a StatefulSet's
+        # volumeClaimTemplate -- that is deliberate, so an upgrade cannot eat
+        # your data. It also means the NFS server's backing disk outlives
+        # `helmfile destroy`, and deleting the cluster does not reclaim it
+        # either: the disk is owned by the PV, not the node. The result is a
+        # disk quietly billing every month for a cluster that no longer exists.
+        #
+        # Deleting the PVCs lets the CSI driver delete the underlying disks
+        # while there is still a cluster around to do it.
+        for ns in {{.NAMESPACE}} nfs; do
+          PVCS=$(kubectl get pvc -n "$ns" --no-headers 2>/dev/null | wc -l | tr -d ' ')
+          if [ "${PVCS:-0}" != "0" ]; then
+            echo "  deleting $PVCS PVC(s) in namespace '$ns'"
+            kubectl delete pvc --all -n "$ns" --timeout=120s 2>/dev/null || true
+          fi
+        done
+        for ns in {{.NAMESPACE}} nfs; do
+          kubectl delete namespace "$ns" --timeout=120s 2>/dev/null || true
+        done
+
+      - |
+        echo ""
+        echo "=========================================="
+        echo "3/5  Waiting for cloud load balancers to disappear"
+        echo "=========================================="
+        # This stage exists so a cloud provider releases the network interfaces
+        # behind its load balancers before the VPC under them is destroyed.
+        # Profiles with no cloud layer have nothing to wait for -- and on k3s
+        # they would wait forever anyway, because k3s's own Traefik is a
+        # LoadBalancer Service that the teardown neither removes nor should.
+        case "{{.PROFILE}}" in
+          eks|gke|aks) ;;
+          *)
+            echo "  no cloud load balancers for profile '{{.PROFILE}}' -- skipping"
+            exit 0
+            ;;
+        esac
+
+        # Cloud-agnostic first: once no LoadBalancer Services remain, the
+        # provider has been told to release them. Deletion is asynchronous, so
+        # the provider-specific check below confirms it actually happened.
+        for i in $(seq 1 60); do
+          SVCS=$(kubectl get svc -A --field-selector spec.type=LoadBalancer --no-headers 2>/dev/null | wc -l | tr -d ' ')
+          [ "${SVCS:-0}" = "0" ] && break
+          echo "  $SVCS LoadBalancer Service(s) still present..."
+          sleep 5
+        done
+
+        case "{{.PROFILE}}" in
+          eks)
+            for i in $(seq 1 60); do
+              REMAINING=$(aws elbv2 describe-load-balancers \
+                --query "length(LoadBalancers[?starts_with(LoadBalancerName, 'k8s-')])" \
+                --output text 2>/dev/null || echo 0)
+              [ "${REMAINING:-0}" = "0" ] && { echo "  all released"; break; }
+              echo "  $REMAINING load balancer(s) still present..."
+              sleep 5
+            done
+
+            # The AWS Load Balancer Controller creates a shared backend security
+            # group ("k8s-traffic-<cluster>-<hash>") that Terraform never knows
+            # about, and removing the controller leaves it behind. A non-default
+            # security group blocks VPC deletion, so `tofu destroy` gets all the
+            # way to the VPC and then fails on a dependency with no obvious
+            # owner. Security groups are free, so this is about being able to
+            # finish the destroy, not about cost.
+            for SG in $(aws ec2 describe-security-groups \
+              --filters "Name=group-name,Values=k8s-traffic-*" \
+              --query 'SecurityGroups[].GroupId' --output text 2>/dev/null); do
+              echo "  removing orphaned controller security group $SG"
+              aws ec2 delete-security-group --group-id "$SG" 2>/dev/null || \
+                echo "    (still in use -- it will be retried by the destroy)"
+            done
+            ;;
+          gke)
+            # GKE leaves forwarding rules and target pools behind for a few
+            # seconds after the Service goes. Destroying the network under them
+            # fails, so wait them out.
+            for i in $(seq 1 60); do
+              REMAINING=$(gcloud compute forwarding-rules list \
+                --format="value(name)" 2>/dev/null | wc -l | tr -d ' ')
+              [ "${REMAINING:-0}" = "0" ] && { echo "  all released"; break; }
+              echo "  $REMAINING forwarding rule(s) still present..."
+              sleep 5
+            done
+            ;;
+          aks)
+            # AKS puts Service load balancers and their public IPs in the node
+            # resource group, which the cluster delete takes with it. The wait
+            # still matters: a public IP that is mid-release when the cluster
+            # goes can be orphaned into the subscription with nothing owning it.
+            for i in $(seq 1 60); do
+              REMAINING=$(kubectl get svc -A --field-selector spec.type=LoadBalancer --no-headers 2>/dev/null | wc -l | tr -d ' ')
+              [ "${REMAINING:-0}" = "0" ] && { echo "  all released"; break; }
+              echo "  $REMAINING LoadBalancer service(s) still present..."
+              sleep 5
+            done
+            ;;
+        esac
+      - |
+        echo ""
+        echo "=========================================="
+        echo "4/5  Draining Karpenter nodes"
+        echo "=========================================="
+        # Karpenter is EKS-only. Without this guard a bare-metal teardown runs
+        # AWS CLI queries against whatever account happens to be configured.
+        if [ "{{.PROFILE}}" != "eks" ]; then
+          echo "  Karpenter is only used on EKS -- skipping"
+          exit 0
+        fi
+
+        # Karpenter launches its instances through the EC2 API, so Terraform has
+        # no record of them and never destroys them. Deleting the cluster kills
+        # the controller too, and the orphans keep ENIs in the private subnets --
+        # which Terraform cannot then delete, so destroy sits in DependencyViolation
+        # retries until it times out. Deleting the NodePool while Karpenter is
+        # still alive is what actually terminates them.
+        if kubectl get nodepools >/dev/null 2>&1; then
+          kubectl delete nodepools --all --wait=false 2>/dev/null || true
+          echo "  waiting for nodeclaims to drain..."
+          for i in $(seq 1 60); do
+            LEFT=$(kubectl get nodeclaims --no-headers 2>/dev/null | wc -l | tr -d ' ')
+            [ "$LEFT" = "0" ] && break
+            sleep 10
+          done
+          LEFT=$(kubectl get nodeclaims --no-headers 2>/dev/null | wc -l | tr -d ' ')
+          if [ "$LEFT" = "0" ]; then
+            echo "  all Karpenter nodes drained"
+          else
+            # Finalizers hold a NodeClaim open when the controller cannot reach
+            # the EC2 API. Clearing them lets the destroy proceed; the sweep
+            # below is what stops the instances from leaking.
+            echo "  ${LEFT} nodeclaim(s) still draining -- clearing finalizers"
+            for nc in $(kubectl get nodeclaims -o name 2>/dev/null); do
+              kubectl patch "$nc" --type=merge -p '{"metadata":{"finalizers":[]}}' 2>/dev/null || true
+            done
+          fi
+        else
+          echo "  no Karpenter NodePools (or cluster already gone)"
+        fi
+
+        # Whatever the cluster reported, make sure nothing tagged for it is left
+        # running: an instance that outlives its VPC blocks the subnet delete.
+        ORPHANS=$(aws ec2 describe-instances \
+          --filters "Name=tag:karpenter.sh/nodepool,Values=*" \
+                    "Name=tag:kubernetes.io/cluster/{{.CLUSTER_NAME}},Values=owned" \
+                    "Name=instance-state-name,Values=pending,running,stopping,stopped" \
+          --query 'Reservations[].Instances[].InstanceId' --output text 2>/dev/null)
+        if [ -n "$ORPHANS" ]; then
+          echo "  terminating orphaned Karpenter instances: $ORPHANS"
+          aws ec2 terminate-instances --instance-ids $ORPHANS >/dev/null 2>&1 || true
+          aws ec2 wait instance-terminated --instance-ids $ORPHANS 2>/dev/null || true
+          echo "  orphans terminated"
+        fi
+      - |
+        echo ""
+        echo "=========================================="
+        echo "5/5  Destroying the infrastructure"
+        echo "=========================================="
+        case "{{.PROFILE}}" in
+          baremetal)
+            # Ansible built this cluster, so Ansible removes it. k3s owns the
+            # uninstall scripts on each node; the playbook also clears
+            # Longhorn's disks, which those scripts know nothing about.
+            INV={{.ROOT_DIR}}/{{.INFRA_DIR}}/baremetal.inventory.yml
+            if [ ! -f "$INV" ]; then
+              echo "  No inventory at $INV -- nothing to uninstall."
+              exit 0
+            fi
+            cd {{.ROOT_DIR}}/ansible && ansible-playbook uninstall.yml -i "$INV"
+            ;;
+          *)
+            if [ ! -d "{{.TF_DIR}}" ]; then
+              echo "  No infrastructure layer for profile '{{.PROFILE}}' -- nothing to destroy."
+              echo "  (this profile's cluster is not provisioned by this repo)"
+              exit 0
+            fi
+            cd {{.TF_DIR}} && tofu destroy -auto-approve \
+              -var-file={{.ROOT_DIR}}/{{.INFRA_DIR}}/{{.PROFILE}}.tfvars
+            ;;
+        esac
+      - |
+        echo ""
+        echo "Done. Verify nothing is still billable with:"
+        echo "  task teardown:verify"
+
+  teardown:verify:
+    desc: List any cloud resources still running that would incur charges
+    silent: true
+    cmds:
+      - task: _require-profile
+      - |
+        echo "=========================================="
+        echo "Still-billable resources"
+        echo "  profile: {{.PROFILE}}"
+        echo "=========================================="
+        case "{{.PROFILE}}" in
+          eks)
+            printf "%-24s %s\n" "EKS clusters:"    "$(aws eks list-clusters --query 'clusters' --output text 2>/dev/null)"
+            printf "%-24s %s\n" "EC2 instances:"   "$(aws ec2 describe-instances --filters Name=instance-state-name,Values=running,pending --query 'Reservations[].Instances[].InstanceId' --output text 2>/dev/null)"
+            printf "%-24s %s\n" "Load balancers:"  "$(aws elbv2 describe-load-balancers --query 'LoadBalancers[].LoadBalancerName' --output text 2>/dev/null)"
+            printf "%-24s %s\n" "NAT gateways:"    "$(aws ec2 describe-nat-gateways --filter Name=state,Values=available,pending --query 'NatGateways[].NatGatewayId' --output text 2>/dev/null)"
+            printf "%-24s %s\n" "Elastic IPs:"     "$(aws ec2 describe-addresses --query 'Addresses[].AllocationId' --output text 2>/dev/null)"
+            printf "%-24s %s\n" "EBS volumes:"     "$(aws ec2 describe-volumes --query 'Volumes[].VolumeId' --output text 2>/dev/null)"
+            printf "%-24s %s\n" "EBS snapshots:"   "$(aws ec2 describe-snapshots --owner-ids self --query 'Snapshots[].SnapshotId' --output text 2>/dev/null)"
+            printf "%-24s %s\n" "EFS filesystems:" "$(aws efs describe-file-systems --query 'FileSystems[].FileSystemId' --output text 2>/dev/null)"
+            echo ""
+            echo "NOTE: AWS only, and the CURRENT region only."
+            ;;
+          gke)
+            # Every one of these bills while it exists. Disks and addresses are
+            # the ones that outlive a cluster deletion and quietly keep charging.
+            printf "%-24s %s\n" "GKE clusters:"     "$(gcloud container clusters list --format='value(name)' 2>/dev/null | tr '\n' ' ')"
+            printf "%-24s %s\n" "Compute instances:" "$(gcloud compute instances list --format='value(name)' 2>/dev/null | tr '\n' ' ')"
+            printf "%-24s %s\n" "Forwarding rules:" "$(gcloud compute forwarding-rules list --format='value(name)' 2>/dev/null | tr '\n' ' ')"
+            printf "%-24s %s\n" "Static addresses:" "$(gcloud compute addresses list --format='value(name)' 2>/dev/null | tr '\n' ' ')"
+            printf "%-24s %s\n" "Persistent disks:" "$(gcloud compute disks list --format='value(name)' 2>/dev/null | tr '\n' ' ')"
+            printf "%-24s %s\n" "Disk snapshots:"   "$(gcloud compute snapshots list --format='value(name)' 2>/dev/null | tr '\n' ' ')"
+            printf "%-24s %s\n" "Cloud NAT:"        "$(gcloud compute routers list --format='value(name)' 2>/dev/null | tr '\n' ' ')"
+            printf "%-24s %s\n" "Filestore:"        "$(gcloud filestore instances list --format='value(name)' 2>/dev/null | tr '\n' ' ')"
+            echo ""
+            echo "NOTE: GCP only, and project '$(gcloud config get-value project 2>/dev/null)'."
+            echo "      Pass PROFILE=eks to check AWS instead."
+            ;;
+          aks)
+            # Resource groups first: on Azure almost everything here lives in
+            # one, so a leftover group is the clearest signal that a destroy
+            # did not finish. AKS also creates its own node resource group
+            # (MC_<group>_<cluster>_<region>) holding the VMSS, disks and
+            # public IPs -- it should disappear with the cluster.
+            printf "%-24s %s\n" "Resource groups:"  "$(az group list --query '[].name' --output tsv 2>/dev/null | tr '\n' ' ')"
+            printf "%-24s %s\n" "AKS clusters:"     "$(az aks list --query '[].name' --output tsv 2>/dev/null | tr '\n' ' ')"
+            printf "%-24s %s\n" "Virtual machines:" "$(az vm list --query '[].name' --output tsv 2>/dev/null | tr '\n' ' ')"
+            printf "%-24s %s\n" "Scale sets:"       "$(az vmss list --query '[].name' --output tsv 2>/dev/null | tr '\n' ' ')"
+            printf "%-24s %s\n" "Public IPs:"       "$(az network public-ip list --query '[].name' --output tsv 2>/dev/null | tr '\n' ' ')"
+            printf "%-24s %s\n" "Load balancers:"   "$(az network lb list --query '[].name' --output tsv 2>/dev/null | tr '\n' ' ')"
+            printf "%-24s %s\n" "Managed disks:"    "$(az disk list --query '[].name' --output tsv 2>/dev/null | tr '\n' ' ')"
+            printf "%-24s %s\n" "Disk snapshots:"   "$(az snapshot list --query '[].name' --output tsv 2>/dev/null | tr '\n' ' ')"
+            # Azure Files shares back the ReadWriteMany class, so a storage
+            # account outliving the cluster keeps billing for stored data.
+            printf "%-24s %s\n" "Storage accounts:" "$(az storage account list --query '[].name' --output tsv 2>/dev/null | tr '\n' ' ')"
+            echo ""
+            echo "NOTE: Azure only, and subscription '$(az account show --query name --output tsv 2>/dev/null)'."
+            echo "      This lists the WHOLE subscription, so anything unrelated to BMC shows too."
+            ;;
+          *)
+            echo "No cloud resources for profile '{{.PROFILE}}'."
+            echo "Pass PROFILE=eks, PROFILE=gke or PROFILE=aks to sweep a cloud account."
+            ;;
+        esac
+        echo ""
+        echo "Empty on every line means nothing is accruing charges."
+
+  uninstall:
+    desc: Remove BMC installation from cluster
+    prompt: This will DELETE the BMC installation from '{{.NAMESPACE}}'. Continue?
+    silent: true
+    cmds:
+      - task: _require-profile
+      - helmfile destroy
+      - echo ""
+      - echo "⚠️  Secrets were NOT deleted. To remove secrets run:"
+      - echo "   kubectl delete secret bmc-secrets -n {{.NAMESPACE}}"
+      - echo ""
+      - echo "The GameServer CRD is annotated helm.sh/resource-policy=keep and"
+      - echo "was NOT deleted, so existing GameServers survive."
+
+  clean:
+    desc: Clean this profile's generated config
+    prompt: This will delete your local config file. Continue?
+    silent: true
+    cmds:
+      - task: _require-profile
+      - rm -f {{.CONFIG_DIR}}/{{.PROFILE}}.yaml
+      - echo "✓ Cleaned generated files"
+
+  test:up:
+    desc: Create a throwaway local k3d cluster with RWX storage
+    silent: true
+    cmds: ["{{.SCRIPTS_DIR}}/local-test.sh up"]
+
+  test:build:
+    desc: Build panel/manager for this machine's arch and import into the test cluster
+    silent: true
+    cmds: ["{{.SCRIPTS_DIR}}/local-test.sh build"]
+
+  test:install:
+    desc: Preflight and install BMC into the local test cluster
+    silent: true
+    cmds: ["{{.SCRIPTS_DIR}}/local-test.sh install"]
+
+  test:status:
+    desc: Show what is running in the local test cluster
+    silent: true
+    cmds: ["{{.SCRIPTS_DIR}}/local-test.sh status"]
+
+  test:panel:
+    desc: Port-forward the local test panel to http://localhost:8080
+    silent: true
+    cmds: ["{{.SCRIPTS_DIR}}/local-test.sh panel"]
+
+  test:down:
+    desc: Delete the local test cluster
+    silent: true
+    cmds: ["{{.SCRIPTS_DIR}}/local-test.sh down"]
+
+  test:all:
+    desc: Full local test - create cluster, build images, install, report
+    silent: true
+    cmds: ["{{.SCRIPTS_DIR}}/local-test.sh all"]
+
+  verify:
+    desc: Verify all prerequisites are installed
+    silent: true
+    cmds:
+      - task: _require-profile
+      - PROFILE={{.PROFILE}} {{.SCRIPTS_DIR}}/verify-prerequisites.sh
+
+  help:
+    desc: Show available tasks
+    silent: true
+    cmds:
+      - task --list

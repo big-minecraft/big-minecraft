@@ -1,0 +1,32 @@
+{{- /*
+The runtime Helm charts the panel installs per deployment, plus their default
+values, shipped as part of THIS chart.
+
+Why they live here rather than being fetched at runtime: these templates consume
+`.Values.global.*`, which this chart defines. They are two halves of one
+contract. Previously the panel cloned them from the default branch of
+github.com/big-minecraft/big-minecraft at first start and never updated them, so
+the chart and the templates were versioned independently -- and drifted. A chart
+emitting `storage.classes.shared.name` against templates still reading
+`storage.storageClass` produced no error, just a silent fallback to a
+wrong-but-plausible storage class.
+
+Shipping them in the release makes that skew structurally impossible: the
+templates always match the chart that rendered them, they update atomically on
+upgrade, and no network access is needed at startup.
+
+ConfigMap keys cannot contain "/", so each path is flattened with "_" here and
+mapped back to its real nested path by the volume's items[].path in panel.yaml.
+Both sides are generated from the same glob, so they cannot disagree.
+*/ -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "common.name" . }}-runtime-charts
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+data:
+  {{- range $path, $_ := .Files.Glob "files/**" }}
+  {{ include "bmc.runtimeKey" $path }}: |-
+{{ $.Files.Get $path | indent 4 }}
+  {{- end }}

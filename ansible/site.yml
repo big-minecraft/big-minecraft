@@ -1,0 +1,107 @@
+# Prepares a bare-metal cluster for BMC: k3s, Longhorn's node prerequisites,
+# Longhorn itself, and a kubeconfig on the workstation.
+---
+- name: Validate the inventory before touching anything
+  hosts: localhost
+  gather_facts: false
+  connection: local
+  become: false
+  vars:
+    # The variable form beats the play keyword, and inventory group vars.
+    ansible_become: false
+  tasks:
+    - name: There must be at least one server
+      ansible.builtin.assert:
+        that: groups['k3s_servers'] | default([]) | length > 0
+        fail_msg: >-
+          No hosts in k3s_servers. Either the inventory has no control-plane
+          node, or it failed to parse -- Ansible falls back to an implicit
+          localhost when that happens, which looks identical from here. Check
+          for parser warnings above, then
+          config/infrastructure/baremetal.inventory.yml.
+          
+    - name: Server count must be odd
+      ansible.builtin.assert:
+        that: (groups['k3s_servers'] | length) % 2 == 1
+        fail_msg: >-
+          k3s_servers has {{ groups['k3s_servers'] | length }} hosts. Embedded
+          etcd needs an odd number (1, 3, 5) to hold quorum -- with an even
+          count, losing one member leaves no majority.
+
+    - name: Warn when the cluster is too small for the HA datastores
+      ansible.builtin.debug:
+        msg: >-
+          This cluster has {{ (groups['k3s_servers'] | length) + (groups['k3s_agents'] | default([]) | length) }}
+          node(s). The HA datastore modes want three, or their quorum members
+          share one failure domain. Single-node clusters work; they just are
+          not highly available.
+      when: >-
+        (groups['k3s_servers'] | length) + (groups['k3s_agents'] | default([]) | length) < 3
+
+- name: Prepare every node
+  hosts: k3s_servers:k3s_agents
+  vars:
+    _first_server: "{{ groups['k3s_servers'][0] }}"
+    _api_address: >-
+      {{ k3s_api_address | default('', true)
+         or hostvars[groups['k3s_servers'][0]].ansible_host
+         | default(groups['k3s_servers'][0]) }}
+  roles:
+    - prereqs
+
+- name: Install the control plane
+  hosts: k3s_servers
+  serial: 1
+  vars:
+    _first_server: "{{ groups['k3s_servers'][0] }}"
+    _api_address: >-
+      {{ k3s_api_address | default('', true)
+         or hostvars[groups['k3s_servers'][0]].ansible_host
+         | default(groups['k3s_servers'][0]) }}
+  roles:
+    - k3s_server
+
+- name: Install the workers
+  hosts: k3s_agents
+  vars:
+    _first_server: "{{ groups['k3s_servers'][0] }}"
+    _api_address: >-
+      {{ k3s_api_address | default('', true)
+         or hostvars[groups['k3s_servers'][0]].ansible_host
+         | default(groups['k3s_servers'][0]) }}
+  roles:
+    - k3s_agent
+
+- name: Read the kubeconfig off the first server
+  hosts: "{{ groups['k3s_servers'][0] }}"
+  tasks:
+    - name: Slurp the cluster kubeconfig
+      ansible.builtin.slurp:
+        src: /etc/rancher/k3s/k3s.yaml
+      register: _kubeconfig_raw
+
+    - name: Hand it to the workstation play
+      ansible.builtin.set_fact:
+        kubeconfig_b64: "{{ _kubeconfig_raw.content }}"
+
+# Runs on the workstation. A separate play rather than delegate_to: a delegated
+# task inherits ansible_become from the cluster hosts and tries to sudo on the
+# operator's own laptop.
+- name: Configure kubectl and install storage from the workstation
+  hosts: localhost
+  connection: local
+  become: false
+  gather_facts: true
+  vars:
+    # See the note in the first play: the variable form is what actually wins.
+    ansible_become: false
+    _first_server: "{{ groups['k3s_servers'][0] }}"
+    _api_address: >-
+      {{ hostvars[groups['k3s_servers'][0]].k3s_api_address | default('', true)
+         or hostvars[groups['k3s_servers'][0]].ansible_host
+         | default(groups['k3s_servers'][0]) }}
+    _staged_kubeconfig: "/tmp/bmc-kubeconfig-{{ k3s_context_name }}"
+    kubeconfig_b64: "{{ hostvars[groups['k3s_servers'][0]].kubeconfig_b64 }}"
+  roles:
+    - kubeconfig
+    - longhorn

@@ -1,0 +1,35 @@
+# Longhorn's requirements, installed BEFORE k3s.
+---
+- name: Select package names for this distribution
+  ansible.builtin.set_fact:
+    _storage_packages: >-
+      {{ ['open-iscsi', 'nfs-common']
+         if ansible_facts['os_family'] == 'Debian'
+         else ['iscsi-initiator-utils', 'nfs-utils'] }}
+
+- name: Install Longhorn's node prerequisites
+  ansible.builtin.package:
+    name: "{{ _storage_packages }}"
+    state: present
+  register: _pkg
+  until: _pkg is succeeded
+  retries: 3
+  delay: 5
+
+- name: Enable and start iscsid
+  ansible.builtin.systemd:
+    name: iscsid
+    enabled: true
+    state: started
+
+- name: Load the iscsi_tcp kernel module now
+  ansible.builtin.command: modprobe iscsi_tcp
+  register: _modprobe
+  changed_when: false
+  failed_when: _modprobe.rc != 0
+
+- name: Persist iscsi_tcp across reboots
+  ansible.builtin.copy:
+    dest: /etc/modules-load.d/iscsi_tcp.conf
+    content: "iscsi_tcp\n"
+    mode: "0644"

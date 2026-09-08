@@ -1,0 +1,119 @@
+# Profile: Azure Kubernetes Service
+#
+# The cluster and its network come from terraform/aks/. This profile only states
+# how AKS satisfies BMC's capability contract; it installs none of it.
+#
+# The contract, and who satisfies it on AKS:
+#   - RWX storage        -> azurefile-csi, built in      (Azure Files, SMB)
+#   - RWO storage        -> managed-csi, built in        (Azure Disk CSI)
+#   - LoadBalancer       -> AKS's own service controller (no controller to install)
+#   - IngressClass       -> ingress-nginx                (installed by helmfile)
+#   - pod egress         -> outbound through the standard load balancer
+#
+# Verify all of it before installing:
+#   task preflight PROFILE=aks
+#
+# Three things differ from the other cloud profiles in ways worth knowing before
+# you debug them:
+#
+# 1. ReadWriteMany comes from Azure Files rather than an in-cluster NFS server.
+#    Unlike Filestore on GCP there is no 1 TiB minimum -- Azure Files bills for
+#    what you use -- so the NFS server GKE needs is unnecessary here. The
+#    tradeoff is that azurefile-csi is SMB, not a POSIX filesystem: file locking
+#    and permissions are emulated. Only persistent deployments touch it. If a
+#    server misbehaves on it, set global.nfsServer.install true and point
+#    storage.classes.persistent at "nfs" instead.
+#
+# 2. Azure load balancers hand out an IP, not a hostname, so DNS records are A
+#    records rather than CNAMEs -- same as GKE, unlike EKS.
+#
+# 3. Mixed TCP+UDP on one Service is the riskiest assumption here, as on GKE.
+#    The game edge carries TCP 25565 and UDP 19132 together, which needs
+#    MixedProtocolLBService (GA in 1.26) and the standard load balancer SKU that
+#    terraform/aks sets. The preflight LoadBalancer probe only provisions TCP,
+#    so it will NOT catch a failure here -- check that Bedrock actually answers
+#    on 19132 after installing.
+#
+# You must still set in values.custom.yaml:
+#   global.ingress.host, global.panel.panelHost, global.certManager.email
+
+global:
+  edge:
+    game:
+      type: LoadBalancer
+      annotations: {}
+      # Azure honours loadBalancerIP when the address is a static public IP in
+      # the cluster's node resource group. Empty lets Azure allocate one.
+      loadBalancerIP: ""
+      sourceRanges: []
+
+    # Same design as the EKS and GKE profiles: file sessions are reached through
+    # ingress-nginx TCP passthrough rather than a load balancer per session, so
+    # a session is usable as soon as its pod starts. See ingressNginx below.
+    file:
+      type: ClusterIP
+      annotations: {}
+      # Not read for ClusterIP. Access is bounded by whoever can reach the
+      # ingress load balancer.
+      sourceRanges: []
+
+  storage:
+    classes:
+      # Staging and artifact-pulling instances: one pod at a time. Azure Disk,
+      # built into AKS, no class to create.
+      shared:
+        name: "managed-csi"
+        accessMode: ReadWriteOnce
+      database:
+        name: "managed-csi"
+        accessMode: ReadWriteOnce
+
+      # Persistent deployments only. Azure Files is the native ReadWriteMany
+      # answer here and has no minimum size, so nothing extra is installed.
+      persistent:
+        name: "azurefile-csi"
+        accessMode: ReadWriteMany
+
+  # Not needed: azurefile-csi already provides ReadWriteMany. Turn this on only
+  # if you move storage.classes.persistent off Azure Files -- see note 1 above.
+  nfsServer:
+    install: false
+
+  # No MetalLB on AKS -- Azure's controller owns Services of type LoadBalancer.
+  metallb:
+    installResources: false
+
+  # Installed by helmfile, as on every profile. Azure's own Application Gateway
+  # ingress is a separate product with its own certificate model; ingress-nginx
+  # fits tls.mode: cluster-issuer without it.
+  ingressNginx:
+    install: true
+
+    # Forward the panel's SFTP port block through to file session pods, instead
+    # of giving each session its own load balancer.
+    sftpPassthrough:
+      enabled: true
+      minPort: 31400
+      portCount: 20
+
+    service:
+      annotations:
+        # Health probing on AKS defaults to the first port, which for this
+        # Service is a raw TCP passthrough port rather than anything that
+        # answers HTTP. Point the probe at the controller's own health endpoint
+        # so the load balancer does not mark every node unhealthy.
+        service.beta.kubernetes.io/azure-load-balancer-health-probe-request-path: "/healthz"
+
+  ingress:
+    className: "nginx"
+    tls:
+      mode: cluster-issuer
+
+  # Datastores run in-cluster. Set mode to "ha" for operator-managed clusters;
+  # see charts/bmc-chart/values.yaml for what each mode installs.
+  redis:
+    mode: single
+  mariaDB:
+    mode: single
+  mongoDB:
+    mode: single

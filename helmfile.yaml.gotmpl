@@ -1,0 +1,234 @@
+environments:
+  default:
+    values:
+      - charts/bmc-chart/values.yaml                 # Neutral defaults
+      - profiles/{{ env "PROFILE" | default "baremetal" }}.yaml                 # How this KIND of environment satisfies the contract
+      - {{ env "BMC_VALUES_FILE" | default (printf "config/%s.yaml" (env "PROFILE" | default "baremetal")) }}   # This installation (required)
+---
+repositories:
+  - name: metallb
+    url: https://metallb.github.io/metallb
+  - name: jetstack
+    url: https://charts.jetstack.io
+  - name: traefik
+    url: https://traefik.github.io/charts
+  - name: ingress-nginx
+    url: https://kubernetes.github.io/ingress-nginx
+  - name: nfs-ganesha
+    url: https://kubernetes-sigs.github.io/nfs-ganesha-server-and-external-provisioner/
+  - name: minio
+    url: https://charts.min.io/
+  - name: ot-helm
+    url: https://ot-container-kit.github.io/helm-charts
+  - name: mariadb-operator
+    url: https://helm.mariadb.com/mariadb-operator
+  - name: mongodb-helm
+    url: https://mongodb.github.io/helm-charts
+---
+releases:
+  - name: traefik
+    namespace: traefik
+    createNamespace: true
+    chart: traefik/traefik
+    version: 28.3.0
+    installed: false
+  - name: metallb
+    namespace: metallb-system
+    createNamespace: true
+    chart: metallb/metallb
+    version: 0.14.9
+    installed: {{ .Values.global.metallb.installResources }}
+    # NOTE: do not add a presync hook that deletes the MetalLB CRDs. Deleting a
+    # CRD cascades to its custom resources, so every apply would wipe the
+    # IPAddressPools and L2Advertisements this install depends on -- including
+    # any the cluster operator manages themselves. The pinned chart version
+    # above is what keeps CRD drift under control.
+
+  # Datastore operators, installed only for the datastores set to mode: ha.
+  #
+  # Each owns its own pods and Services; the bmc-chart creates the cluster
+  # resources and aliases redis-service / mariadb-service / mongodb-service onto
+  # them, so nothing that already resolves those names changes.
+  - name: redis-operator
+    namespace: {{ .Values.global.namespace }}
+    createNamespace: true
+    chart: ot-helm/redis-operator
+    version: 0.26.1
+    installed: {{ eq .Values.global.redis.mode "ha" }}
+    # Wait for the operator to be Ready, not merely created. Its validating
+    # webhook has no endpoints until the pod is up, and a cluster resource
+    # applied before then is rejected outright.
+    wait: true
+    timeout: 300
+
+  - name: mariadb-operator
+    namespace: {{ .Values.global.namespace }}
+    createNamespace: true
+    chart: mariadb-operator/mariadb-operator
+    version: 26.6.0
+    installed: {{ eq .Values.global.mariaDB.mode "ha" }}
+    # Wait for the operator to be Ready, not merely created. Its validating
+    # webhook has no endpoints until the pod is up, and a cluster resource
+    # applied before then is rejected outright.
+    wait: true
+    timeout: 300
+    values:
+      - crds:
+          enabled: true
+
+  - name: mongodb-operator
+    namespace: {{ .Values.global.namespace }}
+    createNamespace: true
+    chart: mongodb-helm/community-operator
+    version: 0.13.0
+    installed: {{ eq .Values.global.mongoDB.mode "ha" }}
+    # Wait for the operator to be Ready, not merely created. Its validating
+    # webhook has no endpoints until the pod is up, and a cluster resource
+    # applied before then is rejected outright.
+    wait: true
+    timeout: 300
+    values:
+      - community-operator-crds:
+          enabled: true
+
+  # Object storage for deployment artifacts, where there is no managed
+  # equivalent. Must exist before big-minecraft: a deployment whose artifact
+  # cannot be fetched will not start.
+  - name: minio
+    # BMC's namespace, not its own: it authenticates with bmc-secrets, and
+    # secrets are namespaced. The publish Job and the fetch init container read
+    # the same secret from the same place.
+    namespace: {{ .Values.global.namespace }}
+    createNamespace: true
+    chart: minio/minio
+    version: 5.4.0
+    installed: {{ .Values.global.artifactStore.install }}
+    values:
+      - mode: standalone
+        # Deployment templates are re-publishable from the panel, so one
+        # replica is enough; distributed mode needs four nodes.
+        replicas: 1
+        persistence:
+          enabled: true
+          size: {{ .Values.global.artifactStore.size | quote }}
+          {{- with .Values.global.storage.classes.database.name }}
+          storageClass: {{ . | quote }}
+          {{- end }}
+        existingSecret: bmc-secrets
+        buckets:
+          - name: {{ .Values.global.artifactStore.bucket | quote }}
+            policy: none
+            purge: false
+        resources:
+          requests:
+            memory: 512Mi
+
+  # ReadWriteMany storage, for clusters with no affordable managed option.
+  #
+  # Must exist before big-minecraft: the panel's PVC and every game deployment
+  # claim against the class this creates, and a PVC naming a class that does not
+  # exist stays Pending indefinitely rather than failing.
+  - name: nfs-server-provisioner
+    namespace: nfs
+    createNamespace: true
+    chart: nfs-ganesha/nfs-server-provisioner
+    version: 1.8.0
+    installed: {{ .Values.global.nfsServer.install }}
+    values:
+      - persistence:
+          enabled: true
+          storageClass: {{ .Values.global.nfsServer.backingStorageClass | quote }}
+          size: {{ .Values.global.nfsServer.size | quote }}
+        storageClass:
+          create: true
+          name: {{ .Values.global.nfsServer.storageClassName | quote }}
+          # Game data outlives a session. Deleting a PVC should not silently
+          # take the world with it.
+          reclaimPolicy: Retain
+          mountOptions:
+            # Keep a server restart from turning into permanent EIO in the game
+            # servers: block and retry rather than failing the I/O.
+            - hard
+            - nfsvers=4.1
+
+  # Installed by helmfile rather than by the Terraform layer: ingress-nginx
+  # needs nothing from any cloud provider, so keeping it here preserves one
+  # place to look for what lands in a cluster. Service annotations come from
+  # the profile as data -- see global.ingressNginx.service.annotations.
+  #
+  # On EKS this needs the AWS Load Balancer Controller to already exist, or its
+  # Service sits in <pending> forever. Terraform installs that controller, and
+  # Terraform runs before helmfile, so the ordering holds across the two tools.
+  - name: ingress-nginx
+    namespace: ingress-nginx
+    createNamespace: true
+    chart: ingress-nginx/ingress-nginx
+    version: 4.11.3
+    installed: {{ .Values.global.ingressNginx.install }}
+    values:
+      - controller:
+          service:
+            annotations:
+              {{- toYaml .Values.global.ingressNginx.service.annotations | nindent 14 }}
+        {{- if .Values.global.ingressNginx.sftpPassthrough.enabled }}
+        # One entry per SFTP port the panel can hand out. The chart turns these
+        # into the tcp-services ConfigMap AND into ports on the controller
+        # Service, which is what puts listeners on the cloud load balancer.
+        #
+        # Keyed by port rather than by deployment on purpose: the panel assigns
+        # a port per deployment and never moves it, so this mapping never needs
+        # to change when deployments come and go. The file-session chart names
+        # its Service to match.
+        tcp:
+          {{- $min := .Values.global.ingressNginx.sftpPassthrough.minPort | int }}
+          {{- $ns := .Values.global.namespace }}
+          {{- range $i := until (.Values.global.ingressNginx.sftpPassthrough.portCount | int) }}
+          {{ add $min $i | quote }}: "{{ $ns }}/sftp-slot-{{ add $min $i }}:22"
+          {{- end }}
+        {{- end }}
+
+  - name: cert-manager
+    namespace: cert-manager
+    createNamespace: true
+    chart: jetstack/cert-manager
+    version: v1.12.0
+    installed: {{ eq .Values.global.ingress.tls.mode "cluster-issuer" }}
+    set:
+      - name: installCRDs
+        value: true
+      - name: startupapicheck.enabled
+        value: false
+
+  - name: big-minecraft
+    namespace: {{ .Values.global.namespace }}
+    createNamespace: true
+    chart: ./charts/bmc-chart
+    values:
+      - charts/bmc-chart/values.yaml
+      - profiles/{{ env "PROFILE" | default "baremetal" }}.yaml
+      - {{ env "BMC_VALUES_FILE" | default (printf "config/%s.yaml" (env "PROFILE" | default "baremetal")) }}
+    needs:
+      {{- if .Values.global.metallb.installResources }}
+      - metallb-system/metallb
+      {{- end }}
+      {{- if eq .Values.global.ingress.tls.mode "cluster-issuer" }}
+      - cert-manager/cert-manager
+      {{- end }}
+      {{- if .Values.global.ingressNginx.install }}
+      - ingress-nginx/ingress-nginx
+      {{- end }}
+      {{- if .Values.global.nfsServer.install }}
+      - nfs/nfs-server-provisioner
+      {{- end }}
+      {{- if .Values.global.artifactStore.install }}
+      - {{ .Values.global.namespace }}/minio
+      {{- end }}
+      {{- if eq .Values.global.redis.mode "ha" }}
+      - {{ .Values.global.namespace }}/redis-operator
+      {{- end }}
+      {{- if eq .Values.global.mariaDB.mode "ha" }}
+      - {{ .Values.global.namespace }}/mariadb-operator
+      {{- end }}
+      {{- if eq .Values.global.mongoDB.mode "ha" }}
+      - {{ .Values.global.namespace }}/mongodb-operator
+      {{- end }}

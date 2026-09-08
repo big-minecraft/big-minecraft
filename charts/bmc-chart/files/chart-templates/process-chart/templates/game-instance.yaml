@@ -1,0 +1,40 @@
+apiVersion: kyriji.dev/v1alpha1
+kind: GameServer
+metadata:
+  name: {{ .Values.name }}
+  labels:
+    app: {{ .Values.name }}
+    chart: "{{ .Chart.Name }}-{{ .Chart.Version }}"
+spec:
+  deploymentType: process
+  image: {{ .Values.process.image }}
+  env:
+  {{- range .Values.process.env }}
+  - name: {{ .name }}
+    value: {{ .value | quote }}
+  {{- end }}
+  resources:
+    requests:
+      memory: {{ .Values.resources.requests.memory }}
+      cpu: {{ .Values.resources.requests.cpu }}
+    limits:
+      memory: {{ .Values.resources.limits.memory }}
+      cpu: {{ .Values.resources.limits.cpu }}
+  volume:
+    mountPath: {{ .Values.volume.mountPath | default "/minecraft" }}
+    storageClass: {{ .Values.global.storage.classes.persistent.name | default "longhorn" }}
+    size: {{ .Values.global.storage.volumeSize.process | default "2Gi" }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: bmc-process-{{ .Values.name }}
+  labels:
+    app: {{ .Values.name }}
+    kyriji.dev/deployment-type: "process"
+spec:
+  accessModes: [{{ .Values.global.storage.classes.persistent.accessMode | default "ReadWriteMany" | quote }}]
+  storageClassName: {{ .Values.global.storage.classes.persistent.name | default "longhorn" }}
+  resources:
+    requests:
+      storage: {{ .Values.global.storage.volumeSize.process | default "2Gi" }}

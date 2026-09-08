@@ -1,0 +1,188 @@
+# Profile: Amazon EKS
+#
+# The cluster and everything under it -- VPC, node groups, the EFS filesystem,
+# the CSI drivers, the load balancer controller -- is assumed to be provisioned
+# already (this is the layer Terraform/OpenTofu owns). This profile only states
+# how EKS satisfies the capability contract; it installs none of it.
+#
+# The contract, and who satisfies it on EKS:
+#   - RWX storage        -> EFS + aws-efs-csi-driver      (storage class below)
+#   - RWO storage        -> EBS + aws-ebs-csi-driver      (storage class below)
+#   - LoadBalancer       -> AWS Load Balancer Controller  (annotations below)
+#   - IngressClass       -> ingress-nginx                 (see ingress below)
+#   - pod egress         -> NAT gateway, if nodes are in private subnets
+#
+# Verify all of it before installing:
+#   task preflight PROFILE=eks
+#
+# Three of these are easy to get wrong in ways that fail late rather than loudly:
+#
+# 1. The AWS Load Balancer Controller is REQUIRED, not optional. The game edge
+#    is one Service carrying TCP 25565 and UDP 19132, and the legacy in-tree
+#    provider cannot do UDP at all -- it will hand back a working-looking
+#    Classic LB that silently drops every Bedrock packet. Mixed-protocol
+#    Services also need Kubernetes >= 1.26 (preflight checks the version).
+#
+# 2. EFS dynamic provisioning needs the driver's access-point mode. A storage
+#    class in static mode binds nothing and the PVC sits Pending forever, which
+#    looks identical to "the cluster is slow". The preflight shared-storage
+#    probe schedules two pods against one claim, so it catches this in ~90s.
+#
+# 3. If nodes are in private subnets, pods have no egress without a NAT
+#    gateway. The proxy entrypoint downloads bmc-velocity.jar from GitHub on
+#    EVERY start, so without egress every proxy pod fails at boot. That NAT
+#    gateway is a standing hourly charge plus per-GB -- budget for it, or
+#    vendor the plugin into the image.
+#
+# You must still set in values.custom.yaml:
+#   global.ingress.host, global.panel.panelHost, global.certManager.email
+#   global.edge.game.sourceRanges  (strongly recommended -- see below)
+
+global:
+  edge:
+    # One internet-facing NLB for the game entrypoint. Annotations are a
+    # verbatim passthrough, so this is data, not template logic.
+    game:
+      type: LoadBalancer
+      annotations:
+        # "external" selects the AWS Load Balancer Controller rather than the
+        # deprecated in-tree provider. Without it, no UDP -- see note 1 above.
+        service.beta.kubernetes.io/aws-load-balancer-type: "external"
+        service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: "ip"
+        service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"
+        # NOT optional. An NLB spans every subnet it is given -- three AZs here
+        # -- and publishes one IP per AZ in DNS. With cross-zone disabled (the
+        # AWS default) an AZ only serves traffic if it holds a healthy target,
+        # but its IP stays in DNS regardless. Game server pods rarely occupy
+        # every AZ, so clients round-robin onto an IP with no backend behind it
+        # and the connection hangs -- intermittently, for a fraction of players,
+        # with nothing wrong in any log.
+        #
+        # The cost is inter-AZ data transfer on traffic that crosses zones.
+        service.beta.kubernetes.io/aws-load-balancer-attributes: "load_balancing.cross_zone.enabled=true"
+      # AWS ignores loadBalancerIP. To keep a stable address, allocate Elastic
+      # IPs in Terraform and pass them as
+      #   service.beta.kubernetes.io/aws-load-balancer-eip-allocations
+      # above, one per subnet, in subnet order.
+      loadBalancerIP: ""
+      sourceRanges: []
+
+    # SFTP / file-edit sessions, created and destroyed per session by the panel.
+    #
+    # ClusterIP -- deliberately NOT a per-session LoadBalancer.
+    #
+    # A per-session NLB takes about four minutes before it accepts a connection
+    # (provisioning, then DNS publication, then target health checks) against a
+    # 15-minute session, and bills hourly with a one-hour minimum. Instead
+    # ingress-nginx forwards the deployment's SFTP port straight through to the
+    # session pod: no new load balancer, so a session is reachable as soon as
+    # the pod is running.
+    #
+    # This also makes the panel's existing address correct with no panel change.
+    # It advertises "sftp://<panelHost>:<sftpPort>"; panelHost resolves to the
+    # ingress load balancer, which now listens on exactly that port.
+    #
+    # See global.ingressNginx.sftpPassthrough below for the port block.
+    file:
+      type: ClusterIP
+      annotations: {}
+      # Not read for ClusterIP -- access is controlled by the ingress load
+      # balancer's security group, which Terraform manages per port (see
+      # file_session_allowed_cidrs in terraform/).
+      sourceRanges: []
+
+  storage:
+    classes:
+      # Created by Terraform against the EFS filesystem, in access-point mode:
+      #   provisioner: efs.csi.aws.com
+      #   parameters: {provisioningMode: efs-ap, fileSystemId: fs-..., directoryPerms: "700"}
+      # Rename here if your Terraform names it something else -- but never leave
+      # it empty. An empty name silently selects the cluster default, which on
+      # EKS is EBS gp2/gp3 and is RWO-only, and the failure surfaces as a
+      # file-edit pod that will not schedule alongside its running server.
+      # Staging and artifact-pulling instances: one pod at a time, so EBS is
+      # enough and EFS is not needed here.
+      shared:
+        name: "gp3"
+        accessMode: ReadWriteOnce
+      # EBS. gp3 is cheaper and faster than the gp2 that older clusters default
+      # to; the class must exist (the EBS CSI driver does not create one).
+      database:
+        name: "gp3"
+        accessMode: ReadWriteOnce
+
+      # Persistent deployments only. This is the sole reason the EFS filesystem
+      # exists -- set storage.persistentDeployments false and enable_efs can go
+      # false in terraform.tfvars too.
+      persistent:
+        name: "efs-sc"
+        accessMode: ReadWriteMany
+
+  # No MetalLB on EKS -- the AWS Load Balancer Controller owns Services of type
+  # LoadBalancer.
+  metallb:
+    installResources: false
+
+  # Installed by helmfile (see helmfile.yaml), not by the Terraform layer --
+  # ingress-nginx needs nothing from AWS, so it stays where every other
+  # in-cluster install lives. The annotations are the same NLB passthrough the
+  # game edge uses.
+  #
+  # It does depend on the AWS Load Balancer Controller, which Terraform installs;
+  # since Terraform runs first, the ordering holds.
+  ingressNginx:
+    install: true
+
+    # Forward the panel's SFTP port block through to file session pods. This is
+    # what replaces the per-session load balancer; see edge.file above.
+    sftpPassthrough:
+      enabled: true
+      minPort: 31400
+      portCount: 20
+
+    service:
+      annotations:
+        service.beta.kubernetes.io/aws-load-balancer-type: "external"
+        service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: "ip"
+        service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"
+        # A Terraform-managed security group, referenced by name.
+        #
+        # Needed because loadBalancerSourceRanges applies to a whole Service,
+        # and this one now carries both the panel (80/443, which must stay open
+        # to the internet for Let's Encrypt HTTP-01) and the SFTP port block
+        # (which must not). Per-port rules require owning the group, so
+        # terraform/ creates it and the controller is told to use it.
+        #
+        # The name must match ingress_lb_security_group_name in terraform/.
+        service.beta.kubernetes.io/aws-load-balancer-security-groups: "bmc-ingress-lb"
+        # Keep the controller managing the load-balancer-to-pod rules even
+        # though the frontend group is ours; without this, backend traffic is
+        # silently not allowed.
+        service.beta.kubernetes.io/aws-load-balancer-manage-backend-security-group-rules: "true"
+        # The controller runs one or two replicas against a three-AZ load
+        # balancer, so without this a share of panel requests hit an IP with no
+        # backend and hang.
+        service.beta.kubernetes.io/aws-load-balancer-attributes: "load_balancing.cross_zone.enabled=true"
+
+  # ingress-nginx plus cert-manager, which is the combination the contract's
+  # tls.mode: cluster-issuer describes.
+  #
+  # An AWS ALB is the other option, and it does NOT fit this mode: an ALB
+  # terminates TLS with an ACM certificate referenced by annotation, not with a
+  # Kubernetes Secret, so cert-manager has nothing to issue into. Going that
+  # route means className "alb", tls.mode "none", and accepting that TLS ends
+  # at the load balancer with plain HTTP behind it.
+
+  ingress:
+    className: "nginx"
+    tls:
+      mode: cluster-issuer
+
+  # Datastores run in-cluster. Set mode to "ha" for operator-managed clusters;
+  # see charts/bmc-chart/values.yaml for what each mode installs.
+  redis:
+    mode: single
+  mariaDB:
+    mode: single
+  mongoDB:
+    mode: single

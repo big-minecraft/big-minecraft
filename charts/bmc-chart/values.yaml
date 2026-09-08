@@ -1,60 +1,156 @@
+# BMC (Big Minecraft) Chart Default Values
+#
+# This file contains safe, environment-neutral defaults only.
+# DO NOT add secrets or environment-specific values here.
+#
+# Configuration is layered, lowest precedence first:
+#   1. this file          -- neutral defaults
+#   2. profiles/<name>.yaml -- how one KIND of environment satisfies the contract
+#   3. config/<profile>.yaml -- this specific installation
+#
+# For installation:
+#   1. Run 'task config:init'
+#   2. Edit config/<profile>.yaml with your configuration
+#   3. Run 'task secrets:generate' to create Kubernetes secrets
+#   4. Run 'task install PROFILE=<profile>' to deploy
+
+# Container images. values.example.yaml has always documented this section,
+# but until now no template read it. Overriding these is what lets a locally
+# built image be used instead of the published one (see scripts/local-test.sh).
+images:
+  panel:
+    repository: kyrokrypt/bmc-panel
+    tag: latest
+    pullPolicy: Always
+  manager:
+    repository: kyrokrypt/bmc-manager
+    tag: latest
+    pullPolicy: Always
+
 global:
+  namespace: bmc
   environment: production
 
-  # Dependency installation flags
-  # Set these to false when installing on a cluster that already has these dependencies
-  dependencies:
-    # Install cert-manager helm chart (set false if already installed)
-    installCertManager: false
-    # Install metallb helm chart (set false if already installed)
-    installMetalLB: false
-    # Install traefik helm chart (set false if already installed, e.g., k3s)
-    installTraefik: false
-
   certManager:
-    # Install ClusterIssuer resource (set false if already exists)
     installClusterIssuer: false
-    # ClusterIssuer name to use (whether creating it or using existing)
     clusterIssuerName: "letsencrypt-prod"
-    # Email for Let's Encrypt notifications
-    email: "bmc@redacted.com"
+    # Email must be set in config/<profile>.yaml
+    email: ""
 
   panel:
-    initialInviteCode: cuLLgJ9LEIf
-    panelSecret: QtSDzCJcBJaDhde5A0jZ
+    # Secrets are stored in Kubernetes secret 'bmc-secrets'
+    # Domains must be set in config/<profile>.yaml
+    panelHost: ""
     storagePath: /storage
-    panelHost: dev.panel.wiji.dev
-    k8sDashboardHost: k8s-bmc.wiji.dev
     inviteCodeExpiryDays: 7
 
-  loadBalancer:
-    # Provider options:
-    #  - metallb : on-premise with MetalLB (requires entrypointIP)
+  # Edge = the surfaces BMC exposes outside the cluster.
+  # `annotations` is a verbatim passthrough: environment-specific load balancer
+  # configuration belongs in a profile as data, never as template logic. This is
+  # what lets a new environment be a YAML file rather than a template change.
+  edge:
+    # The game entrypoint. This is the ONLY surface that must be internet-facing.
+    game:
+      type: LoadBalancer
+      annotations: {}
+      loadBalancerIP: ""
+      sourceRanges: []
+      java:
+        port: 25565
+      bedrock:
+        enabled: true
+        port: 19132
 
-    provider: metallb
+    # SFTP / file-edit sessions, created per deployment at runtime by the panel.
+    #
+    # NodePort is the historical behaviour and stays the default. It is
+    # unreachable on clouds whose nodes sit in private subnets -- switching to
+    # ClusterIP requires the panel to proxy SFTP, and LoadBalancer costs one
+    # cloud load balancer per open file session.
+    file:
+      type: NodePort
+      annotations: {}
+      # Restrict who can reach an open SFTP session (empty = anywhere)
+      sourceRanges: []
 
-    # MetalLB-specific configuration (only used when provider is 'metallb')
-    metallb:
-      # Install MetalLB IPAddressPool and L2Advertisement resources
-      # Set to false if these resources already exist in the cluster
-      entrypointIP: 15.204.235.114
-      installResources: false
-      # IP address pool for MetalLB
-      # Can be a single IP (e.g., "5.78.123.236/32") or range (e.g., "192.168.1.100-192.168.1.110")
-      ipAddressPool:
-        - 15.204.235.114/32
-      # Advertisement mode: l2 or bgp
-      advertisementMode: l2
+  # ingress-nginx, installed by helmfile when a profile asks for it. Kept here
+  # rather than in the Terraform layer because it needs nothing from any cloud
+  # provider: helmfile is the single answer to "what gets installed into this
+  # cluster", and the annotations below are data, exactly like edge.*.annotations.
+  ingressNginx:
+    install: false
+    service:
+      annotations: {}
+
+    # TCP passthrough for SFTP file sessions.
+    #
+    # Instead of giving every session its own cloud load balancer -- which takes
+    # about four minutes to provision and bills hourly with a one-hour minimum --
+    # the ingress controller forwards a block of ports straight through to the
+    # session pods. Sessions then become reachable as fast as the pod starts.
+    #
+    # The panel allocates one SFTP port per DEPLOYMENT from 31400 upwards
+    # (MIN_SFTP_PORT_RANGE in deploymentManager), so the mapping below is static:
+    # port 31400 always routes to whichever deployment currently holds 31400.
+    # That is also why the panel's existing "panelHost:sftpPort" address becomes
+    # correct with no panel change -- panelHost resolves to the ingress load
+    # balancer, which now listens on exactly that port.
+    #
+    # portCount is bounded by the cloud load balancer's listener limit (50 on an
+    # AWS NLB), and by how many deployments you expect to have.
+    sftpPassthrough:
+      enabled: false
+      minPort: 31400
+      portCount: 20
 
   ingress:
-    ingressClass: "traefik"
-    panelDomain: dev.panel.wiji.dev
+    className: "traefik"
+    # Host must be set in config/<profile>.yaml
+    host: ""
+    tls:
+      # cluster-issuer | existing-secret | none
+      mode: cluster-issuer
+      # Used when mode is 'cluster-issuer'; defaults to certManager.clusterIssuerName
+      issuer: ""
+      # Used when mode is 'existing-secret'
+      secretName: ""
 
   storage:
-    # Must support ReadWriteMany Access Mode
-    storageClass: "longhorn"
+    classes:
+      # Shared game data and panel manifests. RWX is NOT optional: the panel
+      # mounts a deployment's game volume into a file-edit pod and an SFTP pod
+      # concurrently with the running server, so multiple pods hold the same
+      # claim whenever a file session is open.
+      # Staging volumes, and the PVCs of deployment types whose instances pull
+      # artifacts rather than mounting this. One pod holds it at a time -- the
+      # file session -- so ReadWriteOnce is enough.
+      shared:
+        name: "longhorn"
+        accessMode: ReadWriteOnce
+      # MariaDB and MongoDB. Single writer each -- these do not want a network
+      # filesystem.
+      database:
+        name: "longhorn"
+        accessMode: ReadWriteOnce
 
-    reclaimPolicy: "Retain"
+      # Persistent deployments only. Their server runs in place on this volume
+      # while a file session can mount it too, so two pods hold it at once and
+      # ReadWriteMany is unavoidable. It is also cheap there: a persistent
+      # deployment is one instance, so the volume never sees more than a
+      # handful of mounts.
+      persistent:
+        name: "longhorn"
+        accessMode: ReadWriteMany
+    # Whether this installation runs persistent deployments.
+    #
+    # false lets a cluster skip ReadWriteMany entirely -- no EFS on EKS, no NFS
+    # server on GKE, no nfs-common on every bare-metal node. Preflight only
+    # probes for RWX when this is true.
+    #
+    # Turn it on before creating your first persistent deployment; leaving it
+    # false and creating one gives you a PVC that never binds.
+    persistentDeployments: true
+
     volumeSize:
       persistent: "10Gi"
       scalable: "5Gi"
@@ -64,34 +160,125 @@ global:
       mariaDB: "5Gi"
       mongoDB: "5Gi"
 
+  # Object storage for deployment artifacts. Instances pull a versioned
+  # artifact instead of every instance reading one shared filesystem at
+  # startup, which is what stops scale-up contending on that filesystem.
+  #
+  # install runs MinIO in-cluster, for anywhere without managed object storage.
+  # Credentials live in bmc-secrets.
+  artifactStore:
+    # On by default: every deployment type except persistent pulls its files
+    # from here rather than mounting the shared volume, which is what lets that
+    # volume be ReadWriteOnce without pinning every instance to one node.
+    enabled: true
+    install: true
+    # Leave empty when install is true: the panel resolves it to the in-cluster
+    # MinIO Service, which lives in BMC's namespace. Set it to an S3 or GCS
+    # endpoint to use managed object storage instead.
+    endpoint: ""
+    bucket: "bmc-artifacts"
+    region: "us-east-1"
+    # MinIO's backing volume. Only read when install is true.
+    size: "20Gi"
+
+  # In-cluster NFS server, providing the ReadWriteMany storage class on clouds
+  # whose managed RWX filesystem is disproportionately expensive.
+  #
+  # On GKE the managed option is Filestore, whose smallest instance is 1 TiB at
+  # roughly $200/month regardless of how little you store -- more than the rest
+  # of a small cluster costs. This runs an NFS server backed by an ordinary
+  # block volume instead, so you pay for the size you ask for.
+  #
+  # The trade is availability: one NFS server pod serves every deployment's game
+  # data, so while it restarts, mounts hang. It is a single point of failure in
+  # a way Filestore and EFS are not. Storage is on a normal PVC, so the data
+  # survives the pod; only availability blips.
+  nfsServer:
+    install: false
+    # Storage class for the NFS server's own backing volume. Empty uses the
+    # cluster default. This wants ReadWriteOnce block storage, not a network
+    # filesystem.
+    backingStorageClass: ""
+    size: "100Gi"
+    # Name of the ReadWriteMany class this creates. Point
+    # storage.classes.shared.name at it.
+    storageClassName: "nfs"
+
+  # MetalLB resources. Not a core capability -- purely an opt-in extra that a
+  # bare-metal profile enables. The chart contains no other MetalLB logic; the
+  # Service annotations come from edge.game.annotations like any other
+  # environment's would.
+  metallb:
+    installResources: false
+    ipAddressPool: []
+    advertisementMode: l2
+
   redis:
+    # single: one pod, no failover. The state is coordination data, rebuilt
+    #         from running instances on restart.
+    # ha:     operator-managed replication with Sentinel. The operator tracks
+    #         the master and keeps a Service pointing at it, so clients connect
+    #         to one name and failover needs no client support.
+    mode: single
+    replicas: 3
+
+    # What everything connects to, in every mode.
     host: "redis-service"
     port: 6379
 
+    # Point at a Redis you run yourself. Skips the in-cluster install entirely.
+    external: false
+    externalHost: ""
+    externalPort: 6379
+
   mariaDB:
+    # single: one pod on one volume.
+    # ha:     Galera via mariadb-operator. Wants at least 3 nodes for quorum --
+    #         on a single-node cluster the members die together.
+    mode: single
+    replicas: 3
+
     host: mariadb-service
     port: 3306
     username: root
     database: bmc
 
-    initPassword: K46IZkZm44N95h0fparY
+    # Point at a database you run yourself.
+    external: false
+
+    # Derived from mode and external; set only for a database neither
+    # `task secrets:generate` nor the operator created.
+    existingSecret: ""
+    passwordKey: ""
 
   mongoDB:
-     host: mongodb-service
-     port: 27017
-     username: admin
-     database: admin
+    # single: one pod on one volume.
+    # ha:     replica set via the MongoDB Community Operator. The driver does
+    #         failover natively once given a replica-set URI.
+    mode: single
+    replicas: 3
 
-     initPassword: QpbCcKBWfQTPVASXQmvQ
+    host: mongodb-service
+    port: 27017
+    username: admin
+    database: admin
+
+    external: false
+
+    # Used verbatim when non-empty, instead of building one from host/port.
+    # A replica set needs this: mongodb://u:p@h1,h2,h3/db?replicaSet=rs0
+    uri: ""
+
+    existingSecret: ""
+    passwordKey: ""
 
   prometheus:
     host: prometheus-service
     port: 9090
 
   sftp:
-    password: v6Qkb82i8V3x
+    # Password stored in secret 'bmc-secrets' key 'sftp-password'
+    enabled: true
 
   fileEditSession:
     timeoutMinutes: 15
-
-

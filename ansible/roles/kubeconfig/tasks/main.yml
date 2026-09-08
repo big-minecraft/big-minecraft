@@ -1,0 +1,68 @@
+# Merge the cluster's kubeconfig into the operator's ~/.kube/config as a named context.
+---
+- name: Rewrite the kubeconfig for use from the workstation
+  ansible.builtin.copy:
+    dest: "{{ _staged_kubeconfig }}"
+    mode: "0600"
+    content: |
+      {{ kubeconfig_b64 | b64decode
+         | replace('https://127.0.0.1:6443', 'https://' ~ _api_address ~ ':6443')
+         | replace('name: default', 'name: ' ~ k3s_context_name)
+         | replace('cluster: default', 'cluster: ' ~ k3s_context_name)
+         | replace('user: default', 'user: ' ~ k3s_context_name)
+         | replace('current-context: default', 'current-context: ' ~ k3s_context_name) }}
+
+- name: Ensure ~/.kube exists
+  ansible.builtin.file:
+    path: "{{ lookup('env', 'HOME') }}/.kube"
+    state: directory
+    mode: "0700"
+
+- name: Check for an existing kubeconfig
+  ansible.builtin.stat:
+    path: "{{ lookup('env', 'HOME') }}/.kube/config"
+  register: _existing
+
+- name: Back up the existing kubeconfig
+  ansible.builtin.copy:
+    src: "{{ lookup('env', 'HOME') }}/.kube/config"
+    dest: "{{ lookup('env', 'HOME') }}/.kube/config.bmc-backup-{{ ansible_date_time.epoch }}"
+    mode: "0600"
+    remote_src: true
+  when: _existing.stat.exists
+
+- name: Merge the new context in
+  ansible.builtin.shell: |
+    set -euo pipefail
+    if [ -f "$HOME/.kube/config" ]; then
+      KUBECONFIG="$HOME/.kube/config:{{ _staged_kubeconfig }}" \
+        kubectl config view --flatten > "{{ _staged_kubeconfig }}.merged"
+      mv "{{ _staged_kubeconfig }}.merged" "$HOME/.kube/config"
+    else
+      cp "{{ _staged_kubeconfig }}" "$HOME/.kube/config"
+    fi
+    chmod 600 "$HOME/.kube/config"
+  args:
+    executable: /bin/bash
+  changed_when: true
+
+- name: Remove the staged copy
+  ansible.builtin.file:
+    path: "{{ _staged_kubeconfig }}"
+    state: absent
+
+- name: Wait for the API server to answer through the merged context
+  ansible.builtin.command:
+    cmd: kubectl --context {{ k3s_context_name }} get --raw /readyz
+  register: _readyz
+  until: _readyz.rc == 0
+  retries: 30
+  delay: 5
+  changed_when: false
+
+- name: Report how to select the new context
+  ansible.builtin.debug:
+    msg:
+      - "Context '{{ k3s_context_name }}' merged into ~/.kube/config."
+      - "Your current context was NOT changed. To use the new cluster:"
+      - "    kubectl config use-context {{ k3s_context_name }}"

@@ -1,0 +1,34 @@
+# BMC bare-metal inventory
+all:
+  children:
+    cluster:
+      vars:
+        ansible_user: ubuntu # CHANGE THIS to the SSH user
+        ansible_ssh_private_key_file: ~/.ssh/id_ed25519 # CHANGE THIS to your SSH private key
+        ansible_become: true # sudo for package installs
+
+        # The address agents and extra servers use to reach the first server.
+        # Must be reachable from every node. Defaults to the first server's
+        # ansible_host when left empty.
+        k3s_api_address: ""
+
+        # Pin the k3s version for reproducible rebuilds. Empty tracks stable.
+        k3s_version: ""
+
+      children:
+        k3s_servers:
+          hosts:
+            # CHANGE THESE. One entry for a single control plane, or three for HA.
+            node1:
+              ansible_host: 192.168.1.10
+            # node2:
+            #   ansible_host: 192.168.1.11
+            # node3:
+            #   ansible_host: 192.168.1.12
+
+        k3s_agents:
+          # Leave this key with nothing under it for a servers-only cluster.
+          # Uncommenting an entry below is all that is needed to add a worker.
+          hosts:
+            # worker1:
+            #   ansible_host: 192.168.1.20

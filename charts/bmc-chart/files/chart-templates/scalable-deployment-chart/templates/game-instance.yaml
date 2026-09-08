@@ -1,0 +1,90 @@
+apiVersion: kyriji.dev/v1alpha1
+kind: GameServer
+metadata:
+  name: {{ .Values.name }}
+  labels:
+    app: {{ .Values.name }}
+    chart: "{{ .Chart.Name }}-{{ .Chart.Version }}"
+spec:
+  deploymentType: scalable
+  image: {{ .Values.server.image }}
+  command:
+    - /bin/bash
+    - /entrypoint/entrypoint.sh
+  port: {{ .Values.server.port | default 25565 }}
+  env:
+    {{- range .Values.server.env }}
+    - name: {{ .name }}
+      value: {{ .value | quote }}
+    {{- end }}
+    - name: REDIS_HOST
+      value: {{ .Values.global.redis.host | default .Values.server.redis.host | quote }}
+    - name: REDIS_PORT
+      value: {{ .Values.global.redis.port | default .Values.server.redis.port | quote }}
+    - name: DEPLOYMENT_NAME
+      value: {{ .Values.name | quote }}
+  resources:
+    requests:
+      memory: {{ .Values.resources.requests.memory }}
+      cpu: {{ .Values.resources.requests.cpu }}
+    limits:
+      memory: {{ .Values.resources.limits.memory }}
+      cpu: {{ .Values.resources.limits.cpu }}
+  volume:
+    mountPath: {{ .Values.volume.mountPath | default "/minecraft" }}
+    storageClass: {{ .Values.global.storage.classes.shared.name | default "longhorn" }}
+    size: {{ .Values.global.storage.volumeSize.scalable | default "5Gi" }}
+    # Read-only ONLY when the instance pulls an artifact, in which case this
+    # volume is just the staging copy and the working directory is a pod-local
+    # emptyDir. A deployment with no artifact yet mounts this AS its working
+    # directory -- the bootstrap state before any files are uploaded -- and the
+    # entrypoint has to be able to write to it.
+    readOnly: {{ if and .Values.global.artifactStore.enabled .Values.artifactVersion }}true{{ else }}false{{ end }}
+  {{- if and .Values.global.artifactStore.enabled .Values.artifactVersion }}
+  artifact:
+    endpoint: {{ .Values.global.artifactStore.endpoint | quote }}
+    bucket: {{ .Values.global.artifactStore.bucket | quote }}
+    deployment: {{ .Values.name | default "proxy" | quote }}
+    version: {{ .Values.artifactVersion | quote }}
+  {{- end }}
+  redis:
+    host: {{ .Values.global.redis.host | default .Values.server.redis.host | quote }}
+    port: {{ .Values.global.redis.port | default .Values.server.redis.port | quote }}
+  scaling:
+    strategy: {{ .Values.scaling.scaleStrategy | quote }}
+    maxPlayers: {{ .Values.scaling.maxPlayers }}
+    minInstances: {{ .Values.scaling.minInstances }}
+    maxInstances: {{ .Values.scaling.maxInstances }}
+    scaleUpThreshold: {{ .Values.scaling.scaleUpThreshold }}
+    scaleDownThreshold: {{ .Values.scaling.scaleDownThreshold }}
+    scaleUpCooldown: {{ .Values.scaling.scaleUpCooldown }}
+    scaleDownCooldown: {{ .Values.scaling.scaleDownCooldown }}
+    scaleUpLimit: {{ .Values.scaling.scaleUpLimit }}
+    scaleDownLimit: {{ .Values.scaling.scaleDownLimit }}
+    maxInstanceAge: {{ .Values.scaling.maxInstanceAge }}
+  queuing:
+    initialServer: {{ .Values.queuing.initialServer | quote }}
+    requireStartupConfirmation: {{ .Values.queuing.requireStartupConfirmation }}
+    queueStrategy: {{ .Values.queuing.queueStrategy | quote }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: bmc-scalable-{{ .Values.name }}
+  labels:
+    app: {{ .Values.name }}
+    kyriji.dev/deployment-type: "scalable"
+spec:
+  accessModes: [{{ .Values.global.storage.classes.shared.accessMode | default "ReadWriteOnce" | quote }}]
+  storageClassName: {{ .Values.global.storage.classes.shared.name | default "longhorn" }}
+  resources:
+    requests:
+      storage: {{ .Values.global.storage.volumeSize.scalable | default "5Gi" }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.name }}-entrypoint
+data:
+  entrypoint.sh: |
+{{ tpl (.Files.Get "scripts/entrypoint.sh") . | indent 4 }}

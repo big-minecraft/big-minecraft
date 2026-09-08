@@ -16,7 +16,7 @@ metadata:
 subjects:
   - kind: ServiceAccount
     name: kubectl-sa
-    namespace: default
+    namespace: {{ .Release.Namespace }}
 roleRef:
   kind: ClusterRole
   name: prometheus-server-role

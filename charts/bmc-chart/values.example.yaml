@@ -1,0 +1,146 @@
+# BMC (Big Minecraft) Configuration Example
+#
+# Fallback template, used for any profile without one of its own.
+# Create your config with:
+#   task config:init PROFILE=<profile>
+#
+# Configuration is layered, lowest precedence first:
+#   1. charts/bmc-chart/values.yaml  -- neutral defaults, do not edit
+#   2. profiles/<PROFILE>.yaml       -- how your KIND of cluster satisfies the contract
+#   3. config/<profile>.yaml            -- this file: YOUR installation
+#
+# Pick a profile from profiles/ and pass it on every command:
+#   task install PROFILE=baremetal
+#
+# Only put installation-specific values here. Anything true of every cluster of
+# that kind belongs in the profile instead.
+
+global:
+  environment: production
+
+  certManager:
+    # Create the ClusterIssuer? Set false if your cluster already has one
+    # managed elsewhere.
+    installClusterIssuer: true
+    clusterIssuerName: "letsencrypt-prod"
+    # REQUIRED
+    email: "your-email@example.com"  # CHANGE THIS
+
+  panel:
+    # REQUIRED: domain for the BMC web panel
+    panelHost: "panel.example.com"  # CHANGE THIS
+    storagePath: /storage
+    inviteCodeExpiryDays: 7
+
+  ingress:
+    # REQUIRED: must match panel.panelHost, or the certificate will not match
+    host: "panel.example.com"  # CHANGE THIS
+    # Usually supplied by the profile. Override if your cluster differs.
+    # className: "traefik"
+    tls:
+      # cluster-issuer | existing-secret | none
+      mode: cluster-issuer
+      # Defaults to certManager.clusterIssuerName when empty
+      issuer: ""
+      # Only for mode: existing-secret
+      secretName: ""
+
+  # Edge = what BMC exposes outside the cluster.
+  #
+  # `annotations` is passed through to the Service verbatim. This is the
+  # extension point for provider-specific load balancer configuration -- it is
+  # why supporting a new cloud does not require changing any template.
+  edge:
+    game:
+      type: LoadBalancer
+      annotations:
+        # --- MetalLB (bare metal) ---------------------------------------
+        # allow-shared-ip comes from the baremetal profile; only the
+        # address is yours:
+        metallb.io/loadBalancerIPs: "192.168.1.100"  # CHANGE THIS
+
+        # --- AWS / EKS --------------------------------------------------
+        # service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+        # service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"
+
+        # --- GCP / GKE --------------------------------------------------
+        # cloud.google.com/l4-rbs: "enabled"
+
+        # --- Azure / AKS ------------------------------------------------
+        # service.beta.kubernetes.io/azure-load-balancer-internal: "false"
+
+      # Restrict who can reach the game entrypoint (empty = anywhere)
+      sourceRanges: []
+      java:
+        port: 25565
+      bedrock:
+        enabled: true
+        port: 19132
+
+    # SFTP / file-edit sessions. NodePort is the default and is unreachable on
+    # clouds whose nodes sit in private subnets.
+    file:
+      type: NodePort
+
+  storage:
+    classes:
+      # REQUIRED: must support ReadWriteMany AND allow several pods to mount
+      # one claim at once -- file-edit and SFTP pods mount a deployment's
+      # volume alongside the running server.
+      #   bare metal: longhorn, nfs, cephfs
+      #   AWS: efs   GCP: filestore   Azure: azurefile
+      shared:
+        name: "longhorn"  # CHANGE if your cluster differs
+        accessMode: ReadWriteMany
+      # Single writer. Use fast block storage, not a network filesystem.
+      #   AWS: gp3   GCP: pd-balanced   Azure: managed-csi
+      database:
+        name: "longhorn"  # CHANGE if your cluster differs
+        accessMode: ReadWriteOnce
+
+    volumeSize:
+      persistent: "10Gi"
+      scalable: "5Gi"
+      proxy: "5Gi"
+      process: "2Gi"
+      manifests: "1Gi"
+      mariaDB: "5Gi"
+      mongoDB: "5Gi"
+
+  # Only used when the profile enables metallb.installResources.
+  metallb:
+    ipAddressPool:
+      - "192.168.1.100/32"  # CHANGE THIS
+
+  # Datastores, all in-cluster on every profile.
+  #
+  # mode: single -- one pod each. Fine for a small install.
+  # mode: ha     -- operator-managed clusters: Redis replication with Sentinel,
+  #                 MariaDB Galera, MongoDB replica set. Wants at least three
+  #                 nodes so quorum members do not share a failure domain.
+  #
+  # external: true points at a datastore you run yourself instead.
+  # CHOOSE THIS ONCE. Switching later is NOT a migration: the two modes use
+  # different storage -- single runs one pod with its own claim, ha runs an
+  # operator StatefulSet whose claims Kubernetes never deletes -- and the
+  # Service name stays the same in both. The panel therefore reconnects to an
+  # EMPTY database while the old volumes sit unreferenced, still reserving
+  # disk. Moving data between modes means a manual dump and restore.
+  mariaDB:
+    mode: single
+  mongoDB:
+    mode: single
+
+  redis:
+    host: "redis-service"
+    port: 6379
+
+  prometheus:
+    host: prometheus-service
+    port: 9090
+
+  sftp:
+    enabled: true
+
+  fileEditSession:
+    timeoutMinutes: 15

@@ -2,7 +2,22 @@
 .DS_Store
 pv/
 local/
+.task/
 
 nuke.sh
 scripts/Dockerfile
 backups/
+
+**/values.auto.yaml
+# Per-profile installation config: one file per profile, all yours.
+/config/*.yaml
+/config/*.yml
+/config/infrastructure/*
+!/config/.gitkeep
+!/config/infrastructure/.gitkeep
+# local test cluster state
+.local-test/
+.local-test.env
+
+# mkdocs build output
+site/

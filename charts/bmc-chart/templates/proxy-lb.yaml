@@ -5,21 +5,37 @@ metadata:
   labels:
     {{- include "common.labels" . | nindent 4 }}
     app: proxy
+  {{- with .Values.global.edge.game.annotations }}
   annotations:
-    {{- if eq .Values.global.loadBalancer.provider "metallb" }}
-    metallb.io/allow-shared-ip: "shared-ip-key"
-    metallb.io/loadBalancerIPs: "{{ .Values.global.loadBalancer.metallb.entrypointIP }}"
+    {{- /* Values are force-quoted: annotations must be map[string]string, and
+           an unquoted numeric value would be rejected by the API server. */}}
+    {{- range $key, $value := . }}
+    {{ $key }}: {{ $value | quote }}
     {{- end }}
+  {{- end }}
 spec:
-  type: LoadBalancer
+  type: {{ .Values.global.edge.game.type }}
+  # NOTE: this label is applied to proxy pods by the GameServer operator, not by
+  # any chart in this repo. Changing it silently breaks the public entrypoint.
   selector:
     kyriji.dev/lb-ready: "true"
+  {{- if and (eq .Values.global.edge.game.type "LoadBalancer") .Values.global.edge.game.loadBalancerIP }}
+  loadBalancerIP: {{ .Values.global.edge.game.loadBalancerIP | quote }}
+  {{- end }}
+  {{- with .Values.global.edge.game.sourceRanges }}
+  loadBalancerSourceRanges:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   ports:
     - protocol: TCP
-      port: 25565
-      targetPort: 25565
+      port: {{ .Values.global.edge.game.java.port }}
+      targetPort: {{ .Values.global.edge.game.java.port }}
       name: java
+    {{- if .Values.global.edge.game.bedrock.enabled }}
+    # Mixed TCP+UDP on one Service requires the MixedProtocolLBService feature,
+    # GA in Kubernetes 1.26.
     - protocol: UDP
-      port: 19132
-      targetPort: 19132
+      port: {{ .Values.global.edge.game.bedrock.port }}
+      targetPort: {{ .Values.global.edge.game.bedrock.port }}
       name: bedrock
+    {{- end }}
