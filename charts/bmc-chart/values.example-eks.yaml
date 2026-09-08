@@ -11,7 +11,7 @@
 # Configuration is layered, lowest precedence first:
 #   1. charts/bmc-chart/values.yaml  -- neutral defaults, do not edit
 #   2. profiles/eks.yaml             -- how EKS satisfies the contract
-#   3. values.custom.yaml            -- this file: YOUR installation
+#   3. config/eks.yaml            -- this file: YOUR installation
 #
 # This file is deliberately SHORT. Everything about EKS as a KIND of cluster --
 # storage classes, edge types, ingress class, the NLB annotations -- already
@@ -72,6 +72,12 @@ global:
   #
   # ha wants at least three nodes so quorum members do not share a failure
   # domain.
+  # CHOOSE THIS ONCE. Switching later is NOT a migration: the two modes use
+  # different storage -- single runs one pod with its own claim, ha runs an
+  # operator StatefulSet whose claims Kubernetes never deletes -- and the
+  # Service name stays the same in both. The panel therefore reconnects to an
+  # EMPTY database while the old volumes sit unreferenced, still reserving
+  # disk. Moving data between modes means a manual dump and restore.
   redis:
     mode: single
   mariaDB:

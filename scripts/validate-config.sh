@@ -12,8 +12,11 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 
 CHART_DIR="${CHART_DIR:-charts/bmc-chart}"
-PROFILE="${PROFILE:-baremetal-metallb}"
-VALUES_FILE="${VALUES_FILE:-$CHART_DIR/values.custom.yaml}"
+PROFILE="${PROFILE:-baremetal}"
+VALUES_FILE="${VALUES_FILE:-${CONFIG_DIR:-config}/${PROFILE:-baremetal}.yaml}"
+# Where BMC is installed. The Taskfile exports this; the fallback matches
+# charts/bmc-chart/values.yaml so the script also works when run directly.
+NAMESPACE="${NAMESPACE:-bmc}"
 
 echo "=========================================="
 echo "Validating Configuration"
@@ -190,6 +193,78 @@ if [ "$INSTALL_METALLB" = "true" ]; then
     VALIDATION_FAILED=true
   else
     echo -e "${GREEN}✓${NC} MetalLB IP pool: $(echo "$MERGED" | yq -o=json -I=0 '.global.metallb.ipAddressPool' - 2>/dev/null)"
+  fi
+fi
+
+# ------------------------------------------------ stranded datastore volumes --
+#
+# Switching between "single" and "ha" is not a migration: the topologies use
+# different storage, and Kubernetes never deletes a StatefulSet's claims. The
+# Service name is identical in both, so the panel reconnects to an EMPTY
+# database while the old volumes go on reserving disk -- surfacing much later
+# as unschedulable storage somewhere unrelated.
+echo ""
+echo "Datastore volumes"
+if ! kubectl get ns >/dev/null 2>&1; then
+  echo -e "${YELLOW}⚠${NC}  no cluster reachable -- skipping the stranded-volume check"
+else
+  PVCS=$(kubectl get pvc -n "$NAMESPACE" --no-headers 2>/dev/null | awk '{print $1}')
+  STRANDED=""
+  for DS in mariaDB mongoDB redis; do
+    MODE=$(echo "$MERGED" | yq ".global.${DS}.mode" - 2>/dev/null | tr -d '"')
+    case "$DS" in
+      mariaDB) HA_PAT='^(storage|galera)-bmc-mariadb-[0-9]+$'; SINGLE_PAT='^mariadb-pvc$' ;;
+      mongoDB) HA_PAT='^(data-volume|logs-volume)-bmc-mongodb-[0-9]+$'; SINGLE_PAT='^mongodb-pvc$' ;;
+      redis)   HA_PAT='^bmc-redis-bmc-redis-[0-9]+$'; SINGLE_PAT='^redis-pvc$' ;;
+    esac
+    # Look for the volumes belonging to the mode that is NOT configured.
+    if [ "$MODE" = "single" ]; then
+      FOUND=$(echo "$PVCS" | grep -E "$HA_PAT" || true)
+      OTHER="ha"
+    elif [ "$MODE" = "ha" ]; then
+      FOUND=$(echo "$PVCS" | grep -E "$SINGLE_PAT" || true)
+      OTHER="single"
+    else
+      FOUND=""
+    fi
+    if [ -n "$FOUND" ]; then
+      COUNT=$(echo "$FOUND" | wc -l | tr -d ' ')
+      echo -e "${RED}✗${NC} ${DS} is set to '${MODE}', but this cluster already runs '${OTHER}'"
+      echo "   ${COUNT} volume(s) from '${OTHER}' mode are still here:"
+      echo "$FOUND" | sed 's/^/     /'
+      STRANDED="${STRANDED}${FOUND}\n"
+    fi
+  done
+
+  if [ -n "$STRANDED" ]; then
+    # A hard stop: installing over a mode change succeeds silently against an
+    # empty datastore, so this is the last point anyone sees it happening.
+    echo ""
+    echo "   Switching mode is NOT a migration. The Service name is identical in"
+    echo "   both modes, so BMC will connect to a brand-new EMPTY datastore and"
+    echo "   carry on, while the volumes above keep reserving disk forever."
+    echo ""
+    echo "   Pick one:"
+    echo ""
+    echo "   1. Keep your data -- in $VALUES_FILE, set each mode above back to"
+    echo "      the one this cluster already runs."
+    echo ""
+    echo "   2. Abandon that data and reclaim the space (IRREVERSIBLE):"
+    echo "        kubectl delete pvc -n $NAMESPACE <the names above>"
+    echo "      then run this again."
+    echo ""
+    echo "   3. Migrate it yourself: dump from the old datastore, switch, restore."
+    echo ""
+    echo "   To proceed anyway and leave those volumes stranded, re-run with:"
+    echo "        BMC_ALLOW_DATASTORE_MODE_CHANGE=true task install PROFILE=$PROFILE"
+    if [ "${BMC_ALLOW_DATASTORE_MODE_CHANGE:-false}" = "true" ]; then
+      echo ""
+      echo -e "${YELLOW}⚠${NC}  BMC_ALLOW_DATASTORE_MODE_CHANGE=true -- continuing anyway"
+    else
+      VALIDATION_FAILED=true
+    fi
+  else
+    echo -e "${GREEN}✓${NC} no datastore mode change detected"
   fi
 fi
 
