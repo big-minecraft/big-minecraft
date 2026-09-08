@@ -8,13 +8,24 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 CHART_DIR="${CHART_DIR:-charts/bmc-chart}"
-PROFILE="${PROFILE:-baremetal-metallb}"
+PROFILE="${PROFILE:-baremetal}"
 # Honour the same override the other scripts take, so a second installation on
 # one machine (a cloud cluster alongside a bare-metal one, say) can point at its
-# own values file. Hardcoding values.custom.yaml here made `task install` fail
+# own values file. Hardcoding one config path here made `task install` fail
 # outright on any machine that does not have that specific file, even for
 # profiles where this script has nothing to do.
-VALUES_FILE="${VALUES_FILE:-$CHART_DIR/values.custom.yaml}"
+VALUES_FILE="${VALUES_FILE:-${CONFIG_DIR:-config}/${PROFILE:-baremetal}.yaml}"
+
+# These resources are ALSO templated by the big-minecraft chart, gated on the
+# MetalLB CRDs existing. This script exists to create them earlier -- preflight
+# provisions a real LoadBalancer Service and needs an address pool before the
+# chart is ever installed. Applying them plainly makes the later `helm install`
+# fail: it finds objects it does not own and refuses to adopt them, with
+#   "invalid ownership metadata; missing key meta.helm.sh/release-name".
+# Stamping Helm's ownership metadata on now is what lets the release adopt them.
+HELM_RELEASE="${HELM_RELEASE:-big-minecraft}"
+HELM_NAMESPACE="${NAMESPACE:-$(yq '.global.namespace' "$CHART_DIR/values.yaml" 2>/dev/null | tr -d '"')}"
+HELM_NAMESPACE="${HELM_NAMESPACE:-bmc}"
 
 echo ""
 echo "=========================================="
@@ -74,6 +85,13 @@ fi
 
 # Apply the configuration
 echo "Applying IPAddressPool and L2Advertisement..."
+# Stamp every rendered document so the big-minecraft release can adopt it.
+yq -i '
+  .metadata.labels."app.kubernetes.io/managed-by" = "Helm" |
+  .metadata.annotations."meta.helm.sh/release-name" = "'"$HELM_RELEASE"'" |
+  .metadata.annotations."meta.helm.sh/release-namespace" = "'"$HELM_NAMESPACE"'"
+' "$RENDER_FILE"
+
 if kubectl apply -f "$RENDER_FILE"; then
   echo ""
   echo -e "${GREEN}✓${NC} MetalLB configuration applied successfully"

@@ -7,7 +7,7 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-PROFILE="${PROFILE:-baremetal-metallb}"
+PROFILE="${PROFILE:-baremetal}"
 
 echo "=========================================="
 echo "Verifying Prerequisites"
@@ -64,6 +64,23 @@ fi
 # Tooling the cloud profiles need on top of the four above. Checked per profile
 # rather than always, so a bare-metal install is not asked for an AWS CLI it
 # will never use.
+case "$PROFILE" in
+  baremetal)
+    echo ""
+    echo "Cluster tooling for profile 'baremetal':"
+    # Ansible is this profile's equivalent of OpenTofu: it builds the cluster.
+    # Not needed if you already have a cluster and only want to install BMC.
+    if command -v ansible-playbook &> /dev/null; then
+      echo -e "${GREEN}✓${NC} ansible $(ansible --version 2>/dev/null | head -1 | sed 's/ansible \[//;s/\]//')"
+    else
+      echo -e "${YELLOW}!${NC} ansible not found"
+      echo "   Only needed for 'task cluster PROFILE=baremetal', which builds"
+      echo "   the k3s cluster. Skip it if your cluster already exists."
+      echo "   Install: brew install ansible | sudo apt install -y ansible"
+    fi
+    ;;
+esac
+
 case "$PROFILE" in
   eks|gke|aks)
     echo ""

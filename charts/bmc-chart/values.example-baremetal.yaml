@@ -1,0 +1,86 @@
+# BMC Configuration Example -- bare metal / k3s with MetalLB
+#
+# Created for you by:
+#   task config:init PROFILE=baremetal
+#
+# There is no Terraform layer here: you bring the machines, k3s (or any
+# conformant Kubernetes), MetalLB and Longhorn. See docs/baremetal-install.md.
+#
+# Configuration is layered, lowest precedence first:
+#   1. charts/bmc-chart/values.yaml  -- neutral defaults, do not edit
+#   2. profiles/baremetal.yaml       -- how a MetalLB cluster satisfies the contract
+#   3. config/baremetal.yaml         -- this file: YOUR installation
+#
+# This file is deliberately SHORT. Everything about bare metal as a KIND of
+# cluster -- storage classes, edge types, ingress class, MetalLB wiring --
+# already lives in profiles/baremetal.yaml. Repeating any of it here is how the
+# two drift apart later, and a wrong value here silently wins.
+#
+# Full install:
+#   task verify PROFILE=baremetal
+#   task config:init PROFILE=baremetal   # this file
+#   task preflight PROFILE=baremetal
+#   task secrets:generate
+#   task install PROFILE=baremetal
+
+global:
+  environment: production
+
+  certManager:
+    # Create the ClusterIssuer? Set false if your cluster already has one.
+    installClusterIssuer: true
+    clusterIssuerName: "letsencrypt-prod"
+    # REQUIRED -- Let's Encrypt sends expiry warnings here.
+    email: "your-email@example.com"  # CHANGE THIS
+
+  panel:
+    # REQUIRED: domain for the BMC web panel. Point an A record at the MetalLB
+    # address below.
+    panelHost: "panel.example.com"  # CHANGE THIS
+
+  ingress:
+    # REQUIRED: must match panel.panelHost, or the certificate will not match.
+    host: "panel.example.com"  # CHANGE THIS
+
+  edge:
+    game:
+      annotations:
+        # REQUIRED: the address MetalLB hands the game edge. Must be inside
+        # metallb.ipAddressPool below, and outside your DHCP range or the
+        # router will eventually lease it to something else.
+        #
+        # allow-shared-ip comes from the profile, so the panel and the game
+        # edge can share one address.
+        metallb.io/loadBalancerIPs: "192.168.1.100"  # CHANGE THIS
+      # Who may reach the game edge. Empty is anywhere, which is what a public
+      # Minecraft server wants.
+      sourceRanges: []
+
+  # REQUIRED: the pool MetalLB may allocate from. A single /32 is fine when the
+  # panel and game edge share one address.
+  metallb:
+    ipAddressPool:
+      - "192.168.1.100/32"  # CHANGE THIS
+
+  # Datastores run in-cluster. "single" is one pod each; "ha" installs
+  # operator-managed clusters (Redis with Sentinel, MariaDB Galera, MongoDB
+  # replica set).
+  # CHOOSE THIS ONCE. Switching later is NOT a migration: the two modes use
+  # different storage -- single runs one pod with its own claim, ha runs an
+  # operator StatefulSet whose claims Kubernetes never deletes -- and the
+  # Service name stays the same in both. The panel therefore reconnects to an
+  # EMPTY database while the old volumes sit unreferenced, still reserving
+  # disk. Moving data between modes means a manual dump and restore.
+  #
+  # ha wants at least three nodes -- the anti-affinity is a preference, not a
+  # requirement, so on one node all three members schedule together and you get
+  # the complexity without the protection.
+  redis:
+    mode: single
+  mariaDB:
+    mode: single
+  mongoDB:
+    mode: single
+
+  fileEditSession:
+    timeoutMinutes: 15
