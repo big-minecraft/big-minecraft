@@ -2,8 +2,8 @@ environments:
   default:
     values:
       - charts/bmc-chart/values.yaml                 # Neutral defaults
-      - profiles/{{ env "PROFILE" | default "baremetal-metallb" }}.yaml                 # How this KIND of environment satisfies the contract
-      - {{ env "BMC_VALUES_FILE" | default "charts/bmc-chart/values.custom.yaml" }}          # This installation (required)
+      - profiles/{{ env "PROFILE" | default "baremetal" }}.yaml                 # How this KIND of environment satisfies the contract
+      - {{ env "BMC_VALUES_FILE" | default (printf "config/%s.yaml" (env "PROFILE" | default "baremetal")) }}   # This installation (required)
 ---
 repositories:
   - name: metallb
@@ -205,8 +205,8 @@ releases:
     chart: ./charts/bmc-chart
     values:
       - charts/bmc-chart/values.yaml
-      - profiles/{{ env "PROFILE" | default "baremetal-metallb" }}.yaml
-      - {{ env "BMC_VALUES_FILE" | default "charts/bmc-chart/values.custom.yaml" }}
+      - profiles/{{ env "PROFILE" | default "baremetal" }}.yaml
+      - {{ env "BMC_VALUES_FILE" | default (printf "config/%s.yaml" (env "PROFILE" | default "baremetal")) }}
     needs:
       {{- if .Values.global.metallb.installResources }}
       - metallb-system/metallb

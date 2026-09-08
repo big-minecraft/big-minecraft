@@ -40,8 +40,9 @@ echo "Rendering bmc-chart against every profile"
 for p in profiles/*.yaml; do
   name=$(basename "$p" .yaml)
   args=(-f "$CHART_DIR/values.yaml" -f "$p")
-  # values.custom.yaml is gitignored, so CI renders without it.
-  [ -f "$CHART_DIR/values.custom.yaml" ] && args+=(-f "$CHART_DIR/values.custom.yaml")
+  # config/ is gitignored, so CI renders without a user config.
+  USER_CONFIG="${CONFIG_DIR:-config}/${PROFILE:-baremetal}.yaml"
+  [ -f "$USER_CONFIG" ] && args+=(-f "$USER_CONFIG")
 
   if helm template bmc "$CHART_DIR" "${args[@]}" "${API_VERSIONS[@]}" > "$TMP/$name.yaml" 2>"$TMP/$name.err"; then
     lbs=$(grep -c "type: LoadBalancer" "$TMP/$name.yaml" || true)

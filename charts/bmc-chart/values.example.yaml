@@ -1,15 +1,16 @@
 # BMC (Big Minecraft) Configuration Example
 #
-# Copy to values.custom.yaml and edit:
-#   task config:init
+# Fallback template, used for any profile without one of its own.
+# Create your config with:
+#   task config:init PROFILE=<profile>
 #
 # Configuration is layered, lowest precedence first:
 #   1. charts/bmc-chart/values.yaml  -- neutral defaults, do not edit
 #   2. profiles/<PROFILE>.yaml       -- how your KIND of cluster satisfies the contract
-#   3. values.custom.yaml            -- this file: YOUR installation
+#   3. config/<profile>.yaml            -- this file: YOUR installation
 #
 # Pick a profile from profiles/ and pass it on every command:
-#   task install PROFILE=baremetal-metallb
+#   task install PROFILE=baremetal
 #
 # Only put installation-specific values here. Anything true of every cluster of
 # that kind belongs in the profile instead.
@@ -54,7 +55,7 @@ global:
       type: LoadBalancer
       annotations:
         # --- MetalLB (bare metal) ---------------------------------------
-        # allow-shared-ip comes from the baremetal-metallb profile; only the
+        # allow-shared-ip comes from the baremetal profile; only the
         # address is yours:
         metallb.io/loadBalancerIPs: "192.168.1.100"  # CHANGE THIS
 
@@ -119,6 +120,12 @@ global:
   #                 nodes so quorum members do not share a failure domain.
   #
   # external: true points at a datastore you run yourself instead.
+  # CHOOSE THIS ONCE. Switching later is NOT a migration: the two modes use
+  # different storage -- single runs one pod with its own claim, ha runs an
+  # operator StatefulSet whose claims Kubernetes never deletes -- and the
+  # Service name stays the same in both. The panel therefore reconnects to an
+  # EMPTY database while the old volumes sit unreferenced, still reserving
+  # disk. Moving data between modes means a manual dump and restore.
   mariaDB:
     mode: single
   mongoDB:

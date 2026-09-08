@@ -6,11 +6,11 @@
 # Configuration is layered, lowest precedence first:
 #   1. this file          -- neutral defaults
 #   2. profiles/<name>.yaml -- how one KIND of environment satisfies the contract
-#   3. values.custom.yaml -- this specific installation
+#   3. config/<profile>.yaml -- this specific installation
 #
 # For installation:
 #   1. Run 'task config:init'
-#   2. Edit values.custom.yaml with your configuration
+#   2. Edit config/<profile>.yaml with your configuration
 #   3. Run 'task secrets:generate' to create Kubernetes secrets
 #   4. Run 'task install PROFILE=<profile>' to deploy
 
@@ -34,12 +34,12 @@ global:
   certManager:
     installClusterIssuer: false
     clusterIssuerName: "letsencrypt-prod"
-    # Email must be set in values.custom.yaml
+    # Email must be set in config/<profile>.yaml
     email: ""
 
   panel:
     # Secrets are stored in Kubernetes secret 'bmc-secrets'
-    # Domains must be set in values.custom.yaml
+    # Domains must be set in config/<profile>.yaml
     panelHost: ""
     storagePath: /storage
     inviteCodeExpiryDays: 7
@@ -105,7 +105,7 @@ global:
 
   ingress:
     className: "traefik"
-    # Host must be set in values.custom.yaml
+    # Host must be set in config/<profile>.yaml
     host: ""
     tls:
       # cluster-issuer | existing-secret | none

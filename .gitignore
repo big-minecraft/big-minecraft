@@ -9,7 +9,12 @@ scripts/Dockerfile
 backups/
 
 **/values.auto.yaml
-**/values.custom.yaml
+# Per-profile installation config: one file per profile, all yours.
+/config/*.yaml
+/config/*.yml
+/config/infrastructure/*
+!/config/.gitkeep
+!/config/infrastructure/.gitkeep
 # local test cluster state
 .local-test/
 .local-test.env

@@ -11,7 +11,7 @@ set -euo pipefail
 #      test cluster -- or, worse, leave a test command pointed at production.
 #
 #   2. It passes charts/bmc-chart/values.local.yaml explicitly via VALUES_FILE
-#      and never reads or writes values.custom.yaml.
+#      and never reads or writes anything in config/.
 #
 # Usage:
 #   scripts/local-test.sh up        # create cluster + RWX storage
@@ -27,7 +27,7 @@ RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC
 
 CLUSTER="${BMC_TEST_CLUSTER:-bmc-test}"
 NS="${BMC_TEST_NAMESPACE:-bmc}"
-PROFILE="${BMC_TEST_PROFILE:-generic}"
+PROFILE="${BMC_TEST_PROFILE:-baremetal}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 STATE="$ROOT/.local-test"
 export KUBECONFIG="$STATE/kubeconfig"
@@ -293,7 +293,7 @@ $(printf '      - %s\n' "${incompatible[@]}")
 
   step "Installing BMC (profile: $PROFILE)"
   # BMC_VALUES_FILE redirects helmfile's installation-values layer at the
-  # generated file. values.custom.yaml is never read or written.
+  # generated file. Nothing in config/ is read or written.
   PROFILE="$PROFILE" BMC_VALUES_FILE="$effective" \
     helmfile -f "$ROOT/helmfile.yaml.gotmpl" apply --skip-diff-on-install 2>&1 | tail -12 || true
 

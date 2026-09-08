@@ -2,7 +2,7 @@
 #
 # Committed on purpose: it contains no secrets and describes what k3d provides,
 # so `task test:up` works from a clean checkout. It is passed explicitly via
-# VALUES_FILE and NEVER replaces values.custom.yaml.
+# VALUES_FILE and NEVER replaces config/<profile>.yaml.
 
 global:
   environment: development
