@@ -2,6 +2,10 @@ version: '3'
 
 vars:
   CHART_DIR: charts/bmc-chart
+  # One file per profile, so switching clusters does not clobber the last one.
+  CONFIG_DIR: config
+  # What builds the cluster, kept apart from what configures BMC on it.
+  INFRA_DIR: config/infrastructure
   # Task evaluates `sh:` vars eagerly, for EVERY invocation. Without the
   # fallback a machine with no yq cannot even run `task verify` or `task help`
   # -- it dies with exit status 127 before reaching the prerequisite check.
@@ -11,7 +15,10 @@ vars:
     sh: '{ yq ".global.namespace" {{.CHART_DIR}}/values.yaml 2>/dev/null || echo bmc; } | tr -d ''"'''
   SCRIPTS_DIR: scripts
   # Which kind of environment this cluster is. See profiles/.
-  PROFILE: '{{.PROFILE | default "baremetal-metallb"}}'
+  # No default on purpose: a silent fallback means `task teardown` with no
+  # PROFILE acts on whichever cluster the default happens to name. Pass it per
+  # command or export it.
+  PROFILE: '{{.PROFILE}}'
   # Which Terraform root module belongs to this profile. Profiles with no cloud
   # layer (bare metal) resolve to a directory that does not exist, and the
   # teardown task checks before using it. Anchored to the Taskfile: a relative
@@ -28,11 +35,49 @@ env:
   PROFILE: '{{.PROFILE}}'
 
 tasks:
+  _require-profile:
+    internal: true
+    silent: true
+    cmds:
+      - |
+        if [ -z "{{.PROFILE}}" ]; then
+          echo ""
+          echo "PROFILE is required."
+          echo ""
+          # NOT {{.TASK}}: this runs as a subtask, so that resolves to
+          # _require-profile rather than whatever the user actually typed.
+          echo "  Per command:  task <command> PROFILE=<profile>"
+          echo "  Or exported:  export PROFILE=<profile>"
+          echo ""
+          echo "  Available:"
+          for f in {{.ROOT_DIR}}/profiles/*.yaml; do
+            echo "    $(basename "$f" .yaml)"
+          done
+          echo ""
+          exit 1
+        fi
+        if [ ! -f "{{.ROOT_DIR}}/profiles/{{.PROFILE}}.yaml" ]; then
+          echo ""
+          echo "Unknown profile '{{.PROFILE}}' -- no profiles/{{.PROFILE}}.yaml"
+          echo ""
+          echo "  Available:"
+          for f in {{.ROOT_DIR}}/profiles/*.yaml; do
+            echo "    $(basename "$f" .yaml)"
+          done
+          echo ""
+          exit 1
+        fi
+
   install:
     desc: Complete installation (verify, storage, preflight, validate, deploy)
     silent: true
     cmds:
+      - task: _require-profile
       - task: verify
+      # Before storage: storage installs MinIO, which mounts bmc-secrets, so
+      # without this the failure is five minutes deep in a Helm timeout instead
+      # of a one-second "run task secrets:generate".
+      - task: secrets:check
       # Before preflight, not after. On profiles where the cluster has no
       # managed RWX filesystem, BMC brings its own NFS server -- and preflight's
       # shared-storage probe is the single most valuable check it makes. Running
@@ -40,9 +85,14 @@ tasks:
       # spuriously or have to be skipped, and skipping it means never testing
       # ReadWriteMany at all on exactly the profiles where it is least certain.
       - task: storage
+      # Same reasoning as storage above: preflight provisions a REAL
+      # LoadBalancer Service, so whatever assigns addresses has to exist
+      # first. On the clouds that is the provider's own controller and this is
+      # a no-op; on bare metal MetalLB is ours to install, and installing it
+      # after preflight meant the probe could never pass on a new cluster.
+      - task: edge
       - task: preflight
       - task: validate
-      - task: secrets:check
       - echo ""
       - echo "=========================================="
       - echo "Ready to deploy BMC to Kubernetes"
@@ -58,18 +108,21 @@ tasks:
     desc: Verify the cluster satisfies the capability contract
     silent: true
     cmds:
+      - task: _require-profile
       - PROFILE={{.PROFILE}} CHART_DIR={{.CHART_DIR}} {{.SCRIPTS_DIR}}/preflight.sh
 
   conformance:
     desc: Render every profile and check the cluster against the contract
     silent: true
     cmds:
+      - task: _require-profile
       - PROFILE={{.PROFILE}} CHART_DIR={{.CHART_DIR}} {{.SCRIPTS_DIR}}/conformance.sh
 
   validate:
     desc: Validate required configuration values
     silent: true
     cmds:
+      - task: _require-profile
       - PROFILE={{.PROFILE}} {{.SCRIPTS_DIR}}/validate-config.sh
 
   sftp:info:
@@ -92,37 +145,123 @@ tasks:
       - NAMESPACE={{.NAMESPACE}} {{.SCRIPTS_DIR}}/generate-secrets.sh
 
   config:init:
-    desc: Initialize values.custom.yaml from the template for PROFILE
+    desc: Create config/PROFILE.yaml from that profile's example
     silent: true
     cmds:
+      - task: _require-profile
       - |
-        if [ -f {{.CHART_DIR}}/values.custom.yaml ]; then
-          echo "⚠️  values.custom.yaml already exists!"
-          echo "   Delete it first or edit it directly."
-          echo "   To switch clusters, save the current one first:"
-          echo "     mkdir -p backups && mv {{.CHART_DIR}}/values.custom.yaml backups/"
+        CONFIG={{.CONFIG_DIR}}/{{.PROFILE}}.yaml
+
+        if [ -f "$CONFIG" ]; then
+          echo "⚠️  $CONFIG already exists!"
+          echo "   Edit it directly, or delete it to start over."
           exit 1
         fi
 
-        # A profile-specific template when one exists, the generic one
-        # otherwise. There is only ever ONE active values.custom.yaml -- the
-        # profile is what makes it environment-appropriate, not a second file.
         TEMPLATE={{.CHART_DIR}}/values.example-{{.PROFILE}}.yaml
-        [ -f "$TEMPLATE" ] || TEMPLATE={{.CHART_DIR}}/values.example.yaml
+        if [ ! -f "$TEMPLATE" ]; then
+          # Only reached by a profile someone added without an example next to
+          # it. The fallback template still produces a working starting point.
+          TEMPLATE={{.CHART_DIR}}/values.example.yaml
+          echo "No example for profile '{{.PROFILE}}' -- starting from the fallback template."
+        fi
 
-        cp "$TEMPLATE" {{.CHART_DIR}}/values.custom.yaml
-        echo "✓ Created values.custom.yaml from $(basename "$TEMPLATE")"
+        mkdir -p {{.CONFIG_DIR}}
+        cp "$TEMPLATE" "$CONFIG"
+        echo "✓ Created $CONFIG from $(basename "$TEMPLATE")"
         echo ""
         echo "Next steps:"
-        echo "  1. Edit {{.CHART_DIR}}/values.custom.yaml (every line marked CHANGE THIS)"
+        echo "  1. Edit $CONFIG (every line marked CHANGE THIS)"
         echo "  2. Run 'task validate PROFILE={{.PROFILE}}' to check it"
         echo "  3. Run 'task secrets:generate' to create secrets"
         echo "  4. Run 'task install PROFILE={{.PROFILE}}' to deploy"
+
+  cluster:
+    desc: Build the cluster for PROFILE (cloud via OpenTofu, bare metal via Ansible)
+    silent: true
+    cmds:
+      - task: _require-profile
+      - task: cluster:init
+      - |
+        case "{{.PROFILE}}" in
+          eks|gke|aks)
+            cd {{.TF_DIR}} && tofu apply -var-file={{.ROOT_DIR}}/{{.INFRA_DIR}}/{{.PROFILE}}.tfvars
+            ;;
+          baremetal)
+            # Check the inventory parses before handing it to Ansible. A YAML
+            # error there makes Ansible fall back to implicit localhost, and
+            # the playbook then reports an empty k3s_servers group -- which
+            # reads as "you forgot to add hosts" rather than "line 45 is
+            # malformed", buried under four parser warnings.
+            INV={{.ROOT_DIR}}/{{.INFRA_DIR}}/baremetal.inventory.yml
+            if ! yq '.' "$INV" >/dev/null 2>&1; then
+              echo ""
+              echo "✗ $INV is not valid YAML:"
+              echo ""
+              yq '.' "$INV" 2>&1 | head -5 | sed 's/^/    /'
+              echo ""
+              echo "  A common cause is writing 'hosts: {}' and then indenting"
+              echo "  hosts under it -- the {} closes the mapping. Use a bare"
+              echo "  'hosts:' instead."
+              exit 1
+            fi
+
+            cd {{.ROOT_DIR}}/ansible && ansible-playbook site.yml -i "$INV"
+            ;;
+          *)
+            echo "Profile '{{.PROFILE}}' brings its own cluster -- nothing to build."
+            echo "Point kubectl at it, then run: task preflight PROFILE={{.PROFILE}}"
+            ;;
+        esac
+
+  cluster:init:
+    desc: Create the cluster config for PROFILE, and stop so you can edit it
+    silent: true
+    cmds:
+      - task: _require-profile
+      - |
+        # A gate, not a prompt: an unedited config cannot build a cluster (no
+        # project, no subscription, no host addresses), and a prompt here would
+        # make the whole flow unscriptable. Stopping with the path is
+        # re-runnable and impossible to blunder past.
+        case "{{.PROFILE}}" in
+          eks|gke|aks)
+            TARGET={{.INFRA_DIR}}/{{.PROFILE}}.tfvars
+            TEMPLATE={{.TF_DIR}}/terraform.tfvars.example
+            WHAT="infrastructure variables"
+            ;;
+          baremetal)
+            TARGET={{.INFRA_DIR}}/baremetal.inventory.yml
+            TEMPLATE={{.ROOT_DIR}}/ansible/inventory.example.yml
+            WHAT="inventory (the machines to build on)"
+            ;;
+          *)
+            exit 0
+            ;;
+        esac
+
+        if [ -f "$TARGET" ]; then
+          exit 0
+        fi
+
+        mkdir -p {{.INFRA_DIR}}
+        cp "$TEMPLATE" "$TARGET"
+        echo ""
+        echo "=========================================="
+        echo "Created $TARGET"
+        echo "=========================================="
+        echo "This is your $WHAT, and it cannot build anything unedited."
+        echo ""
+        echo "  1. Edit $TARGET (every line marked CHANGE THIS)"
+        echo "  2. Run 'task cluster PROFILE={{.PROFILE}}' again to build"
+        echo ""
+        exit 1
 
   storage:
     desc: Install the in-cluster storage provider, if this profile uses one
     silent: true
     cmds:
+      - task: _require-profile
       - |
         echo "Installing storage provider (no-op unless the profile enables one)..."
       - helmfile apply --selector name=nfs-server-provisioner
@@ -131,10 +270,35 @@ tasks:
       - helmfile apply --selector name=mongodb-operator
       - helmfile apply --selector name=minio
 
+  edge:
+    desc: Install the LoadBalancer provider, if this profile uses one
+    silent: true
+    cmds:
+      - task: _require-profile
+      - |
+        echo "Installing LoadBalancer provider (no-op unless the profile enables one)..."
+      - helmfile apply --selector name=metallb
+      - |
+        # The IPAddressPool applied below goes through MetalLB's validating
+        # webhook, which is not serving the instant the chart reports installed.
+        if kubectl get deployment metallb-controller -n metallb-system >/dev/null 2>&1; then
+          kubectl wait --for=condition=available --timeout=300s \
+            deployment/metallb-controller -n metallb-system
+        fi
+      - "{{.SCRIPTS_DIR}}/apply-metallb-config.sh"
+      # k3s's Traefik is already a LoadBalancer Service and claims the pool's
+      # address on sight. On a single-address pool that leaves nothing for
+      # anything else -- including preflight's probe, which carries the game
+      # edge's allow-shared-ip annotation but cannot share with a Traefik that
+      # does not. Annotating it here, before preflight, is what makes one
+      # address serve both.
+      - "{{.SCRIPTS_DIR}}/configure-traefik-sharing.sh"
+
   deploy:
     desc: Deploy dependencies (ingress controller, cert-manager, MetalLB, per profile)
     silent: true
     cmds:
+      - task: _require-profile
       - echo "Installing profile dependencies..."
       # Each release is selected by name. A release that is not named here is
       # never installed, whatever `needs:` says in helmfile.yaml.gotmpl -- helmfile
@@ -159,6 +323,11 @@ tasks:
     desc: Deploy big-minecraft chart
     silent: true
     cmds:
+      - task: _require-profile
+      # The chart that actually creates the datastores, so this is the last
+      # place a mode change can be caught. install and upgrade both validate
+      # before reaching here; running this standalone would otherwise skip it.
+      - task: validate
       - echo "=========================================="
       - echo "Deploying BMC..."
       - echo "=========================================="
@@ -167,20 +336,27 @@ tasks:
   upgrade:
     desc: Upgrade existing BMC installation
     cmds:
+      - task: _require-profile
       - task: preflight
+      # preflight asks whether the cluster can run BMC; validate asks whether
+      # this config is safe to apply to it -- where a datastore mode change is
+      # caught. Upgrade is the likelier path for that, not install.
+      - task: validate
       - helmfile apply
 
   diff:
     desc: Show what an apply would change, without applying it
     silent: true
     cmds:
+      - task: _require-profile
       - helmfile diff
 
   teardown:
-    desc: Destroy EVERYTHING - BMC and the cloud infrastructure under it (irreversible)
+    desc: Destroy EVERYTHING - BMC and the cluster under it (irreversible)
     prompt: This DESTROYS the cluster and every volume, world and database in it. Continue?
     silent: true
     cmds:
+      - task: _require-profile
       - |
         # Order matters, and getting it wrong wastes twenty minutes.
         #
@@ -223,6 +399,19 @@ tasks:
         echo "=========================================="
         echo "3/5  Waiting for cloud load balancers to disappear"
         echo "=========================================="
+        # This stage exists so a cloud provider releases the network interfaces
+        # behind its load balancers before the VPC under them is destroyed.
+        # Profiles with no cloud layer have nothing to wait for -- and on k3s
+        # they would wait forever anyway, because k3s's own Traefik is a
+        # LoadBalancer Service that the teardown neither removes nor should.
+        case "{{.PROFILE}}" in
+          eks|gke|aks) ;;
+          *)
+            echo "  no cloud load balancers for profile '{{.PROFILE}}' -- skipping"
+            exit 0
+            ;;
+        esac
+
         # Cloud-agnostic first: once no LoadBalancer Services remain, the
         # provider has been told to release them. Deletion is asynchronous, so
         # the provider-specific check below confirms it actually happened.
@@ -283,15 +472,19 @@ tasks:
               sleep 5
             done
             ;;
-          *)
-            echo "  no cloud load balancers for profile '{{.PROFILE}}'"
-            ;;
         esac
       - |
         echo ""
         echo "=========================================="
         echo "4/5  Draining Karpenter nodes"
         echo "=========================================="
+        # Karpenter is EKS-only. Without this guard a bare-metal teardown runs
+        # AWS CLI queries against whatever account happens to be configured.
+        if [ "{{.PROFILE}}" != "eks" ]; then
+          echo "  Karpenter is only used on EKS -- skipping"
+          exit 0
+        fi
+
         # Karpenter launches its instances through the EC2 API, so Terraform has
         # no record of them and never destroys them. Deleting the cluster kills
         # the controller too, and the orphans keep ENIs in the private subnets --
@@ -340,12 +533,28 @@ tasks:
         echo "=========================================="
         echo "5/5  Destroying the infrastructure"
         echo "=========================================="
-        if [ ! -d "{{.TF_DIR}}" ]; then
-          echo "  No Terraform layer for profile '{{.PROFILE}}' -- nothing to destroy."
-          echo "  (bare-metal clusters are not provisioned by this repo)"
-          exit 0
-        fi
-        cd {{.TF_DIR}} && tofu destroy -auto-approve
+        case "{{.PROFILE}}" in
+          baremetal)
+            # Ansible built this cluster, so Ansible removes it. k3s owns the
+            # uninstall scripts on each node; the playbook also clears
+            # Longhorn's disks, which those scripts know nothing about.
+            INV={{.ROOT_DIR}}/{{.INFRA_DIR}}/baremetal.inventory.yml
+            if [ ! -f "$INV" ]; then
+              echo "  No inventory at $INV -- nothing to uninstall."
+              exit 0
+            fi
+            cd {{.ROOT_DIR}}/ansible && ansible-playbook uninstall.yml -i "$INV"
+            ;;
+          *)
+            if [ ! -d "{{.TF_DIR}}" ]; then
+              echo "  No infrastructure layer for profile '{{.PROFILE}}' -- nothing to destroy."
+              echo "  (this profile's cluster is not provisioned by this repo)"
+              exit 0
+            fi
+            cd {{.TF_DIR}} && tofu destroy -auto-approve \
+              -var-file={{.ROOT_DIR}}/{{.INFRA_DIR}}/{{.PROFILE}}.tfvars
+            ;;
+        esac
       - |
         echo ""
         echo "Done. Verify nothing is still billable with:"
@@ -355,6 +564,7 @@ tasks:
     desc: List any cloud resources still running that would incur charges
     silent: true
     cmds:
+      - task: _require-profile
       - |
         echo "=========================================="
         echo "Still-billable resources"
@@ -422,6 +632,7 @@ tasks:
     prompt: This will DELETE the BMC installation from '{{.NAMESPACE}}'. Continue?
     silent: true
     cmds:
+      - task: _require-profile
       - helmfile destroy
       - echo ""
       - echo "⚠️  Secrets were NOT deleted. To remove secrets run:"
@@ -431,11 +642,12 @@ tasks:
       - echo "was NOT deleted, so existing GameServers survive."
 
   clean:
-    desc: Clean generated files (values.custom.yaml)
+    desc: Clean this profile's generated config
     prompt: This will delete your local config file. Continue?
     silent: true
     cmds:
-      - rm -f {{.CHART_DIR}}/values.custom.yaml
+      - task: _require-profile
+      - rm -f {{.CONFIG_DIR}}/{{.PROFILE}}.yaml
       - echo "✓ Cleaned generated files"
 
   test:up:
@@ -477,6 +689,7 @@ tasks:
     desc: Verify all prerequisites are installed
     silent: true
     cmds:
+      - task: _require-profile
       - PROFILE={{.PROFILE}} {{.SCRIPTS_DIR}}/verify-prerequisites.sh
 
   help:

@@ -28,7 +28,7 @@ output "next_steps" {
   value       = <<-EOT
     1. gcloud container clusters get-credentials ${google_container_cluster.bmc.name} --region ${var.region} --project ${var.project_id}
     2. task preflight PROFILE=gke     # acceptance test for THIS layer
-    3. task config:init PROFILE=gke && edit charts/bmc-chart/values.custom.yaml
+    3. task config:init PROFILE=gke && edit config/gke.yaml
     4. task secrets:generate
     5. task install PROFILE=gke
   EOT

@@ -130,7 +130,7 @@ drops every real connection.
 
 That is why `game_allowed_cidrs`, `file_session_allowed_cidrs` and
 `panel_allowed_cidrs` exist here, and why each must be kept in step with the
-matching `global.edge.*.sourceRanges` in `values.custom.yaml`. Setting one and
+matching `global.edge.*.sourceRanges` in `config/eks.yaml`. Setting one and
 not the other either breaks access or silently leaves a port open.
 
 `file_session_allowed_cidrs` defaults to `0.0.0.0/0` so file sessions work out

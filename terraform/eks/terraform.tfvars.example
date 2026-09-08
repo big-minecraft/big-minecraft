@@ -7,7 +7,7 @@ cluster_name = "bmc"
 cluster_endpoint_public_access_cidrs = ["0.0.0.0/0"]
 
 # A public server wants the world; keep this in step with
-# global.edge.game.sourceRanges in values.custom.yaml.
+# global.edge.game.sourceRanges in config/eks.yaml.
 game_allowed_cidrs = ["0.0.0.0/0"]
 
 # Who may reach SFTP file sessions. Public by default so sessions work out of

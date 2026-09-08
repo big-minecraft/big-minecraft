@@ -34,7 +34,7 @@ output "next_steps" {
   value       = <<-EOT
     1. az aks get-credentials --resource-group ${azurerm_resource_group.bmc.name} --name ${azurerm_kubernetes_cluster.bmc.name}
     2. task preflight PROFILE=aks     # acceptance test for THIS layer
-    3. task config:init PROFILE=aks && edit charts/bmc-chart/values.custom.yaml
+    3. task config:init PROFILE=aks && edit config/aks.yaml
     4. task secrets:generate
     5. task install PROFILE=aks
   EOT

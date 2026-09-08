@@ -41,7 +41,7 @@ output "next_steps" {
   value       = <<-EOT
     1. aws eks update-kubeconfig --region ${var.region} --name ${module.eks.cluster_name}
     2. task preflight PROFILE=eks     # acceptance test for THIS layer
-    3. task config:init && edit charts/bmc-chart/values.custom.yaml
+    3. task config:init && edit config/eks.yaml
        (ingress.host, panel.panelHost, certManager.email, edge.*.sourceRanges)
     4. task secrets:generate
     5. task install PROFILE=eks

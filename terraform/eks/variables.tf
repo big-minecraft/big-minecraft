@@ -108,7 +108,7 @@ variable "game_allowed_cidrs" {
 
     The AWS Load Balancer Controller gives each Service its own frontend
     security group and populates it from the Service's loadBalancerSourceRanges
-    -- which comes from global.edge.game.sourceRanges in values.custom.yaml.
+    -- which comes from global.edge.game.sourceRanges in config/eks.yaml.
     That is the authoritative control. The controller also manages the
     load-balancer-to-pod path itself (the rule tagged
     elbv2.k8s.aws/targetGroupBinding=shared), so these node rules are a second
