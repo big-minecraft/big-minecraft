@@ -1,0 +1,89 @@
+# Longhorn provides both storage classes the bare-metal profile names:
+# ReadWriteOnce for the databases and ReadWriteMany for persistent deployments.
+#
+# This is the bare-metal counterpart of terraform/eks/storage.tf, which creates
+# the gp3 and EFS classes -- on every profile, the layer that prepares the
+# cluster owns its storage.
+#
+# Runs in the workstation play with the helm BMC already requires, rather than
+# on a node: no Galaxy collection needed, and the same helm binary the rest of
+# the install uses.
+---
+# Longhorn cannot place more replicas than there are nodes. Left at 3 on a
+# one- or two-node cluster every volume sits permanently Degraded, which looks
+# like a Longhorn fault rather than a configuration one.
+- name: Fit the replica count to the cluster size
+  ansible.builtin.set_fact:
+    _replica_count: >-
+      {{ [longhorn_replica_count | int,
+          (groups['k3s_servers'] | length) + (groups['k3s_agents'] | default([]) | length)]
+         | min }}
+
+- name: Report the replica count in use
+  ansible.builtin.debug:
+    msg: >-
+      Longhorn replica count {{ _replica_count }}
+      (requested {{ longhorn_replica_count }},
+      {{ (groups['k3s_servers'] | length) + (groups['k3s_agents'] | default([]) | length) }} node(s) available).
+
+- name: Add the Longhorn helm repository
+  ansible.builtin.command:
+    cmd: helm repo add longhorn https://charts.longhorn.io
+  register: _repo
+  changed_when: "'has been added' in _repo.stdout"
+  failed_when: _repo.rc != 0 and 'already exists' not in _repo.stderr
+
+- name: Update helm repositories
+  ansible.builtin.command:
+    cmd: helm repo update longhorn
+  changed_when: false
+
+- name: Install Longhorn
+  ansible.builtin.command:
+    cmd: >-
+      helm upgrade --install longhorn longhorn/longhorn
+      --namespace longhorn-system --create-namespace
+      --version {{ longhorn_version }}
+      --set defaultSettings.defaultReplicaCount={{ _replica_count }}
+      --kubeconfig {{ lookup('env', 'HOME') }}/.kube/config
+      --kube-context {{ k3s_context_name }}
+      --wait --timeout 15m
+  register: _longhorn
+  changed_when: "'STATUS: deployed' in _longhorn.stdout"
+
+# k3s ships local-path as the cluster default and Longhorn makes itself one
+# too. Two defaults is undefined behaviour: Kubernetes picks one arbitrarily,
+# so a PVC that omits storageClassName can land on node-local storage that
+# cannot do ReadWriteMany and does not survive rescheduling. Longhorn is the
+# one the profile is built around, so local-path stops being default -- it
+# stays available to anything that names it.
+- name: Stop k3s's local-path from also being the default class
+  ansible.builtin.command:
+    cmd: >-
+      kubectl --context {{ k3s_context_name }}
+      patch storageclass local-path
+      -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"false"}}}'
+  register: _localpath
+  changed_when: "'patched' in _localpath.stdout and 'no change' not in _localpath.stdout"
+  failed_when:
+    - _localpath.rc != 0
+    - '"not found" not in _localpath.stderr'
+
+- name: Confirm exactly one default storage class remains
+  ansible.builtin.shell: >-
+    set -o pipefail;
+    kubectl --context {{ k3s_context_name }} get storageclass
+    -o jsonpath='{range .items[?(@.metadata.annotations.storageclass\.kubernetes\.io/is-default-class=="true")]}{.metadata.name}{"\n"}{end}'
+    | grep -c .
+  args:
+    executable: /bin/bash
+  register: _defaults
+  changed_when: false
+  failed_when: _defaults.stdout | trim != "1"
+
+- name: Confirm the storage classes the profile expects now exist
+  ansible.builtin.command:
+    cmd: >-
+      kubectl --context {{ k3s_context_name }}
+      get storageclass longhorn -o name
+  changed_when: false

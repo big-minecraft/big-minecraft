@@ -1,0 +1,58 @@
+# BMC bare-metal inventory
+#
+# Created for you by:
+#   task cluster:init PROFILE=baremetal
+#
+# Works for physical machines and VMs alike -- Ansible only needs SSH and sudo.
+#
+# TOPOLOGY
+#
+# k3s_servers holds control-plane nodes. One is fine. Three gives a highly
+# available control plane with embedded etcd, and the count must be ODD (1, 3,
+# 5) or etcd cannot hold quorum.
+#
+# k3s_agents holds workers. BMC needs three nodes TOTAL to place the HA
+# datastores in separate failure domains -- servers count toward that, so
+# three servers and no agents is a valid three-node cluster.
+
+all:
+  children:
+    # Everything that describes HOW TO REACH A MACHINE lives on this group, not
+    # on `all`. Ansible's implicit localhost picks up `all` vars, and
+    # ansible_become is a connection variable that outranks a play's own
+    # `become: false` -- so putting sudo settings on `all` makes the playbook
+    # try to sudo on your own workstation and stop with
+    # "sudo: a password is required".
+    cluster:
+      vars:
+        ansible_user: ubuntu              # CHANGE THIS -- the SSH user
+        ansible_ssh_private_key_file: ~/.ssh/id_ed25519   # CHANGE THIS
+        ansible_become: true              # sudo for package installs
+
+        # The address agents and extra servers use to reach the first server.
+        # Must be reachable from every node. Defaults to the first server's
+        # ansible_host when left empty.
+        k3s_api_address: ""
+
+        # Pin the k3s version for reproducible rebuilds. Empty tracks stable.
+        k3s_version: ""
+
+      children:
+        k3s_servers:
+          hosts:
+            # CHANGE THESE. One entry for a single control plane, or three for HA.
+            node1:
+              ansible_host: 192.168.1.10
+            # node2:
+            #   ansible_host: 192.168.1.11
+            # node3:
+            #   ansible_host: 192.168.1.12
+
+        k3s_agents:
+          # Leave this key with nothing under it for a servers-only cluster.
+          # Uncommenting an entry below is all that is needed to add a worker --
+          # do NOT write `hosts: {}`, as that closes the mapping and anything
+          # indented under it becomes a YAML error.
+          hosts:
+            # worker1:
+            #   ansible_host: 192.168.1.20

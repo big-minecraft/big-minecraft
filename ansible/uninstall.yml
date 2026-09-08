@@ -1,0 +1,104 @@
+# Removes k3s and everything it stored from every machine in the inventory.
+#
+# The counterpart of `tofu destroy` on the cloud profiles: BMC itself is
+# already gone by the time this runs (task teardown removes the helm releases
+# first), so this tears down the cluster underneath it.
+#
+#   task teardown PROFILE=baremetal
+#
+# Irreversible. Every Longhorn volume, world and database on these machines is
+# destroyed.
+---
+- name: Confirm there is something to uninstall
+  hosts: localhost
+  gather_facts: false
+  connection: local
+  become: false
+  vars:
+    ansible_become: false
+  tasks:
+    - name: Report what is about to be destroyed
+      ansible.builtin.debug:
+        msg:
+          - "Uninstalling k3s from {{ (groups['k3s_servers'] | default([]) | length) + (groups['k3s_agents'] | default([]) | length) }} machine(s)."
+          - "Every Longhorn volume on them is destroyed with it."
+
+# Agents first: pulling the control plane out from under a running agent leaves
+# it retrying against an API server that is gone, which slows its own uninstall.
+- name: Uninstall k3s from the workers
+  hosts: k3s_agents
+  tasks:
+    - name: Look for the agent uninstall script
+      ansible.builtin.stat:
+        path: /usr/local/bin/k3s-agent-uninstall.sh
+      register: _agent_uninstall
+
+    - name: Run it
+      ansible.builtin.command:
+        cmd: /usr/local/bin/k3s-agent-uninstall.sh
+      when: _agent_uninstall.stat.exists
+      changed_when: true
+
+- name: Uninstall k3s from the control plane
+  hosts: k3s_servers
+  tasks:
+    - name: Look for the server uninstall script
+      ansible.builtin.stat:
+        path: /usr/local/bin/k3s-uninstall.sh
+      register: _server_uninstall
+
+    - name: Run it
+      ansible.builtin.command:
+        cmd: /usr/local/bin/k3s-uninstall.sh
+      when: _server_uninstall.stat.exists
+      changed_when: true
+
+- name: Remove what k3s leaves behind
+  hosts: k3s_servers:k3s_agents
+  tasks:
+    # k3s-uninstall.sh clears /var/lib/rancher but knows nothing about
+    # Longhorn, whose disks live outside it. Left in place they are invisible
+    # -- no cluster references them -- while still occupying the disk, and a
+    # rebuilt cluster picks up stale volume metadata from them.
+    - name: Remove Longhorn's data directory
+      ansible.builtin.file:
+        path: /var/lib/longhorn
+        state: absent
+
+    - name: Remove leftover k3s directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/rancher/k3s
+        - /var/lib/rancher/k3s
+
+- name: Drop the cluster from the workstation's kubeconfig
+  hosts: localhost
+  gather_facts: false
+  connection: local
+  become: false
+  vars:
+    ansible_become: false
+  tasks:
+    # Leaving it behind means kubectl keeps offering a context that cannot
+    # answer, and `kubectl config use-context` on it fails in a way that looks
+    # like a network problem.
+    - name: Remove the context, cluster and user entries
+      ansible.builtin.command:
+        cmd: kubectl config {{ item }}
+      loop:
+        - delete-context {{ k3s_context_name }}
+        - delete-cluster {{ k3s_context_name }}
+        - delete-user {{ k3s_context_name }}
+      register: _kubectl_clean
+      failed_when:
+        - _kubectl_clean.rc != 0
+        - '"not in" not in _kubectl_clean.stderr and "no context" not in _kubectl_clean.stderr'
+      changed_when: _kubectl_clean.rc == 0
+
+    - name: Report
+      ansible.builtin.debug:
+        msg:
+          - "k3s removed and context '{{ k3s_context_name }}' dropped."
+          - "The machines themselves are untouched -- only k3s and its data are gone."

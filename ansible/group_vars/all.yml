@@ -1,0 +1,19 @@
+# Defaults for the bare-metal cluster build. Override any of these in
+# config/infrastructure/baremetal.inventory.yml rather than editing this file.
+---
+# kubectl context name, and how BMC's docs refer to this cluster.
+k3s_context_name: bmc-baremetal
+
+# Empty tracks the k3s stable channel. Pin for reproducible rebuilds.
+k3s_version: ""
+
+# Reachable address for the API server. Empty uses the first server's
+# ansible_host.
+k3s_api_address: ""
+
+longhorn_version: "1.7.2"
+
+# Longhorn keeps this many copies of every volume. It cannot exceed the node
+# count -- on a single node, 3 replicas leaves every volume permanently
+# degraded, so this is lowered automatically below.
+longhorn_replica_count: 3
