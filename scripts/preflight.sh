@@ -16,11 +16,14 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-PROFILE="${PROFILE:-baremetal-metallb}"
+PROFILE="${PROFILE:-baremetal}"
 CHART_DIR="${CHART_DIR:-charts/bmc-chart}"
-VALUES_FILE="${VALUES_FILE:-$CHART_DIR/values.custom.yaml}"
+VALUES_FILE="${VALUES_FILE:-${CONFIG_DIR:-config}/${PROFILE:-baremetal}.yaml}"
 NS="${PREFLIGHT_NAMESPACE:-bmc-preflight}"
 TIMEOUT="${PREFLIGHT_TIMEOUT:-90}"
+# Storage gets longer: a network-attached volume must be provisioned, attached
+# and mounted before a pod is ready, which exceeds 90s on a small cluster.
+STORAGE_TIMEOUT="${PREFLIGHT_STORAGE_TIMEOUT:-180}"
 # Port for the LoadBalancer probe. Must not collide with the real game edge
 # (25565 java, 19132 bedrock) when they share one address.
 PREFLIGHT_LB_PORT="${PREFLIGHT_LB_PORT:-34567}"
@@ -149,7 +152,7 @@ spec:
           persistentVolumeClaim: {claimName: $name}
 EOF
 
-  for _ in $(seq 1 "$TIMEOUT"); do
+  for _ in $(seq 1 "$STORAGE_TIMEOUT"); do
     R=$(kubectl get deploy "$name" -n "$NS" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo 0)
     if [ "${R:-0}" -ge "$replicas" ] 2>/dev/null; then return 0; fi
     sleep 1
@@ -157,8 +160,52 @@ EOF
   return 1
 }
 
+# "no claim bound" points at the storage class, which is usually fine. The real
+# cause is normally the provisioner having no schedulable capacity, or a claim
+# stuck behind a specific event -- both knowable, so say them.
+diagnose_storage() {
+  local name="$1"
+
+  # Longhorn schedules on RESERVED space, so a disk goes unschedulable long
+  # before it is full: every replica counts, used or not.
+  if kubectl get nodes.longhorn.io -n longhorn-system &>/dev/null; then
+    local unsched
+    unsched=$(kubectl get nodes.longhorn.io -n longhorn-system -o json 2>/dev/null | python3 -c '
+import sys, json
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+for n in d.get("items", []):
+    name = n.get("metadata", {}).get("name", "?")
+    for _, disk in (n.get("status", {}).get("diskStatus") or {}).items():
+        for c in (disk.get("conditions") or []):
+            if c.get("type") == "Schedulable" and c.get("status") != "True":
+                msg = str(c.get("message", ""))[:160]
+                print(name + ": " + str(c.get("reason")) + " -- " + msg)
+' 2>/dev/null || true)
+    if [ -n "$unsched" ]; then
+      skip "Longhorn has no schedulable capacity -- this is the real cause:"
+      echo "$unsched" | sed 's/^/      /'
+      skip "Longhorn reserves space per REPLICA, so unused volumes still count."
+      skip "Run 'task validate PROFILE=$PROFILE' -- it lists volumes stranded by"
+      skip "a datastore mode change, which is the usual reason for this."
+      return
+    fi
+  fi
+
+  # Otherwise surface the claim's own last event, which names the actual fault.
+  local ev
+  ev=$(kubectl get events -n "$NS" --field-selector "involvedObject.name=$name" \
+        --sort-by=.lastTimestamp -o jsonpath='{.items[-1:].message}' 2>/dev/null || true)
+  [ -n "$ev" ] && skip "last event on the claim: ${ev:0:180}"
+}
+
 cleanup_probe() {
-  kubectl delete deploy "$1" -n "$NS" --wait=false &>/dev/null || true
+  # Synchronous, so pods release the volume before the next probe starts.
+  # Otherwise each probe races the previous one's detach and a healthy class
+  # times out. The claim goes in the background -- only the release matters.
+  kubectl delete deploy "$1" -n "$NS" --wait=true --timeout=60s &>/dev/null || true
   kubectl delete pvc "$1" -n "$NS" --wait=false &>/dev/null || true
 }
 
@@ -180,6 +227,7 @@ if [ "$INSTALL_NFS" = "true" ] && ! kubectl get storageclass "$SHARED_CLASS" &>/
   skip "run 'task storage PROFILE=$PROFILE' first to test ReadWriteMany for real"
   skip "'task install' does this automatically, before preflight"
 elif probe_storage preflight-shared "$SHARED_CLASS" "$SHARED_MODE" "$SHARED_REPLICAS"; then
+  SHARED_PROVED="${SHARED_CLASS}/${SHARED_MODE}/${SHARED_REPLICAS}"
   if [ "$SHARED_REPLICAS" = "2" ]; then
     pass "two pods mount a '${SHARED_CLASS:-<default>}' ${SHARED_MODE} claim simultaneously"
   else
@@ -188,6 +236,8 @@ elif probe_storage preflight-shared "$SHARED_CLASS" "$SHARED_MODE" "$SHARED_REPL
 else
   fail "no claim bound for '${SHARED_CLASS:-<default>}' with ${SHARED_MODE}"
   [ "$SHARED_REPLICAS" = "2" ] && skip "this class must allow several pods to mount one claim at once"
+  diagnose_storage preflight-shared
+  SHARED_PROVED=""
 fi
 cleanup_probe preflight-shared
 echo ""
@@ -202,6 +252,14 @@ echo "Storage: persistent deployments (ReadWriteMany)"
 if [ "$USES_PERSISTENT" != "true" ]; then
   pass "not in use (storage.persistentDeployments is false) -- no RWX class needed"
   skip "turn it on before creating a persistent deployment, or its PVC will never bind"
+elif [ -n "${SHARED_PROVED:-}" ] && [ "$SHARED_PROVED" = "${PERSISTENT_CLASS}/${PERSISTENT_MODE}/2" ]; then
+  # Profiles often point shared and persistent at one class -- bare metal uses
+  # longhorn for both. Re-probing an identical class/mode/replica triple proves
+  # nothing the check above has not, and it is not free: each ReadWriteMany
+  # volume brings up its own Longhorn share-manager pod, so the second probe
+  # races the first one's teardown and can time out on a cluster that is
+  # perfectly healthy.
+  pass "'${PERSISTENT_CLASS}' ${PERSISTENT_MODE} already proven by the shared-storage probe"
 elif probe_storage preflight-persistent "$PERSISTENT_CLASS" "$PERSISTENT_MODE" 2; then
   pass "two pods mount a '${PERSISTENT_CLASS:-<default>}' ${PERSISTENT_MODE} claim simultaneously"
   NODE_COUNT=$(kubectl get nodes --no-headers 2>/dev/null | wc -l | tr -d ' ')
@@ -211,6 +269,7 @@ elif probe_storage preflight-persistent "$PERSISTENT_CLASS" "$PERSISTENT_MODE" 2
   fi
 else
   fail "two pods could NOT share a '${PERSISTENT_CLASS:-<default>}' claim with ${PERSISTENT_MODE}"
+  diagnose_storage preflight-persistent
   skip "persistent deployments need RWX (Longhorn/NFS, EFS, Filestore, Azure Files)"
   skip "or set storage.persistentDeployments to false if you do not use them"
 fi
@@ -227,6 +286,7 @@ elif probe_storage preflight-db "$DB_CLASS" "$DB_MODE" 1; then
   cleanup_probe preflight-db
 else
   fail "no claim bound for database storage class '${DB_CLASS:-<default>}' with ${DB_MODE}"
+  diagnose_storage preflight-db
   cleanup_probe preflight-db
 fi
 echo ""
