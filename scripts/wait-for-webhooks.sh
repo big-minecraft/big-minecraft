@@ -25,7 +25,14 @@ if [ "$CM" = "0" ] && [ "$MLB" = "0" ]; then
   exit 0
 fi
 if [ "$CM" = "0" ]; then
+  # MetalLB may still be installed, and its webhook is what admits the
+  # IPAddressPools. Returning here used to skip that wait entirely.
   echo -e "${GREEN}✓${NC} cert-manager is not installed - skipping its webhook checks"
+  if [ "$MLB" = "1" ]; then
+    echo "Waiting for MetalLB controller deployment..."
+    kubectl wait --for=condition=available --timeout=300s \
+      deployment/metallb-controller -n metallb-system 2>/dev/null || true
+  fi
   echo ""
   exit 0
 fi

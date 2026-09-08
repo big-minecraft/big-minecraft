@@ -38,7 +38,12 @@ spec:
     mountPath: {{ .Values.volume.mountPath | default "/minecraft" }}
     storageClass: {{ .Values.global.storage.classes.shared.name | default "longhorn" }}
     size: {{ .Values.global.storage.volumeSize.proxy | default "5Gi" }}
-    readOnly: true
+    # Read-only ONLY when the instance pulls an artifact, in which case this
+    # volume is just the staging copy and the working directory is a pod-local
+    # emptyDir. A deployment with no artifact yet mounts this AS its working
+    # directory -- the bootstrap state before any files are uploaded -- and the
+    # entrypoint has to be able to write to it.
+    readOnly: {{ if and .Values.global.artifactStore.enabled .Values.artifactVersion }}true{{ else }}false{{ end }}
   {{- if and .Values.global.artifactStore.enabled .Values.artifactVersion }}
   artifact:
     endpoint: {{ .Values.global.artifactStore.endpoint | quote }}
