@@ -1,17 +1,7 @@
 # Longhorn provides both storage classes the bare-metal profile names:
 # ReadWriteOnce for the databases and ReadWriteMany for persistent deployments.
-#
-# This is the bare-metal counterpart of terraform/eks/storage.tf, which creates
-# the gp3 and EFS classes -- on every profile, the layer that prepares the
-# cluster owns its storage.
-#
-# Runs in the workstation play with the helm BMC already requires, rather than
-# on a node: no Galaxy collection needed, and the same helm binary the rest of
-# the install uses.
 ---
-# Longhorn cannot place more replicas than there are nodes. Left at 3 on a
-# one- or two-node cluster every volume sits permanently Degraded, which looks
-# like a Longhorn fault rather than a configuration one.
+# Longhorn cannot place more replicas than there are nodes.
 - name: Fit the replica count to the cluster size
   ansible.builtin.set_fact:
     _replica_count: >-
@@ -51,12 +41,6 @@
   register: _longhorn
   changed_when: "'STATUS: deployed' in _longhorn.stdout"
 
-# k3s ships local-path as the cluster default and Longhorn makes itself one
-# too. Two defaults is undefined behaviour: Kubernetes picks one arbitrarily,
-# so a PVC that omits storageClassName can land on node-local storage that
-# cannot do ReadWriteMany and does not survive rescheduling. Longhorn is the
-# one the profile is built around, so local-path stops being default -- it
-# stays available to anything that names it.
 - name: Stop k3s's local-path from also being the default class
   ansible.builtin.command:
     cmd: >-

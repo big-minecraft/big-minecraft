@@ -1,8 +1,4 @@
-# Longhorn's requirements, installed BEFORE k3s. nfs-common matters most:
-# Longhorn backs ReadWriteMany with an internal NFS share, so a node without it
-# mounts RWO fine and fails only when a file session opens a RWX volume.
-#
-# ansible-core modules only -- nothing to install from Galaxy first.
+# Longhorn's requirements, installed BEFORE k3s.
 ---
 - name: Select package names for this distribution
   ansible.builtin.set_fact:

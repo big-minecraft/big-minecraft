@@ -1,13 +1,4 @@
 # Removes k3s and everything it stored from every machine in the inventory.
-#
-# The counterpart of `tofu destroy` on the cloud profiles: BMC itself is
-# already gone by the time this runs (task teardown removes the helm releases
-# first), so this tears down the cluster underneath it.
-#
-#   task teardown PROFILE=baremetal
-#
-# Irreversible. Every Longhorn volume, world and database on these machines is
-# destroyed.
 ---
 - name: Confirm there is something to uninstall
   hosts: localhost
@@ -56,10 +47,6 @@
 - name: Remove what k3s leaves behind
   hosts: k3s_servers:k3s_agents
   tasks:
-    # k3s-uninstall.sh clears /var/lib/rancher but knows nothing about
-    # Longhorn, whose disks live outside it. Left in place they are invisible
-    # -- no cluster references them -- while still occupying the disk, and a
-    # rebuilt cluster picks up stale volume metadata from them.
     - name: Remove Longhorn's data directory
       ansible.builtin.file:
         path: /var/lib/longhorn
@@ -81,9 +68,6 @@
   vars:
     ansible_become: false
   tasks:
-    # Leaving it behind means kubectl keeps offering a context that cannot
-    # answer, and `kubectl config use-context` on it fails in a way that looks
-    # like a network problem.
     - name: Remove the context, cluster and user entries
       ansible.builtin.command:
         cmd: kubectl config {{ item }}

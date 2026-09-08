@@ -1,17 +1,9 @@
-# Merge the cluster's kubeconfig into the operator's ~/.kube/config as a named
-# context -- the same thing `az aks get-credentials`,
-# `gcloud container clusters get-credentials` and `aws eks update-kubeconfig`
-# do, so bare metal behaves like the cloud profiles.
-#
-# Runs in the workstation play, so there is no delegation and no become here.
+# Merge the cluster's kubeconfig into the operator's ~/.kube/config as a named context.
 ---
 - name: Rewrite the kubeconfig for use from the workstation
   ansible.builtin.copy:
     dest: "{{ _staged_kubeconfig }}"
     mode: "0600"
-    # k3s writes 127.0.0.1, which is only correct on the server itself, and
-    # names everything "default" -- which would collide with any other cluster
-    # already in the operator's config.
     content: |
       {{ kubeconfig_b64 | b64decode
          | replace('https://127.0.0.1:6443', 'https://' ~ _api_address ~ ':6443')
@@ -31,8 +23,6 @@
     path: "{{ lookup('env', 'HOME') }}/.kube/config"
   register: _existing
 
-# Never overwrite in place. If the merge goes wrong the operator still has
-# every other cluster they can reach.
 - name: Back up the existing kubeconfig
   ansible.builtin.copy:
     src: "{{ lookup('env', 'HOME') }}/.kube/config"
@@ -70,8 +60,6 @@
   delay: 5
   changed_when: false
 
-# Deliberately NOT switched automatically: silently repointing kubectl at a new
-# cluster is how a command meant for one cluster lands on another.
 - name: Report how to select the new context
   ansible.builtin.debug:
     msg:

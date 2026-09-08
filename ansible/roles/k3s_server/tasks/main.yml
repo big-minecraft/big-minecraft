@@ -1,8 +1,4 @@
-# Control-plane nodes.
-#
-# The first server bootstraps the cluster; any others join it. With three
-# servers this is embedded etcd, which needs an ODD count to hold quorum --
-# validated in site.yml before anything is installed.
+# Control-plane nodes. The first server bootstraps the cluster; any others join it.
 ---
 - name: Check whether k3s is already installed
   ansible.builtin.stat:
@@ -13,11 +9,7 @@
   when: inventory_hostname == _first_server
   block:
     # --disable servicelb is not optional. k3s ships Klipper, which also serves
-    # Services of type LoadBalancer, and it competes with MetalLB: the Service
-    # gets an address that does not actually route anywhere.
-    #
-    # Traefik stays enabled -- profiles/baremetal.yaml expects
-    # ingress.className: traefik.
+    # Services of type LoadBalancer, and it competes with MetalLB.
     - name: Install k3s (first server)
       ansible.builtin.shell: |
         set -o pipefail

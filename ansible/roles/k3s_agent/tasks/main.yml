@@ -1,5 +1,4 @@
-# Worker nodes. They carry the game servers and, on a three-node cluster, the
-# datastore quorum members.
+# Worker nodes. They carry the game servers and, on a three-node cluster, the datastore quorum members.
 ---
 - name: Check whether k3s is already installed
   ansible.builtin.stat:

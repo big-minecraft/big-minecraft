@@ -1,10 +1,5 @@
 # Prepares a bare-metal cluster for BMC: k3s, Longhorn's node prerequisites,
 # Longhorn itself, and a kubeconfig on the workstation.
-#
-# This is the bare-metal counterpart of terraform/<cloud>/ -- it stops at a
-# cluster that satisfies profiles/baremetal.yaml. helmfile installs BMC on top.
-#
-#   task cluster PROFILE=baremetal
 ---
 - name: Validate the inventory before touching anything
   hosts: localhost
@@ -24,9 +19,7 @@
           localhost when that happens, which looks identical from here. Check
           for parser warnings above, then
           config/infrastructure/baremetal.inventory.yml.
-
-    # Embedded etcd holds quorum only with an odd number of members. Two
-    # servers is strictly worse than one: either failing takes the cluster down.
+          
     - name: Server count must be odd
       ansible.builtin.assert:
         that: (groups['k3s_servers'] | length) % 2 == 1
