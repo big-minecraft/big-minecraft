@@ -148,7 +148,7 @@ verbatim. See `charts/bmc-chart/values.example.yaml` for AWS/GCP/Azure examples.
 ## Quick Start
 
 ```bash
-# 1. Check your tooling and cluster connection
+# 1. Check the tooling every profile needs
 task verify
 
 # 2. Create your config, pre-filled for your profile
@@ -281,7 +281,7 @@ source in this order:
 ## Available Tasks
 
 ```bash
-task verify           # Verify local prerequisites (and cloud CLIs, per profile)
+task verify           # Verify local prerequisites; with no PROFILE, the shared ones only
 task preflight        # Verify the cluster satisfies the capability contract
 task conformance      # Preflight, plus render every profile
 task config:init      # Initialize configuration for PROFILE

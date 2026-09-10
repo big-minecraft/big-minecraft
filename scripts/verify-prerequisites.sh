@@ -7,59 +7,132 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-PROFILE="${PROFILE:-baremetal}"
+# No default profile. The old fallback to 'baremetal' meant a bare `task verify`
+# silently reported on a profile the user had not chosen -- passing on a machine
+# with no cloud CLI because it had checked the wrong list. Empty now means
+# "report what every profile needs", which is what the Quick Start's first step
+# asks for.
+PROFILE="${PROFILE:-}"
 
+profile_names() {
+  local f
+  for f in profiles/*.yaml; do
+    [ -e "$f" ] || continue
+    basename "$f" .yaml
+  done
+}
+
+# A typo'd profile must not fall through to the shared-only report and look like
+# a pass. `task verify` no longer runs _require-profile (an empty PROFILE is
+# meaningful here), so the name check that guard used to provide lives here.
+if [ -n "$PROFILE" ] && [ ! -f "profiles/${PROFILE}.yaml" ]; then
+  echo -e "${RED}Unknown profile '${PROFILE}'${NC}. Available:"
+  profile_names | sed 's/^/  - /'
+  exit 1
+fi
+
+# The tooling every profile needs, declared once. Both paths below read this
+# table -- the check loop and the no-profile listing -- so a shared dependency
+# is stated in exactly one place and the two cannot drift. Anything needed by
+# only some profiles belongs in the per-profile case blocks further down, which
+# remain the source of truth for those.
+#
+#   command | what it is for | install URL
+SHARED_DEPS=(
+  "kubectl|talks to the cluster|https://kubernetes.io/docs/tasks/tools/"
+  "helm|renders and installs the charts|https://helm.sh/docs/intro/install/"
+  "helmfile|orders the releases and their dependencies (v1+, for .gotmpl)|https://github.com/helmfile/helmfile#installation"
+  "yq|mikefarah/yq -- reads values for the Taskfile and every config check|https://github.com/mikefarah/yq#install"
+)
+
+# Presentation, not declaration: how to coax a version string out of each tool.
+# Both of the first two patterns were printing nothing before. kubectl's JSON is
+# pretty-printed, so there is a space after the colon that '"gitVersion":"' never
+# matched; helmfile leads with a banner, so `head -1` returned its blank line.
+dep_version() {
+  local v
+  case "$1" in
+    kubectl)  v=$(kubectl version --client -o json 2>/dev/null | grep -o '"gitVersion": *"[^"]*' | cut -d'"' -f4) ;;
+    helm)     v=$(helm version --short 2>/dev/null) ;;
+    helmfile) v=$(helmfile version 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1) ;;
+    yq)       v=$(yq --version 2>/dev/null) ;;
+  esac
+  echo "${v:-unknown}"
+}
+
+check_shared_deps() {
+  local entry cmd why url missing=0
+  for entry in "${SHARED_DEPS[@]}"; do
+    IFS='|' read -r cmd why url <<< "$entry"
+    if command -v "$cmd" &> /dev/null; then
+      echo -e "${GREEN}✓${NC} $cmd $(dep_version "$cmd")"
+    else
+      # Report every missing tool rather than exiting on the first, so one run
+      # tells you everything to install.
+      echo -e "${RED}✗${NC} $cmd not found -- $why"
+      echo "   Install: $url"
+      missing=1
+    fi
+  done
+  # yq is the one whose mere presence is not enough: the Python build of the
+  # same name emits JSON and quotes string values, which silently corrupts
+  # every merged value.
+  if command -v yq &> /dev/null && ! yq --version 2>/dev/null | grep -q "mikefarah"; then
+    echo -e "${YELLOW}⚠${NC}  This does not look like mikefarah/yq."
+    echo "   The Python 'yq' emits JSON and will quote string values."
+    echo "   Install: https://github.com/mikefarah/yq#install"
+  fi
+  [ "$missing" = "0" ]
+}
+
+# ------------------------------------------------- no profile: shared only ----
+if [ -z "$PROFILE" ]; then
+  echo "=========================================="
+  echo "Prerequisites shared by every profile"
+  echo "=========================================="
+  echo ""
+  echo "Local tooling -- required whichever profile you install:"
+  echo ""
+  if check_shared_deps; then
+    SHARED_OK=0
+  else
+    SHARED_OK=1
+  fi
+  echo ""
+  echo "Each profile needs more on top of these -- the tool that builds its"
+  echo "cluster, and its provider CLI. Name one to check those too:"
+  echo ""
+  profile_names | sed 's/^/    task verify PROFILE=/'
+  echo ""
+  echo "Local tooling is only half the contract. The other half is what the"
+  echo "cluster itself must provide -- storage classes, an IngressClass, a"
+  echo "LoadBalancer implementation, pod egress. That is per-cluster rather"
+  echo "than per-machine, so it needs a profile and a reachable cluster:"
+  echo ""
+  echo "    task preflight PROFILE=<profile>"
+  echo ""
+  if [ "$SHARED_OK" != "0" ]; then
+    echo -e "${RED}=========================================="
+    echo "Missing shared prerequisites -- see above"
+    echo -e "==========================================${NC}"
+    echo ""
+    exit 1
+  fi
+  echo -e "${GREEN}=========================================="
+  echo "Shared Prerequisites Satisfied!"
+  echo -e "==========================================${NC}"
+  echo ""
+  exit 0
+fi
+
+# ------------------------------------------------------ a profile is named ----
 echo "=========================================="
 echo "Verifying Prerequisites"
 echo "  profile: $PROFILE"
 echo "=========================================="
 echo ""
 
-# Check kubectl
-if command -v kubectl &> /dev/null; then
-  KUBECTL_VERSION=$(kubectl version --client -o json 2>/dev/null | grep -o '"gitVersion":"[^"]*' | cut -d'"' -f4 || echo "unknown")
-  echo -e "${GREEN}✓${NC} kubectl ${KUBECTL_VERSION}"
-else
-  echo -e "${RED}✗${NC} kubectl not found"
-  echo "   Install: https://kubernetes.io/docs/tasks/tools/"
-  exit 1
-fi
-
-# Check helm
-if command -v helm &> /dev/null; then
-  HELM_VERSION=$(helm version --short 2>/dev/null || echo "unknown")
-  echo -e "${GREEN}✓${NC} helm ${HELM_VERSION}"
-else
-  echo -e "${RED}✗${NC} helm not found"
-  echo "   Install: https://helm.sh/docs/intro/install/"
-  exit 1
-fi
-
-# Check helmfile
-if command -v helmfile &> /dev/null; then
-  HELMFILE_VERSION=$(helmfile version 2>/dev/null | head -1 || echo "unknown")
-  echo -e "${GREEN}✓${NC} helmfile ${HELMFILE_VERSION}"
-else
-  echo -e "${RED}✗${NC} helmfile not found"
-  echo "   Install: https://github.com/helmfile/helmfile#installation"
-  exit 1
-fi
-
-# Check yq. The Taskfile reads the namespace out of values.yaml with it, and
-# validate-config.sh relies on it for every required-value check.
-if command -v yq &> /dev/null; then
-  YQ_VERSION=$(yq --version 2>/dev/null || echo "unknown")
-  echo -e "${GREEN}✓${NC} yq ${YQ_VERSION}"
-  if ! yq --version 2>/dev/null | grep -q "mikefarah"; then
-    echo -e "${YELLOW}⚠${NC}  This does not look like mikefarah/yq."
-    echo "   The Python 'yq' emits JSON and will quote string values."
-    echo "   Install: https://github.com/mikefarah/yq#install"
-  fi
-else
-  echo -e "${RED}✗${NC} yq not found"
-  echo "   Install: https://github.com/mikefarah/yq#install"
-  exit 1
-fi
+check_shared_deps || exit 1
 
 # Tooling the cloud profiles need on top of the four above. Checked per profile
 # rather than always, so a bare-metal install is not asked for an AWS CLI it
