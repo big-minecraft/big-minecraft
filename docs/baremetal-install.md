@@ -67,3 +67,8 @@ To verify installation was successful and that the generated cluster conforms to
 ```sh
 task prefight
 ```
+
+## Cost
+
+There is no cloud bill here. The only costs are the server hardware you already
+own and the bandwidth it uses.
