@@ -41,6 +41,7 @@ Open this file with your text editor of choice.
 
 Fill out the config according to the guide written in the file's comments.
 One thing to note:
+
 - **`k3s_servers`** — control-plane nodes. One is fine. Three gives a highly
   available control plane with embedded etcd, and the count must be **odd** or
   etcd cannot hold quorum.
