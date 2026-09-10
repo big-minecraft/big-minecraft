@@ -1,16 +1,24 @@
 # Prerequisites
 
-> [!IMPORTANT]
-> This repository uses `taskfile` to run installation scripts. If you do not already have it, please install it [here](https://taskfile.dev/docs/installation)
+!!! important
+
+    This repository uses `taskfile` to run installation scripts. If you do not
+    already have it, please install it
+    [here](https://taskfile.dev/docs/installation).
 
 ## CLI Tools
-In order to continue with the installation process, a set of CLI tools need to be installed to your local systen.
-<br>
+
+In order to continue with the installation process, a set of CLI tools need to
+be installed to your local system.
+
 To see the current status of these tools on your system, run:
+
 ```sh
 task verify
 ```
-If any of these tools aren't installed, the command will link you to instructions for how to install them.
+
+If any of these tools aren't installed, the command will link you to
+instructions for how to install them.
 
 ## Cluster
 
@@ -27,6 +35,7 @@ This cluster must meet the following requirements:
 | A `LoadBalancer` implementation | Always |
 | **Outbound internet egress from pods** | Always |
 
-Because installing a cluster with these requirements is non-trivial, BMC ships with a cluster installation system.
-<br>
+Because installing a cluster with these requirements is non-trivial, BMC ships
+with a cluster installation system.
+
 This system currently supports bare-metal and select cloud compute services.

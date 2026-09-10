@@ -5,11 +5,13 @@ Welcome to the Big Minecraft documentation.
 We created Big-Minecraft to serve as an out-of-the box minecraft network to quickly host our random minecraft projects at scale. Because of this, it is important to fundamentally understand what BMC is and what it is not. 
 
 **What BMC is:**
+
 - A way to easily scale gamemodes with ephemeral instances on a managed network
 - A way to deploy an auto-scaling game to bare metal or a cloud provider
 - A local testing environment for spinning up temporary networks
 
 **What BMC is NOT:**
+
 - A way to a single server
 - A way to host multiple non-connected servers 
 - A way to host a network of servers exclusively requiring persistent data storage
@@ -20,6 +22,7 @@ We created Big-Minecraft to serve as an out-of-the box minecraft network to quic
 At its core, Big-Minecraft is a **fully-managed** environment. This means it ships with additional software that is often needed and used to host larger networks.
 
 This currently includes:
+
 - MariaDB
 - MongoDB
 - Redis
