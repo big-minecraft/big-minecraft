@@ -12,7 +12,7 @@ We created Big-Minecraft to serve as an out-of-the box minecraft network to quic
 
 **What BMC is NOT:**
 
-- A way to a single server
+- A way to run a single server
 - A way to host multiple non-connected servers 
 - A way to host a network of servers exclusively requiring persistent data storage
 - A way to provide minecraft servers to paying customers

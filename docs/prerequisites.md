@@ -25,4 +25,4 @@ This cluster must meet the following requirements:
 | Outbound internet egress from pods | Always |
 
 Because installing a cluster with these requirements is non-trivial, BMC ships with a cluster installation system.
-This system currently supports bare-metal and select cloud compute services.
+You will be guided through the process of using this system later in the docs.
