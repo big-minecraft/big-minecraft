@@ -1,7 +1,9 @@
 # Choosing your Environment
 
 > The installation process will proceed assuming you wish to use BMC's cluster installation system.
-> If you already have an cluster that meets the previously defined requirements, you may skip to [BMC Install](bmc-install.md){ .md-button .md-button--primary }
+> If you already have a cluster that meets the previously defined requirements, you can skip this page.
+>
+> [Skip to BMC install](bmc-install.md){ .md-button }
 
 
 BMC's cluster installation system currently supports the following environments:
