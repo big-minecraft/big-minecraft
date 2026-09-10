@@ -10,6 +10,7 @@ theme:
     - navigation.sections
     - navigation.top
     - content.code.copy
+    - navigation.footer
     - content.action.edit
     - search.suggest
   palette:

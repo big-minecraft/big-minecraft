@@ -686,10 +686,16 @@ tasks:
     cmds: ["{{.SCRIPTS_DIR}}/local-test.sh all"]
 
   verify:
-    desc: Verify all prerequisites are installed
+    desc: Verify prerequisites (no PROFILE reports what every profile shares)
     silent: true
     cmds:
-      - task: _require-profile
+      # No _require-profile here, deliberately. An empty PROFILE is meaningful
+      # for this one task: it reports the tooling every profile needs and names
+      # the per-profile extras, which is what the README's first Quick Start
+      # step asks for and what _require-profile used to reject. The script
+      # still rejects a profile name that does not exist, so the typo case the
+      # guard covered is covered. Every other task keeps the guard, and
+      # `task install` runs verify only after passing it.
       - PROFILE={{.PROFILE}} {{.SCRIPTS_DIR}}/verify-prerequisites.sh
 
   help:
