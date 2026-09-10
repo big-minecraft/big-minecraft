@@ -30,10 +30,12 @@ nav:
   - Prerequisites: prerequisites.md
   - Install:
       - Environment: environment.md
-      - Bare metal: baremetal-install.md
-      - Amazon EKS: eks-install.md
-      - Google GKE: gke-install.md
-      - Azure AKS: aks-install.md
+      - Cluster:
+          - Bare metal: baremetal-install.md
+          - Amazon EKS: eks-install.md
+          - Google GKE: gke-install.md
+          - Azure AKS: aks-install.md
+      - BMC: bmc-install.md
   - Architecture:
       - Scaling: scaling-architecture.md
 
