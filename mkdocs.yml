@@ -29,7 +29,7 @@ nav:
   - Home: index.md
   - Prerequisites: prerequisites.md
   - Install:
-      - Environment:
+      - Environment: environment.md
       - Bare metal: baremetal-install.md
       - Amazon EKS: eks-install.md
       - Google GKE: gke-install.md
