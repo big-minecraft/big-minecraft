@@ -38,11 +38,34 @@ releases:
     chart: metallb/metallb
     version: 0.14.9
     installed: {{ .Values.global.metallb.installResources }}
+    # Ready, not merely created. The validating webhook that admits the
+    # IPAddressPool below has no endpoints until the controller pod is up, and
+    # a pool applied before then is rejected outright.
+    wait: true
+    timeout: 300
     # NOTE: do not add a presync hook that deletes the MetalLB CRDs. Deleting a
     # CRD cascades to its custom resources, so every apply would wipe the
     # IPAddressPools and L2Advertisements this install depends on -- including
     # any the cluster operator manages themselves. The pinned chart version
     # above is what keeps CRD drift under control.
+
+  # The address pool itself, as a release of its own rather than a template in
+  # bmc-chart. preflight provisions a real LoadBalancer Service and runs before
+  # the application chart, so the pool has to exist earlier than bmc-chart does
+  # -- and a resource created outside a release cannot later be adopted by one
+  # without forging Helm's ownership metadata onto it. One owner, one apply.
+  - name: metallb-config
+    namespace: metallb-system
+    createNamespace: true
+    chart: ./charts/metallb-config
+    installed: {{ .Values.global.metallb.installResources }}
+    needs:
+      - metallb-system/metallb
+    # Same three layers bmc-chart reads, so global.metallb keeps one home.
+    values:
+      - charts/bmc-chart/values.yaml
+      - profiles/{{ env "PROFILE" | default "baremetal" }}.yaml
+      - {{ env "BMC_VALUES_FILE" | default (printf "config/%s.yaml" (env "PROFILE" | default "baremetal")) }}
 
   # Datastore operators, installed only for the datastores set to mode: ha.
   #
@@ -209,7 +232,7 @@ releases:
       - {{ env "BMC_VALUES_FILE" | default (printf "config/%s.yaml" (env "PROFILE" | default "baremetal")) }}
     needs:
       {{- if .Values.global.metallb.installResources }}
-      - metallb-system/metallb
+      - metallb-system/metallb-config
       {{- end }}
       {{- if eq .Values.global.ingress.tls.mode "cluster-issuer" }}
       - cert-manager/cert-manager

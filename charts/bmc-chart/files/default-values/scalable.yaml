@@ -62,7 +62,7 @@ scaling:
 
 server:
   # Change this if you need to use a different java version.
-  image: eclipse-temurin:21-jdk-jammy
+  image: eclipse-temurin:25-jdk-jammy
 
   # This is the name of your jarfile located in the base deployment directory.
   jarName: server.jar

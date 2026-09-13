@@ -204,8 +204,6 @@ global:
     # storage.classes.shared.name at it.
     storageClassName: "nfs"
 
-  # MetalLB resources. Not a core capability -- purely an opt-in extra that a
-  # bare-metal profile enables. The chart contains no other MetalLB logic; the
   # Service annotations come from edge.game.annotations like any other
   # environment's would.
   metallb:

@@ -118,10 +118,6 @@ global:
         name: "efs-sc"
         accessMode: ReadWriteMany
 
-  # No MetalLB on EKS -- the AWS Load Balancer Controller owns Services of type
-  # LoadBalancer.
-  metallb:
-    installResources: false
 
   # Installed by helmfile (see helmfile.yaml), not by the Terraform layer --
   # ingress-nginx needs nothing from AWS, so it stays where every other

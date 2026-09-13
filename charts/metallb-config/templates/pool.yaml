@@ -1,0 +1,42 @@
+{{- /*
+The address pool MetalLB allocates from, and how it advertises it.
+
+This is a release of its own rather than a template in bmc-chart because of
+ordering: preflight provisions a REAL LoadBalancer Service to prove the cluster
+can satisfy one, and it runs before the application chart is installed. Keeping
+these resources here means one owner and one apply -- helmfile's `needs` puts
+them after the MetalLB chart (whose webhook admits them) and before everything
+that depends on an address existing.
+
+Whether this release is installed at all is decided by
+global.metallb.installResources in helmfile.yaml.gotmpl, so there is no
+capability guard here: if the release runs, the CRDs are present.
+*/ -}}
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: default
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+spec:
+  addresses:
+    {{- range .Values.global.metallb.ipAddressPool }}
+    - {{ . }}
+    {{- end }}
+  autoAssign: true
+{{- if eq .Values.global.metallb.advertisementMode "l2" }}
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: default
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+spec:
+  ipAddressPools:
+    - default
+{{- end }}

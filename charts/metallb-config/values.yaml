@@ -1,0 +1,7 @@
+# Neutral defaults so the chart renders standalone. In an install these are
+# supplied by the same three layers bmc-chart reads (chart defaults, profile,
+# installation), so global.metallb is configured in exactly one place.
+global:
+  metallb:
+    ipAddressPool: []
+    advertisementMode: l2

@@ -1,0 +1,9 @@
+apiVersion: v2
+name: metallb-config
+description: >-
+  The MetalLB address pool this installation allocates from. Split out of
+  bmc-chart because preflight provisions a real LoadBalancer Service and so
+  needs the pool to exist before the application chart is ever installed --
+  see the comment in templates/pool.yaml.
+type: application
+version: 0.1.0

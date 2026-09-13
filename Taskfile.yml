@@ -278,14 +278,9 @@ tasks:
       - |
         echo "Installing LoadBalancer provider (no-op unless the profile enables one)..."
       - helmfile apply --selector name=metallb
-      - |
-        # The IPAddressPool applied below goes through MetalLB's validating
-        # webhook, which is not serving the instant the chart reports installed.
-        if kubectl get deployment metallb-controller -n metallb-system >/dev/null 2>&1; then
-          kubectl wait --for=condition=available --timeout=300s \
-            deployment/metallb-controller -n metallb-system
-        fi
-      - "{{.SCRIPTS_DIR}}/apply-metallb-config.sh"
+      # The pool. The release waits on metallb's own `wait: true`, so the
+      # validating webhook that admits it is already serving.
+      - helmfile apply --selector name=metallb-config
       # k3s's Traefik is already a LoadBalancer Service and claims the pool's
       # address on sight. On a single-address pool that leaves nothing for
       # anything else -- including preflight's probe, which carries the game
@@ -310,7 +305,7 @@ tasks:
       - helmfile apply --selector name=ingress-nginx
       - helmfile apply --selector name=cert-manager
       - helmfile apply --selector name=metallb
-      - "{{.SCRIPTS_DIR}}/apply-metallb-config.sh"
+      - helmfile apply --selector name=metallb-config
       - "{{.SCRIPTS_DIR}}/configure-traefik-sharing.sh"
 
   wait-for-webhooks:

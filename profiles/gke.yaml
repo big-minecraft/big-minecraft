@@ -87,9 +87,6 @@ global:
     size: "100Gi"
     storageClassName: "nfs"
 
-  # No MetalLB on GKE -- Google's controller owns Services of type LoadBalancer.
-  metallb:
-    installResources: false
 
   # Installed by helmfile, as on every profile. GKE's own ingress (GCLB)
   # terminates TLS with a Google-managed certificate referenced by annotation

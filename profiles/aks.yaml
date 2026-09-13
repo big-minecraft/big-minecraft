@@ -79,9 +79,6 @@ global:
   nfsServer:
     install: false
 
-  # No MetalLB on AKS -- Azure's controller owns Services of type LoadBalancer.
-  metallb:
-    installResources: false
 
   # Installed by helmfile, as on every profile. Azure's own Application Gateway
   # ingress is a separate product with its own certificate model; ingress-nginx
