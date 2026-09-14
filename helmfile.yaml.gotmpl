@@ -138,10 +138,10 @@ releases:
           storageClass: {{ . | quote }}
           {{- end }}
         existingSecret: bmc-secrets
-        buckets:
-          - name: {{ .Values.global.artifactStore.bucket | quote }}
-            policy: none
-            purge: false
+        buckets: []
+        customCommands:
+          - command: "mb --ignore-existing myminio/{{ .Values.global.artifactStore.bucket }}"
+        users: []
         resources:
           requests:
             memory: 512Mi

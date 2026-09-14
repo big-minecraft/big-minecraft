@@ -18,7 +18,10 @@ NC='\033[0m'
 
 PROFILE="${PROFILE:-baremetal}"
 CHART_DIR="${CHART_DIR:-charts/bmc-chart}"
-VALUES_FILE="${VALUES_FILE:-${CONFIG_DIR:-config}/${PROFILE:-baremetal}.yaml}"
+# BMC_VALUES_FILE in the chain because helmfile.yaml.gotmpl honours it and
+# scripts/local-test.sh sets it. Without it here, `BMC_VALUES_FILE=... task
+# preflight` probed one file while the install read another.
+VALUES_FILE="${VALUES_FILE:-${BMC_VALUES_FILE:-${CONFIG_DIR:-config}/${PROFILE:-baremetal}.yaml}}"
 NS="${PREFLIGHT_NAMESPACE:-bmc-preflight}"
 TIMEOUT="${PREFLIGHT_TIMEOUT:-90}"
 # Storage gets longer: a network-attached volume must be provisioned, attached
@@ -55,6 +58,31 @@ if [ ! -f "profiles/${PROFILE}.yaml" ]; then
   echo -e "${RED}Unknown profile '${PROFILE}'${NC}. Available:"
   ls profiles/ | sed 's/\.yaml$//' | sed 's/^/  - /'
   exit 1
+fi
+
+# Loudly, not silently. read_value drops this layer when the file is absent, so
+# every value below falls back to the profile and chart defaults -- and
+# preflight then reports those defaults as though they were the operator's
+# configuration. The failures it prints are real, but the names in them were
+# never chosen by anyone, which sends you looking for the mistake in a file
+# that does not exist. validate-config.sh already hard-stops here; this makes
+# the two agree.
+if [ ! -f "$VALUES_FILE" ]; then
+  echo -e "${RED}No configuration file: $VALUES_FILE${NC}"
+  echo ""
+  echo "  Everything below would be checked against the profile and chart"
+  echo "  defaults, not your cluster's actual configuration."
+  echo ""
+  echo "  Run: task config:init PROFILE=${PROFILE}"
+  echo ""
+  echo "  To probe the defaults deliberately anyway:"
+  echo "    PREFLIGHT_ALLOW_NO_CONFIG=true task preflight PROFILE=${PROFILE}"
+  if [ "${PREFLIGHT_ALLOW_NO_CONFIG:-false}" != "true" ]; then
+    exit 1
+  fi
+  echo ""
+  echo -e "${YELLOW}Continuing against defaults -- results describe no real install.${NC}"
+  echo ""
 fi
 
 SHARED_CLASS=$(read_value '.global.storage.classes.shared.name')

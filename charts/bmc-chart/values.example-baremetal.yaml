@@ -84,3 +84,23 @@ global:
 
   fileEditSession:
     timeoutMinutes: 15
+
+  # Storage classes. Commented out on purpose -- all three already resolve to
+  # 'longhorn' (shared and database from profiles/baremetal.yaml, persistent
+  # from the chart default), which is what ansible/site.yml installs. Leave
+  # this alone on a stock bare-metal build.
+  #
+  # Uncomment if your cluster provides storage under different names. Override
+  # ALL THREE, not the ones you happen to notice: they are separate keys, and
+  # any you leave out keeps 'longhorn' and produces a PVC that never binds.
+  # 'persistent' must be ReadWriteMany -- a persistent deployment's server and
+  # its file-edit pod hold the same claim at once.
+  #
+  # storage:
+  #   classes:
+  #     shared:
+  #       name: "your-rwx-class"
+  #     database:
+  #       name: "your-block-class"
+  #     persistent:
+  #       name: "your-rwx-class"

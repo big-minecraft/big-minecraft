@@ -69,7 +69,7 @@ tasks:
         fi
 
   install:
-    desc: Complete installation (verify, storage, preflight, validate, deploy)
+    desc: Complete installation (verify, validate, storage, preflight, deploy)
     silent: true
     cmds:
       - task: _require-profile
@@ -78,6 +78,14 @@ tasks:
       # without this the failure is five minutes deep in a Helm timeout instead
       # of a one-second "run task secrets:generate".
       - task: secrets:check
+      # Before storage, not after preflight. Every task below reads
+      # config/PROFILE.yaml -- that file is per-machine and gitignored, so on a
+      # fresh clone it does not exist yet. helmfile's own complaint about a
+      # missing environment values file names no fix; validate names the exact
+      # file and tells you to run `task config:init`. It is a pure yq merge of
+      # the values layers, so nothing here needs the cluster to be built out
+      # first.
+      - task: validate
       # Before preflight, not after. On profiles where the cluster has no
       # managed RWX filesystem, BMC brings its own NFS server -- and preflight's
       # shared-storage probe is the single most valuable check it makes. Running
@@ -92,7 +100,6 @@ tasks:
       # after preflight meant the probe could never pass on a new cluster.
       - task: edge
       - task: preflight
-      - task: validate
       - echo ""
       - echo "=========================================="
       - echo "Ready to deploy BMC to Kubernetes"
