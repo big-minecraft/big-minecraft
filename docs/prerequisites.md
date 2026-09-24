@@ -1,5 +1,5 @@
 # Prerequisites
-> This repository uses `taskfile` to run installation scripts. If you do not already have it, please install it [here](https://taskfile.dev/docs/installation)
+BMC requires a few pieces of prerequisite software to assist with the installation process. It also requires a proper server install environment. This documentation page will help you ensure you meet both of these requirements.
 
 ## CLI Tools
 In order to continue with the installation process, a set of CLI tools need to be installed to your local system.

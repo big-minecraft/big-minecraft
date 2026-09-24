@@ -33,10 +33,10 @@ walks through generating one key and copying it to each machine with
 To generate the cluster config file, run the following command:
 
 ```sh
-task cluster
+task cluster:init
 ```
 
-This will create the file `config/infrastructure/baremetal.inventory/yml`.
+This will create the file `config/infrastructure/baremetal.inventory.yml`.
 Open this file with your text editor of choice.
 
 Fill out the config according to the guide written in the file's comments.
