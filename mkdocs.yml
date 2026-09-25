@@ -37,8 +37,7 @@ nav:
           - Google GKE: gke-install.md
           - Azure AKS: aks-install.md
       - BMC: bmc-install.md
-  - Architecture:
-      - Scaling: scaling-architecture.md
+  # - Architecture:
 
 validation:
   nav:

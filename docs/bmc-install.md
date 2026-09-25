@@ -34,7 +34,7 @@ task secrets:generate
 **Make sure to copy these secrets down somewhere secure for later reference.**
 
 ## Installation
-To complete the install, simply run
+To complete the install, simply run:
 ```sh
 task install
 ```

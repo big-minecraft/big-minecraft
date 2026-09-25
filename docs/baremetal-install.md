@@ -65,7 +65,7 @@ kubectl config use-context bmc-baremetal
 
 To verify installation was successful and that the generated cluster conforms to BMC's requirements, run the following command:
 ```sh
-task prefight
+task preflight
 ```
 
 ## Cost
