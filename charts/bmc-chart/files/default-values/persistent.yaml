@@ -45,11 +45,6 @@ server:
     - name: VERSION
       value: "1.20.2"
 
-  # The redis endpoint used to relay power actions internally.
-  redis:
-    host: redis-service
-    port: 6379
-
 
 volume:
   # Where the contents of the aformentioned data directory is copied to internally. There is no real reason to change this.

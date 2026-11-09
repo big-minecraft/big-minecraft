@@ -52,7 +52,7 @@ fi
 
 send_redis_notification() {
 local message="{\"server\": \"$HOSTNAME\", \"deployment\": \"$DEPLOYMENT_NAME\", \"event\": \"shutdown\", \"timestamp\": \"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\"}"
-redis-cli -h {{ .Values.server.redis.host }} -p {{ .Values.server.redis.port }} PUBLISH server-status "$message" &> /dev/null
+redis-cli -h {{ .Values.global.redis.host }} -p {{ .Values.global.redis.port }} PUBLISH server-status "$message" &> /dev/null
 echo "Sent shutdown notification to Redis"
 }
 

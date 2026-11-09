@@ -171,6 +171,9 @@
         "redis": {
           "type": "object",
           "properties": {
+            "host": {
+              "$ref": "#/$defs/serviceHost"
+            },
             "mode": {
               "$ref": "#/$defs/datastoreMode"
             },
@@ -191,6 +194,9 @@
         "mariaDB": {
           "type": "object",
           "properties": {
+            "host": {
+              "$ref": "#/$defs/serviceHost"
+            },
             "mode": {
               "$ref": "#/$defs/datastoreMode"
             },
@@ -202,6 +208,9 @@
         "mongoDB": {
           "type": "object",
           "properties": {
+            "host": {
+              "$ref": "#/$defs/serviceHost"
+            },
             "mode": {
               "$ref": "#/$defs/datastoreMode"
             },
@@ -458,6 +467,10 @@
           ]
         }
       }
+    },
+    "serviceHost": {
+      "type": "string",
+      "minLength": 1
     }
   }
 }

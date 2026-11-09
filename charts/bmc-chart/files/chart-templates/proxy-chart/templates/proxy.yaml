@@ -22,9 +22,9 @@ spec:
       value: {{ .value | quote }}
     {{- end }}
     - name: REDIS_HOST
-      value: {{ .Values.global.redis.host | default .Values.server.redis.host | quote }}
+      value: {{ .Values.global.redis.host | quote }}
     - name: REDIS_PORT
-      value: {{ .Values.global.redis.port | default .Values.server.redis.port | quote }}
+      value: {{ .Values.global.redis.port | quote }}
     - name: DEPLOYMENT_NAME
       value: "proxy"
   resources:
@@ -46,8 +46,8 @@ spec:
     version: {{ .Values.artifactVersion | quote }}
   {{- end }}
   redis:
-    host: {{ .Values.global.redis.host | default .Values.server.redis.host | quote }}
-    port: {{ .Values.global.redis.port | default .Values.server.redis.port | quote }}
+    host: {{ .Values.global.redis.host | quote }}
+    port: {{ .Values.global.redis.port | quote }}
   scaling:
     strategy: {{ .Values.scaling.scaleStrategy | quote }}
     maxPlayers: {{ .Values.scaling.maxPlayers }}

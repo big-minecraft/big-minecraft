@@ -83,11 +83,6 @@ server:
     - name: VERSION
       value: "1.20.2"
 
-  # The redis endpoint used to relay power actions internally.
-  redis:
-    host: redis-service
-    port: 6379
-
 
 
 volume:
