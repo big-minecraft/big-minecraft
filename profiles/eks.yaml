@@ -34,7 +34,7 @@
 #    gateway is a standing hourly charge plus per-GB -- budget for it, or
 #    vendor the plugin into the image.
 #
-# You must still set in values.custom.yaml:
+# You must still set in config/eks.yaml:
 #   global.ingress.host, global.panel.panelHost, global.certManager.email
 #   global.edge.game.sourceRanges  (strongly recommended -- see below)
 
@@ -134,7 +134,7 @@ global:
     sftpPassthrough:
       enabled: true
       minPort: 31400
-      portCount: 20
+      portCount: 50
 
     service:
       annotations:
@@ -174,11 +174,3 @@ global:
     tls:
       mode: cluster-issuer
 
-  # Datastores run in-cluster. Set mode to "ha" for operator-managed clusters;
-  # see charts/bmc-chart/values.yaml for what each mode installs.
-  redis:
-    mode: single
-  mariaDB:
-    mode: single
-  mongoDB:
-    mode: single

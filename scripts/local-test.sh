@@ -20,8 +20,9 @@ set -euo pipefail
 #   scripts/local-test.sh status    # what is running
 #   scripts/local-test.sh kubectl … # run any kubectl against the test cluster
 #   scripts/local-test.sh panel     # port-forward the panel to localhost:8080
+#   scripts/local-test.sh uninstall # run the real uninstall, assert it is clean
 #   scripts/local-test.sh down      # delete everything
-#   scripts/local-test.sh all       # up + build + install + status
+#   scripts/local-test.sh all       # up + build + install + status + uninstall
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
 
@@ -87,7 +88,12 @@ cmd_up() {
     ok "storage class 'nfs' already present"
   else
     helm repo add nfs-ganesha https://kubernetes-sigs.github.io/nfs-ganesha-server-and-external-provisioner/ &>/dev/null || true
-    helm repo update &>/dev/null
+    # Only this repo, never a bare `helm repo update`: that exits 1 if ANY
+    # repo in the user's global helm config is unreachable (a stale chart repo
+    # someone added years ago is enough), and under `set -e` that killed this
+    # script here with no message at all.
+    helm repo update nfs-ganesha >/dev/null \
+      || die "cannot reach the nfs-ganesha chart repo"
     # vers=4.1 is REQUIRED. The chart defaults to NFSv3, which needs rpcbind and
     # fails inside a k3d node with "mount failed: exit status 255" -- the PVC
     # binds, then every pod that mounts it hangs in ContainerCreating.
@@ -442,6 +448,22 @@ cmd_down() {
   echo "  Your default kubectl context was never touched."
 }
 
+# Runs the REAL uninstall against this cluster and fails if anything survives.
+# values.local.yaml puts all three datastores in ha mode, so this is the only
+# place the HA teardown path -- operator finalizers included -- gets exercised.
+# cmd_down deletes the whole cluster and would hide every leak, so this must run
+# before it, and must NOT swallow a failure.
+cmd_uninstall() {
+  [ -f "$KUBECONFIG" ] || die "no test cluster -- run '$0 up' first"
+  step "Uninstalling BMC from the test cluster (profile: $PROFILE, datastores: ha)"
+  if PROFILE="$PROFILE" BMC_VALUES_FILE="$VALUES" NAMESPACE="$NS" \
+       "$ROOT/scripts/uninstall.sh"; then
+    ok "uninstall reported a clean cluster"
+  else
+    die "uninstall left resources behind (see above) -- this is a real failure"
+  fi
+}
+
 case "${1:-}" in
   up)      cmd_up ;;
   reset-deployments) cmd_reset_deployments ;;
@@ -449,6 +471,7 @@ case "${1:-}" in
   install) cmd_install ;;
   status)  cmd_status ;;
   panel)   cmd_panel ;;
+  uninstall) cmd_uninstall ;;
   down)    cmd_down ;;
   kubectl) shift; kubectl "$@" ;;
   all)     cmd_up
@@ -466,7 +489,7 @@ case "${1:-}" in
              ok "published images support linux/$_arch - skipping build"
              echo "    run '$0 build' if you want to test local panel/manager changes"
            fi
-           cmd_install; cmd_status ;;
+           cmd_install; cmd_status; cmd_uninstall ;;
   *)
     sed -n '3,30p' "$0" | sed 's/^# \{0,1\}//'
     exit 1 ;;

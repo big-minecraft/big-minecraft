@@ -30,7 +30,7 @@ The rule that decides who owns what:
 |---|---|
 | VPC, NAT, subnets and their LB discovery tags | cert-manager |
 | EKS control plane, managed node group | ingress-nginx (`IngressClass: nginx`) |
-| EBS + EFS CSI drivers, IRSA roles | MetalLB (off for this profile) |
+| EBS + EFS CSI drivers, IRSA roles | |
 | `efs-sc` and `gp3` storage classes | Traefik (off for this profile) |
 | AWS Load Balancer Controller | the `big-minecraft` release |
 | Karpenter + its NodePool/EC2NodeClass | |

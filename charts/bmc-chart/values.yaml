@@ -14,9 +14,8 @@
 #   3. Run 'task secrets:generate' to create Kubernetes secrets
 #   4. Run 'task install PROFILE=<profile>' to deploy
 
-# Container images. values.example.yaml has always documented this section,
-# but until now no template read it. Overriding these is what lets a locally
-# built image be used instead of the published one (see scripts/local-test.sh).
+# Container images. Overriding these is what lets a locally built image be used
+# instead of the published one (see scripts/local-test.sh).
 images:
   panel:
     repository: kyrokrypt/bmc-panel
@@ -54,7 +53,36 @@ global:
       type: LoadBalancer
       annotations: {}
       loadBalancerIP: ""
+      # Who may reach the game entrypoint; empty is anywhere, which is what a
+      # public Minecraft server usually wants.
+      #
+      # Enforced by the cloud load balancer on EKS/GKE/AKS, and by kube-proxy
+      # for a LoadBalancer Service generally. NOT enforced under k3s's
+      # servicelb: it reaches pods through a hostPort on each node, which never
+      # passes through the LoadBalancer path this list filters. On bare metal,
+      # firewall the node instead -- this field will not do it for you.
       sourceRanges: []
+      # Cluster | Local. Ignored when type is ClusterIP, which does not accept
+      # the field at all.
+      #
+      # Cluster is Kubernetes' own default and what this edge rendered before
+      # the field existed, so leaving it alone changes nothing. kube-proxy may
+      # forward to a pod on another node, and SNATs when it does -- so the
+      # server sees a cluster address as the player's IP, not the player's.
+      #
+      # Local keeps the real source address, at the cost of only answering on
+      # nodes that actually run a proxy pod. Two reasons to want it:
+      #
+      #   - Per-player IP bans, rate limits and geo-logging need a real client
+      #     IP. Under Cluster every player appears to come from one address.
+      # Under k3s's servicelb this is the only thing that decides it: the
+      # Service's port is bound on the node, and Cluster means kube-proxy may
+      # hand the connection to a pod elsewhere, SNATting on the way.
+      #
+      # On a single-node cluster Local is always satisfiable: every pod is
+      # local to the only node there is. On a multi-node cluster Local means
+      # only the nodes actually running a proxy pod will answer.
+      externalTrafficPolicy: Cluster
       java:
         port: 25565
       bedrock:
@@ -116,6 +144,11 @@ global:
       secretName: ""
 
   storage:
+    # Class NAMES are deliberately empty here. This file is the neutral default
+    # layer, and there is no storage class every cluster has -- a name invented
+    # here would be wrong on most of them and, worse, wrong silently: the PVC
+    # is created and simply never binds. A profile or a config names its own,
+    # and values.schema.json fails the render if one is left empty.
     classes:
       # Shared game data and panel manifests. RWX is NOT optional: the panel
       # mounts a deployment's game volume into a file-edit pod and an SFTP pod
@@ -125,12 +158,12 @@ global:
       # artifacts rather than mounting this. One pod holds it at a time -- the
       # file session -- so ReadWriteOnce is enough.
       shared:
-        name: "longhorn"
+        name: ""
         accessMode: ReadWriteOnce
       # MariaDB and MongoDB. Single writer each -- these do not want a network
       # filesystem.
       database:
-        name: "longhorn"
+        name: ""
         accessMode: ReadWriteOnce
 
       # Persistent deployments only. Their server runs in place on this volume
@@ -139,7 +172,7 @@ global:
       # deployment is one instance, so the volume never sees more than a
       # handful of mounts.
       persistent:
-        name: "longhorn"
+        name: ""
         accessMode: ReadWriteMany
     # Whether this installation runs persistent deployments.
     #
@@ -204,14 +237,13 @@ global:
     # storage.classes.shared.name at it.
     storageClassName: "nfs"
 
-  # Service annotations come from edge.game.annotations like any other
-  # environment's would.
-  metallb:
-    installResources: false
-    ipAddressPool: []
-    advertisementMode: l2
-
   redis:
+    # The image for mode: single. As with mariaDB, `latest` is the historical
+    # default; pin it when you care about reproducible rebuilds. Redis holds
+    # only coordination data here, so a version change costs less than it
+    # would for the other two.
+    image: redis
+    tag: "latest"
     # single: one pod, no failover. The state is coordination data, rebuilt
     #         from running instances on restart.
     # ha:     operator-managed replication with Sentinel. The operator tracks
@@ -230,6 +262,14 @@ global:
     externalPort: 6379
 
   mariaDB:
+    # The image for mode: single. `latest` is the historical default and is
+    # kept so this change alters nothing on its own -- but it is a live
+    # hazard: `latest` now resolves to MariaDB 13, and a major-version jump
+    # under an initialised datadir is not something the entrypoint migrates
+    # for you. Pin it, e.g.
+    #   tag: "11.4"      # LTS
+    image: mariadb
+    tag: "latest"
     # single: one pod on one volume.
     # ha:     Galera via mariadb-operator. Wants at least 3 nodes for quorum --
     #         on a single-node cluster the members die together.
@@ -250,6 +290,25 @@ global:
     passwordKey: ""
 
   mongoDB:
+    # The image for mode: single. Pinned, not `latest`: a datastore that
+    # silently changes major version under a running installation is how you
+    # get an empty database or a server that will not start.
+    #
+    # 4.4, not 6.0, and that is deliberate. MongoDB 5.0+ requires a CPU with
+    # AVX, and dies with SIGILL (exit 132) and "requires a CPU with AVX
+    # support" on hosts without it -- which includes every QEMU/KVM guest left
+    # on the default kvm64/qemu64 CPU model, and any physical CPU older than
+    # Sandy Bridge (AVX arrived with x86-64-v3). 4.4 is the last release
+    # without that requirement.
+    #
+    # The cost: 4.4 reached end of life in February 2024 and gets no security
+    # patches. mongodb-service is ClusterIP, so it is never internet-facing,
+    # but if your hardware does have AVX prefer a supported release:
+    #   image: mongo
+    #   tag: "8.0"
+    # Check with: grep -w avx /proc/cpuinfo
+    image: mongo
+    tag: "4.4"
     # single: one pod on one volume.
     # ha:     replica set via the MongoDB Community Operator. The driver does
     #         failover natively once given a replica-set URI.

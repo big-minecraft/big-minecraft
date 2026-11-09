@@ -23,9 +23,13 @@ spec:
   loadBalancerIP: {{ .Values.global.edge.game.loadBalancerIP | quote }}
   {{- end }}
   {{- with .Values.global.edge.game.sourceRanges }}
+  # Enforced by a cloud load balancer, and by kube-proxy for a LoadBalancer
+  # Service. k3s's servicelb bypasses that path entirely -- see
+  # edge.game.sourceRanges in values.yaml.
   loadBalancerSourceRanges:
     {{- toYaml . | nindent 4 }}
   {{- end }}
+  {{- include "bmc.edgePolicy" (dict "type" .Values.global.edge.game.type "policy" .Values.global.edge.game.externalTrafficPolicy "key" "global.edge.game.externalTrafficPolicy") | nindent 2 }}
   ports:
     - protocol: TCP
       port: {{ .Values.global.edge.game.java.port }}

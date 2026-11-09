@@ -159,7 +159,7 @@ metadata:
  name: bmc-panel-storage
 spec:
  accessModes: [{{ .Values.global.storage.classes.shared.accessMode | quote }}]
- storageClassName: {{ .Values.global.storage.classes.shared.name }}
+ storageClassName: {{ include "bmc.storageClass" (dict "ctx" . "class" "shared") }}
  resources:
    requests:
      storage: {{ .Values.global.storage.volumeSize.manifests }}

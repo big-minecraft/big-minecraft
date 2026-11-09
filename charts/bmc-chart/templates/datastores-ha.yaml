@@ -38,9 +38,7 @@ spec:
     volumeClaimTemplate:
       spec:
         accessModes: ["ReadWriteOnce"]
-        {{- with .Values.global.storage.classes.database.name }}
-        storageClassName: {{ . | quote }}
-        {{- end }}
+        storageClassName: {{ include "bmc.storageClass" (dict "ctx" $ "class" "database") | quote }}
         resources:
           requests:
             storage: 1Gi
@@ -87,9 +85,7 @@ spec:
       # has none, and the PVC hangs Pending forever.
       volumeClaimTemplate:
         accessModes: ["ReadWriteOnce"]
-        {{- with .Values.global.storage.classes.database.name }}
-        storageClassName: {{ . | quote }}
-        {{- end }}
+        storageClassName: {{ include "bmc.storageClass" (dict "ctx" $ "class" "database") | quote }}
         resources:
           requests:
             storage: 100Mi
@@ -101,9 +97,7 @@ spec:
     enabled: false
   storage:
     size: {{ .Values.global.storage.volumeSize.mariaDB }}
-    {{- with .Values.global.storage.classes.database.name }}
-    storageClassName: {{ . | quote }}
-    {{- end }}
+    storageClassName: {{ include "bmc.storageClass" (dict "ctx" $ "class" "database") | quote }}
   affinity:
     antiAffinityEnabled: false
     podAntiAffinity:
@@ -163,9 +157,7 @@ spec:
             name: data-volume
           spec:
             accessModes: ["ReadWriteOnce"]
-            {{- with .Values.global.storage.classes.database.name }}
-            storageClassName: {{ . | quote }}
-            {{- end }}
+            storageClassName: {{ include "bmc.storageClass" (dict "ctx" $ "class" "database") | quote }}
             resources:
               requests:
                 storage: {{ .Values.global.storage.volumeSize.mongoDB }}
@@ -173,9 +165,7 @@ spec:
             name: logs-volume
           spec:
             accessModes: ["ReadWriteOnce"]
-            {{- with .Values.global.storage.classes.database.name }}
-            storageClassName: {{ . | quote }}
-            {{- end }}
+            storageClassName: {{ include "bmc.storageClass" (dict "ctx" $ "class" "database") | quote }}
             resources:
               requests:
                 storage: 1Gi

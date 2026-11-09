@@ -22,6 +22,16 @@ metadata:
     app: mongodb
 spec:
   replicas: 1
+  # Recreate, not the default RollingUpdate. These are single-replica
+  # Deployments on a ReadWriteOnce volume holding an exclusive lock on the
+  # data directory, so RollingUpdate deadlocks: it starts the replacement
+  # before retiring the incumbent, the replacement cannot take the lock
+  # (mongod exits 100 DBPathInUse; mariadbd refuses the datadir), and the
+  # incumbent is never retired because its replacement never goes Ready.
+  # Recreate stops the old pod first, which is also the only safe order for
+  # a database that must not be mounted twice.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: mongodb
@@ -30,11 +40,27 @@ spec:
       labels:
         app: mongodb
     spec:
+      # Run as the image's own user (999) rather than root.
+      #
+      # Both the mongo and mariadb entrypoints drop privileges themselves, via
+      # `exec gosu <user> "$BASH_SOURCE" "$@"`, but ONLY when started as root.
+      # On this stack that gosu call spins: PID 1 stays `gosu ...` in state R,
+      # burning a core, and the server is never exec'd -- so the pod reports
+      # 1/1 Running with nothing listening on its port, and the panel's
+      # wait-for-datastores init container blocks forever on a port that will
+      # never open. Redis is unaffected because its entrypoint execs
+      # redis-server directly and never calls gosu.
+      #
+      # Starting as 999 makes the entrypoint's `[ "$(id -u)" = '0' ]` test
+      # false, so it skips gosu and execs the server itself. fsGroup already
+      # matched this uid, so the volume ownership is unchanged.
       securityContext:
+        runAsUser: 999
+        runAsGroup: 999
         fsGroup: 999
       containers:
       - name: mongodb
-        image: mongo:6.0
+        image: {{ .Values.global.mongoDB.image | default "mongo" }}:{{ .Values.global.mongoDB.tag | default "4.4" }}
         ports:
         - containerPort: 27017
         env:
@@ -45,6 +71,41 @@ spec:
             secretKeyRef:
               name: {{ include "bmc.dbSecret" (dict "db" .Values.global.mongoDB "kind" "mongodb") }}
               key: {{ include "bmc.dbSecretKey" (dict "db" .Values.global.mongoDB "kind" "mongodb") }}
+        # Without this the pod reports Ready the moment the container starts,
+        # so the Service publishes an endpoint for a server that may not be
+        # listening -- which is how a stuck entrypoint presented as "1/1
+        # Running, nothing on 27017" and sent the panel's wait-for-datastores
+        # loop after a port that never opened.
+        #
+        # ping needs no credentials even with --auth, so the probe carries
+        # none. mongosh first, then the legacy shell: 6.0 dropped `mongo`,
+        # 4.4 has no `mongosh`, and mongoDB.tag is configurable.
+        readinessProbe:
+          exec:
+            command:
+              - /bin/sh
+              - -c
+              - >-
+                mongosh --quiet --eval 'db.runCommand({ping:1}).ok' 2>/dev/null
+                || mongo --quiet --eval 'db.runCommand({ping:1}).ok'
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 6
+        # Restart a server that stops answering, but give it far more rope
+        # than readiness: a slow startup must not become a restart loop.
+        livenessProbe:
+          exec:
+            command:
+              - /bin/sh
+              - -c
+              - >-
+                mongosh --quiet --eval 'db.runCommand({ping:1}).ok' 2>/dev/null
+                || mongo --quiet --eval 'db.runCommand({ping:1}).ok'
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 6
         volumeMounts:
         - name: mongodb-data
           mountPath: /data/db
@@ -73,7 +134,7 @@ metadata:
   name: mongodb-pvc
 spec:
   accessModes: [{{ .Values.global.storage.classes.database.accessMode | quote }}]
-  storageClassName: {{ .Values.global.storage.classes.database.name }}
+  storageClassName: {{ include "bmc.storageClass" (dict "ctx" . "class" "database") }}
   resources:
     requests:
       storage: {{ .Values.global.storage.volumeSize.mongoDB }}

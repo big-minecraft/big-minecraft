@@ -1,4 +1,5 @@
-# Longhorn's requirements, installed BEFORE k3s.
+# Node prerequisites, installed BEFORE k3s: Longhorn's storage packages, and
+# the AppArmor setting container workloads need.
 ---
 - name: Select package names for this distribution
   ansible.builtin.set_fact:
@@ -33,3 +34,36 @@
     dest: /etc/modules-load.d/iscsi_tcp.conf
     content: "iscsi_tcp\n"
     mode: "0644"
+
+# Disable Ubuntu 24.04+'s AppArmor unprivileged-userns restriction, 
+# which breaks signals within a container and hangs gosu-based database images and Pulumi.
+- name: Look for the AppArmor unprivileged-unconfined knob
+  ansible.builtin.stat:
+    path: /proc/sys/kernel/apparmor_restrict_unprivileged_unconfined
+  register: _aa_knob
+
+- name: Stop AppArmor stacking 'unconfined' onto container profiles
+  when: _aa_knob.stat.exists
+  block:
+    - name: Persist the setting across reboots
+      ansible.builtin.copy:
+        dest: /etc/sysctl.d/60-apparmor-containers.conf
+        content: |
+          # Set by BMC. Without this, AppArmor stacks 'unconfined' onto a
+          # confined process's label when it creates a user namespace, and
+          # containerd's `signal peer=cri-containerd.apparmor.d` rule stops
+          # matching -- so containers cannot signal their own processes.
+          kernel.apparmor_restrict_unprivileged_unconfined = 0
+        mode: "0644"
+
+    - name: Apply it now, without waiting for a reboot
+      ansible.builtin.command:
+        cmd: sysctl -w kernel.apparmor_restrict_unprivileged_unconfined=0
+      register: _aa_set
+      changed_when: false
+      failed_when: _aa_set.rc != 0
+
+- name: Note when the host has no such knob
+  ansible.builtin.debug:
+    msg: "No apparmor_restrict_unprivileged_unconfined on this host -- nothing to do."
+  when: not _aa_knob.stat.exists

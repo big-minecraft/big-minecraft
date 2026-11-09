@@ -3,9 +3,9 @@ set -euo pipefail
 
 # Verify that the target cluster satisfies BMC's capability contract.
 #
-# This replaces the old detect-dependencies.sh, which sniffed for Traefik /
-# MetalLB / cert-manager by name and wrote a values.auto.yaml that nothing ever
-# read. Vendor names do not tell you whether a cluster can actually run BMC.
+# This replaces the old detect-dependencies.sh, which sniffed for Traefik and
+# cert-manager by name and wrote a values.auto.yaml that nothing ever read.
+# Vendor names do not tell you whether a cluster can actually run BMC.
 # These probes test behaviour instead, so they work identically on k3s, EKS,
 # GKE, AKS or anything else.
 #
@@ -132,6 +132,63 @@ else
 fi
 echo ""
 
+# ------------------------------------------------------- in-container signals --
+#
+# Checked BEFORE storage: if this fails, MariaDB and MongoDB cannot start at
+# all, and the expensive probes below would be measuring a cluster that was
+# never going to work.
+#
+# Most official database images start as root and drop privileges with
+# `exec gosu <user> ...` before running the server. That needs the container to
+# be able to signal its own processes. A security module can deny it, and the
+# failure is silent and extremely confusing: the entrypoint hangs in gosu, the
+# server is never exec'd, and the pod sits at 1/1 Running with nothing
+# listening on its port.
+#
+# Known cause: Ubuntu 24.04+ sets kernel.apparmor_restrict_unprivileged_unconfined=1,
+# which makes AppArmor STACK `unconfined` onto a confined process's label
+# (cri-containerd.apparmor.d//&unconfined) when it creates a user namespace.
+# containerd's profile grants signalling via `signal peer=cri-containerd.apparmor.d`,
+# which no longer matches, so the profile stops permitting signals inside its
+# own containers.
+echo "In-container signals (databases drop privileges with gosu)"
+kubectl -n "$NS" run preflight-signal --image=busybox:1.36 --restart=Never --command -- \
+  sh -c 'sleep 5 >/dev/null 2>&1 </dev/null & c=$!; sleep 1;
+         if kill -TERM "$c" 2>/dev/null; then echo SIGNAL-OK; exit 0;
+         else echo SIGNAL-DENIED; exit 1; fi' &>/dev/null || true
+SIGNAL=""
+for _ in $(seq 1 "$TIMEOUT"); do
+  P=$(kubectl get pod preflight-signal -n "$NS" -o jsonpath='{.status.phase}' 2>/dev/null || true)
+  [ "$P" = "Succeeded" ] && { SIGNAL=ok; break; }
+  [ "$P" = "Failed" ] && { SIGNAL=denied; break; }
+  sleep 1
+done
+if [ "$SIGNAL" = "ok" ]; then
+  pass "a container can signal its own processes"
+elif [ "$SIGNAL" = "denied" ]; then
+  fail "a container CANNOT signal its own processes"
+  AA=$(kubectl -n "$NS" run preflight-aa --image=busybox:1.36 --restart=Never --rm -i --quiet \
+         --command -- sh -c 'cat /proc/self/attr/current 2>/dev/null' 2>/dev/null | tr -d '\r' | head -1 || true)
+  [ -n "$AA" ] && skip "AppArmor label: ${AA}"
+  case "$AA" in
+    *"//&"*)
+      skip "that label is STACKED, which is what breaks containerd's signal rule."
+      skip "on the node (Ubuntu 24.04+):"
+      skip "  sudo sysctl -w kernel.apparmor_restrict_unprivileged_unconfined=0"
+      skip "  echo 'kernel.apparmor_restrict_unprivileged_unconfined=0' |"
+      skip "    sudo tee /etc/sysctl.d/60-apparmor-containers.conf"
+      skip "then restart the affected pods. 'task cluster' sets this for you." ;;
+    *)
+      skip "check the node's security module (AppArmor/SELinux) and the"
+      skip "container runtime's default profile for signal restrictions." ;;
+  esac
+  skip "without this, MariaDB and MongoDB hang in gosu and never start."
+else
+  fail "the signal probe did not complete within ${TIMEOUT}s"
+fi
+kubectl delete pod preflight-signal -n "$NS" --wait=false &>/dev/null || true
+echo ""
+
 # --------------------------------------------------------------- storage ----
 probe_storage() {
   # $1 name  $2 class  $3 accessMode  $4 replicas
@@ -173,7 +230,32 @@ spec:
       containers:
         - name: c
           image: busybox:1.36
-          command: ["sh", "-c", "sleep 600"]
+          # Writes, then holds. A volume that mounts but cannot be written to
+          # used to pass this probe: an NFS export offering only sec=krb5
+          # mounts fine for a pod with no Kerberos ticket and then denies
+          # every write, including root's. The readiness gate below is what
+          # makes the write part of the contract rather than a later surprise
+          # in whichever workload happened to claim the class first.
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              d=/data/.preflight-\$(hostname)
+              mkdir -p "\$d"
+              echo preflight > "\$d/probe"
+              [ "\$(cat "\$d/probe")" = preflight ]
+              rm -rf "\$d"
+              touch /tmp/ready
+              sleep 600
+          # Ready only once the write round-trip above has succeeded, so
+          # waiting on readyReplicas waits on real I/O.
+          readinessProbe:
+            exec:
+              command: ["test", "-f", "/tmp/ready"]
+            initialDelaySeconds: 2
+            periodSeconds: 2
+            failureThreshold: 30
           volumeMounts: [{name: v, mountPath: /data}]
       volumes:
         - name: v
@@ -185,6 +267,22 @@ EOF
     if [ "${R:-0}" -ge "$replicas" ] 2>/dev/null; then return 0; fi
     sleep 1
   done
+
+  # Distinguish "never mounted" from "mounted but the write failed": they have
+  # completely different causes, and the Deployment alone shows neither.
+  PROBE_DETAIL=""
+  if kubectl get pod -n "$NS" -l "app=$name" \
+       -o jsonpath='{.items[*].status.containerStatuses[*].state.running}' 2>/dev/null \
+       | grep -q startedAt; then
+    PROBE_DETAIL="the volume mounted but the write round-trip failed -- the class is readable but not writable by this pod"
+    LOG=$(kubectl logs -n "$NS" -l "app=$name" --tail=3 2>/dev/null | grep -v '^$' | tail -1 || true)
+    [ -n "$LOG" ] && PROBE_DETAIL="$PROBE_DETAIL: $LOG"
+  else
+    PROBE_DETAIL=$(kubectl get events -n "$NS" --field-selector involvedObject.kind=Pod 2>/dev/null \
+      | grep -F "$name" | grep -iE "FailedMount|FailedAttach|ProvisioningFailed" | tail -1 \
+      | sed 's/.*[[:space:]]\{2,\}//' || true)
+    [ -z "$PROBE_DETAIL" ] && PROBE_DETAIL="the claim never bound or never mounted"
+  fi
   return 1
 }
 
@@ -257,12 +355,13 @@ if [ "$INSTALL_NFS" = "true" ] && ! kubectl get storageclass "$SHARED_CLASS" &>/
 elif probe_storage preflight-shared "$SHARED_CLASS" "$SHARED_MODE" "$SHARED_REPLICAS"; then
   SHARED_PROVED="${SHARED_CLASS}/${SHARED_MODE}/${SHARED_REPLICAS}"
   if [ "$SHARED_REPLICAS" = "2" ]; then
-    pass "two pods mount a '${SHARED_CLASS:-<default>}' ${SHARED_MODE} claim simultaneously"
+    pass "two pods read and write a '${SHARED_CLASS:-<default>}' ${SHARED_MODE} claim simultaneously"
   else
     pass "a '${SHARED_CLASS:-<default>}' claim binds and mounts with ${SHARED_MODE}"
   fi
 else
-  fail "no claim bound for '${SHARED_CLASS:-<default>}' with ${SHARED_MODE}"
+  fail "'${SHARED_CLASS:-<default>}' did not provide usable ${SHARED_MODE} storage"
+  [ -n "${PROBE_DETAIL:-}" ] && skip "$PROBE_DETAIL"
   [ "$SHARED_REPLICAS" = "2" ] && skip "this class must allow several pods to mount one claim at once"
   diagnose_storage preflight-shared
   SHARED_PROVED=""
@@ -281,15 +380,15 @@ if [ "$USES_PERSISTENT" != "true" ]; then
   pass "not in use (storage.persistentDeployments is false) -- no RWX class needed"
   skip "turn it on before creating a persistent deployment, or its PVC will never bind"
 elif [ -n "${SHARED_PROVED:-}" ] && [ "$SHARED_PROVED" = "${PERSISTENT_CLASS}/${PERSISTENT_MODE}/2" ]; then
-  # Profiles often point shared and persistent at one class -- bare metal uses
-  # longhorn for both. Re-probing an identical class/mode/replica triple proves
+  # Configs often point shared and persistent at one class -- one RWX class
+  # serves both. Re-probing an identical class/mode/replica triple proves
   # nothing the check above has not, and it is not free: each ReadWriteMany
   # volume brings up its own Longhorn share-manager pod, so the second probe
   # races the first one's teardown and can time out on a cluster that is
   # perfectly healthy.
   pass "'${PERSISTENT_CLASS}' ${PERSISTENT_MODE} already proven by the shared-storage probe"
 elif probe_storage preflight-persistent "$PERSISTENT_CLASS" "$PERSISTENT_MODE" 2; then
-  pass "two pods mount a '${PERSISTENT_CLASS:-<default>}' ${PERSISTENT_MODE} claim simultaneously"
+  pass "two pods read and write a '${PERSISTENT_CLASS:-<default>}' ${PERSISTENT_MODE} claim simultaneously"
   NODE_COUNT=$(kubectl get nodes --no-headers 2>/dev/null | wc -l | tr -d ' ')
   if [ "${NODE_COUNT:-1}" -le 1 ] 2>/dev/null; then
     warn "single-node cluster: this proves co-located access, not cross-node RWX"
@@ -297,6 +396,7 @@ elif probe_storage preflight-persistent "$PERSISTENT_CLASS" "$PERSISTENT_MODE" 2
   fi
 else
   fail "two pods could NOT share a '${PERSISTENT_CLASS:-<default>}' claim with ${PERSISTENT_MODE}"
+  [ -n "${PROBE_DETAIL:-}" ] && skip "$PROBE_DETAIL"
   diagnose_storage preflight-persistent
   skip "persistent deployments need RWX (Longhorn/NFS, EFS, Filestore, Azure Files)"
   skip "or set storage.persistentDeployments to false if you do not use them"
@@ -310,10 +410,11 @@ MONGO_EXTERNAL=$(read_value '.global.mongoDB.external')
 if [ "$MARIA_EXTERNAL" = "true" ] && [ "$MONGO_EXTERNAL" = "true" ]; then
   pass "both databases are external -- no in-cluster database storage needed"
 elif probe_storage preflight-db "$DB_CLASS" "$DB_MODE" 1; then
-  pass "a '${DB_CLASS:-<default>}' claim binds and mounts with ${DB_MODE}"
+  pass "a '${DB_CLASS:-<default>}' claim binds and accepts writes with ${DB_MODE}"
   cleanup_probe preflight-db
 else
-  fail "no claim bound for database storage class '${DB_CLASS:-<default>}' with ${DB_MODE}"
+  fail "database class '${DB_CLASS:-<default>}' did not provide usable ${DB_MODE} storage"
+  [ -n "${PROBE_DETAIL:-}" ] && skip "$PROBE_DETAIL"
   diagnose_storage preflight-db
   cleanup_probe preflight-db
 fi
@@ -372,13 +473,20 @@ echo "Game edge (type: ${GAME_EDGE})"
 if [ "$GAME_EDGE" != "LoadBalancer" ]; then
   skip "edge.game.type is '$GAME_EDGE', skipping LoadBalancer probe"
 else
-  # The probe carries the SAME annotations as the real game edge, and uses a
-  # port the real edge does not. On a single-address MetalLB pool an
-  # unannotated probe cannot be allocated at all (the address is already held
-  # by proxy-lb), so a bare `create service loadbalancer` would report a
-  # perfectly working cluster as broken. Reusing the annotations also means
-  # this probe actually tests the configured edge settings.
+  # The probe carries the SAME annotations as the real game edge, and a port
+  # the real edge does not. The annotations are what a cloud controller reads
+  # to decide scheme, type and target, so a bare `create service loadbalancer`
+  # would be testing a different Service than the one BMC installs.
   LB_ANNOTATIONS=$(read_value '.global.edge.game.annotations')
+  # Likewise the policy: under servicelb it decides whether the connection can
+  # be forwarded off-node, and Local answers only on nodes running a backing
+  # pod -- so a Cluster probe against a Local edge tests a combination that
+  # will never be deployed.
+  LB_POLICY=$(read_value '.global.edge.game.externalTrafficPolicy')
+  case "$LB_POLICY" in
+    Local|Cluster) ;;
+    *) LB_POLICY=Cluster ;;
+  esac
   {
     echo "apiVersion: v1"
     echo "kind: Service"
@@ -392,6 +500,7 @@ else
     fi
     echo "spec:"
     echo "  type: LoadBalancer"
+    echo "  externalTrafficPolicy: ${LB_POLICY}"
     echo "  selector:"
     echo "    app: preflight-lb-no-backends"
     echo "  ports:"
@@ -399,6 +508,7 @@ else
     echo "      port: ${PREFLIGHT_LB_PORT}"
     echo "      targetPort: ${PREFLIGHT_LB_PORT}"
   } | kubectl apply -f - &>/dev/null || true
+  LB_UID=$(kubectl get svc preflight-lb -n "$NS" -o jsonpath='{.metadata.uid}' 2>/dev/null || true)
   GOT=""
   for _ in $(seq 1 "$TIMEOUT"); do
     GOT=$(kubectl get svc preflight-lb -n "$NS" -o jsonpath='{.status.loadBalancer.ingress[0].ip}{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
@@ -406,9 +516,39 @@ else
     sleep 1
   done
   if [ -n "$GOT" ]; then
-    pass "a LoadBalancer Service was assigned '$GOT'"
+    pass "a LoadBalancer Service (${LB_POLICY}) was assigned '$GOT'"
   else
-    fail "no LoadBalancer address after ${TIMEOUT}s -- is MetalLB (or a cloud LB controller) running?"
+    fail "no LoadBalancer address after ${TIMEOUT}s"
+    skip "on k3s this is servicelb's job and it is built in -- a cluster"
+    skip "started with --disable servicelb has no LoadBalancer controller:"
+    skip "  kubectl get ds -n kube-system | grep svclb"
+    skip "on a cloud, the provider's controller comes from the Terraform layer."
+    # Port conflicts are the other common cause and the Service alone does not
+    # show them: servicelb binds the Service's port on the host, so anything
+    # already listening there keeps its svclb pod from starting.
+    SVCLB=$(kubectl get pods -n kube-system -o json 2>/dev/null \
+            | python3 -c '
+import sys, json
+try:
+    pods = json.load(sys.stdin).get("items", [])
+except Exception:
+    sys.exit(0)
+for p in pods:
+    name = p.get("metadata", {}).get("name", "")
+    if not name.startswith("svclb-preflight-lb"):
+        continue
+    phase = p.get("status", {}).get("phase", "?")
+    if phase != "Running":
+        print(phase)
+        for cs in p.get("status", {}).get("containerStatuses") or []:
+            w = (cs.get("state") or {}).get("waiting") or {}
+            if w.get("reason"):
+                print(" ", cs.get("name"), w.get("reason"), w.get("message", "")[:120])
+' 2>/dev/null || true)
+    if [ -n "$SVCLB" ]; then
+      skip "its servicelb pod is not Running:"
+      echo "$SVCLB" | while IFS= read -r line; do skip "  $line"; done
+    fi
   fi
   kubectl delete svc preflight-lb -n "$NS" --wait=false &>/dev/null || true
 fi

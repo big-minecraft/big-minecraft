@@ -34,7 +34,7 @@
 #    so it will NOT catch a failure here -- check that Bedrock actually answers
 #    on 19132 after installing.
 #
-# You must still set in values.custom.yaml:
+# You must still set in config/aks.yaml:
 #   global.ingress.host, global.panel.panelHost, global.certManager.email
 
 global:
@@ -42,9 +42,6 @@ global:
     game:
       type: LoadBalancer
       annotations: {}
-      # Azure honours loadBalancerIP when the address is a static public IP in
-      # the cluster's node resource group. Empty lets Azure allocate one.
-      loadBalancerIP: ""
       sourceRanges: []
 
     # Same design as the EKS and GKE profiles: file sessions are reached through
@@ -91,7 +88,7 @@ global:
     sftpPassthrough:
       enabled: true
       minPort: 31400
-      portCount: 20
+      portCount: 50
 
     service:
       annotations:
@@ -106,11 +103,3 @@ global:
     tls:
       mode: cluster-issuer
 
-  # Datastores run in-cluster. Set mode to "ha" for operator-managed clusters;
-  # see charts/bmc-chart/values.yaml for what each mode installs.
-  redis:
-    mode: single
-  mariaDB:
-    mode: single
-  mongoDB:
-    mode: single

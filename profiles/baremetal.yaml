@@ -1,42 +1,46 @@
-# Profile: bare metal / k3s with MetalLB + Longhorn
+# Profile: bare metal / k3s
 #
-# This is the environment BMC was originally built for. It reproduces the
-# historical behaviour exactly.
+# This is the environment BMC was originally built for.
+#
+# LoadBalancer addresses come from k3s's own servicelb (Klipper), which is
+# built in and needs no configuration: it binds each LoadBalancer Service's
+# ports on every node and reports the node address. Traefik (80/443) and the
+# game edge (25565/19132) therefore share one address -- the node's -- with
+# nothing to declare, no pool and no sharing annotation.
+#
+# This is why there is no address to pick in config/baremetal.yaml. Point your
+# DNS, or your router's port forward, at a node. If k3s was started with
+# --disable servicelb, nothing will assign addresses and every LoadBalancer
+# Service stays <pending>.
 #
 # Requires from the cluster:
-#   - MetalLB installed, with an address pool you control
-#   - a ReadWriteMany-capable storage class (Longhorn RWX is NFS-backed, so
-#     nfs-common must be present on every node)
+#   - k3s with servicelb left enabled (the default)
+#   - a ReadWriteMany-capable storage class, named in config/baremetal.yaml.
+#     'task cluster PROFILE=baremetal' installs Longhorn, whose RWX is
+#     NFS-backed and so needs nfs-common on every node; any other RWX
+#     provisioner works just as well if you name it there.
 #
-# You must still set in values.custom.yaml:
-#   global.edge.game.annotations."metallb.io/loadBalancerIPs"
-#   global.metallb.ipAddressPool
+# You must still set in config/baremetal.yaml:
 #   global.ingress.host, global.panel.panelHost, global.certManager.email
 
 global:
   edge:
     game:
+      # servicelb assigns the node's address; there is nothing to annotate.
       type: LoadBalancer
-      annotations:
-        # Lets the game entrypoint share one address with Traefik. The IP
-        # itself is installation-specific and belongs in values.custom.yaml:
-        #   metallb.io/loadBalancerIPs: "203.0.113.10"
-        metallb.io/allow-shared-ip: "shared-ip-key"
+      annotations: {}
     file:
       type: NodePort
 
+  # Access modes only. Class NAMES live in config/baremetal.yaml and nowhere
+  # else -- a name here would silently win over the one the operator wrote in
+  # their own config for any key they did not think to override.
   storage:
     classes:
       shared:
-        name: "longhorn"
         accessMode: ReadWriteMany
       database:
-        name: "longhorn"
         accessMode: ReadWriteOnce
-
-  metallb:
-    installResources: true
-    advertisementMode: l2
 
   ingress:
     className: "traefik"

@@ -1,11 +1,7 @@
 {{- /*
 Packs one deployment into a versioned artifact.
-
-A Job rather than streaming through the panel: server directories run to
-hundreds of megabytes, and the panel can otherwise only reach deployment files
-by exec-ing into a session pod, so this is also what allows publishing with no
-session open.
 */ -}}
+---
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -26,15 +22,18 @@ spec:
       restartPolicy: Never
       {{- if .Values.publish.nodeName }}
       # A ReadWriteOnce volume may already be attached elsewhere by a running
-      # instance or an open session, and the scheduler cannot see that -- an EBS
-      # PV's node affinity is only zone-wide. Without this the Job lands on a
+      # instance or an open session. Without this the Job lands on a
       # second node and hangs on multi-attach.
       nodeName: {{ .Values.publish.nodeName | quote }}
       {{- end }}
       containers:
         - name: publish
-          image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
+          image: docker.io/bitnamilegacy/minio-client:2025.7.21-debian-12-r2
           env:
+            # MinIO Client writes its config under $HOME, and this image runs as uid 1001
+            # with no writable home. Without this, `mc alias set` fails.
+            - name: MC_CONFIG_DIR
+              value: /tmp/.mc
             - name: ARTIFACT_ENDPOINT
               value: {{ .Values.global.artifactStore.endpoint | quote }}
             - name: ARTIFACT_BUCKET
@@ -49,25 +48,13 @@ spec:
                 secretKeyRef:
                   name: bmc-secrets
                   key: artifactSecretKey
-          command:
-            - /bin/sh
-            - -c
-            - |
-              set -e
-
-              mc alias set store "$ARTIFACT_ENDPOINT" "$ARTIFACT_ACCESS_KEY" "$ARTIFACT_SECRET_KEY"
-
-              echo "Publishing {{ .Values.publish.deploymentName }} {{ .Values.publish.version }}..."
-
-              DEST="store/${ARTIFACT_BUCKET}/deployments/{{ .Values.publish.deploymentName }}/{{ .Values.publish.version }}/"
-              mc mirror --overwrite --exclude 'lost+found/*' \
-                {{ .Values.publish.mountPath }} "$DEST"
-              if [ -z "$(mc ls "$DEST" 2>/dev/null)" ]; then
-                echo "Nothing to publish: {{ .Values.publish.mountPath }} holds no deployment files"
-                exit 1
-              fi
-
-              echo "Published {{ .Values.publish.version }}"
+            - name: DEPLOYMENT_NAME
+              value: {{ .Values.publish.deploymentName | quote }}
+            - name: VERSION
+              value: {{ .Values.publish.version | quote }}
+            - name: MOUNT_PATH
+              value: {{ .Values.publish.mountPath | quote }}
+          command: ["/bin/sh", "/scripts/publish.sh"]
           volumeMounts:
             - name: deployment-data
               mountPath: {{ .Values.publish.mountPath }}
@@ -77,3 +64,11 @@ spec:
           persistentVolumeClaim:
             claimName: {{ .Values.publish.pvcName }}
             readOnly: true
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.publish.jobName }}-script
+data:
+  publish.sh: |
+{{ .Files.Get "scripts/publish.sh" | indent 4 }}

@@ -13,26 +13,11 @@ echo "Waiting for webhooks to be ready..."
 echo "=========================================="
 echo ""
 
-# Nothing to wait for if this profile installs neither webhook-bearing chart.
-# Without this the script polls for the full 12 minutes on any install that
-# does not use cert-manager (ingress.tls.mode != cluster-issuer) or MetalLB.
-CM=0; MLB=0
-kubectl get deployment cert-manager-webhook -n cert-manager &>/dev/null && CM=1
-kubectl get deployment metallb-controller -n metallb-system &>/dev/null && MLB=1
-if [ "$CM" = "0" ] && [ "$MLB" = "0" ]; then
-  echo -e "${GREEN}✓${NC} Neither cert-manager nor MetalLB is installed - nothing to wait for"
-  echo ""
-  exit 0
-fi
-if [ "$CM" = "0" ]; then
-  # MetalLB may still be installed, and its webhook is what admits the
-  # IPAddressPools. Returning here used to skip that wait entirely.
-  echo -e "${GREEN}✓${NC} cert-manager is not installed - skipping its webhook checks"
-  if [ "$MLB" = "1" ]; then
-    echo "Waiting for MetalLB controller deployment..."
-    kubectl wait --for=condition=available --timeout=300s \
-      deployment/metallb-controller -n metallb-system 2>/dev/null || true
-  fi
+# cert-manager is the only webhook-bearing chart BMC installs. Without this
+# check the script polls for the full 12 minutes on any install that does not
+# use it (ingress.tls.mode != cluster-issuer).
+if ! kubectl get deployment cert-manager-webhook -n cert-manager &>/dev/null; then
+  echo -e "${GREEN}✓${NC} cert-manager is not installed - nothing to wait for"
   echo ""
   exit 0
 fi
@@ -40,9 +25,6 @@ fi
 # Wait for deployments to be available
 echo "Waiting for cert-manager webhook deployment..."
 kubectl wait --for=condition=available --timeout=300s deployment/cert-manager-webhook -n cert-manager 2>/dev/null || true
-
-echo "Waiting for MetalLB controller deployment..."
-kubectl wait --for=condition=available --timeout=300s deployment/metallb-controller -n metallb-system 2>/dev/null || true
 
 echo ""
 echo "⏳ Waiting for webhook TLS certificates to become valid..."

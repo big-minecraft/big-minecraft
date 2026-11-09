@@ -72,6 +72,3 @@ global:
   mongoDB:
     mode: ha
     replicas: 3
-
-  metallb:
-    installResources: false       # k3d has its own LoadBalancer controller

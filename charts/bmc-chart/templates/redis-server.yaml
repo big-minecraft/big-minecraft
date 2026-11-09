@@ -68,6 +68,16 @@ metadata:
     app: redis
 spec:
   replicas: 1
+  # Recreate, not the default RollingUpdate. These are single-replica
+  # Deployments on a ReadWriteOnce volume holding an exclusive lock on the
+  # data directory, so RollingUpdate deadlocks: it starts the replacement
+  # before retiring the incumbent, the replacement cannot take the lock
+  # (mongod exits 100 DBPathInUse; mariadbd refuses the datadir), and the
+  # incumbent is never retired because its replacement never goes Ready.
+  # Recreate stops the old pod first, which is also the only safe order for
+  # a database that must not be mounted twice.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: redis
@@ -78,7 +88,24 @@ spec:
     spec:
       containers:
       - name: redis
-        image: redis:latest
+        image: {{ .Values.global.redis.image | default "redis" }}:{{ .Values.global.redis.tag | default "latest" }}
+        # No password is configured for the in-cluster Redis, so the probe
+        # needs no credentials. grep, not just exit status: redis-cli exits 0
+        # while the server is still loading, printing LOADING rather than PONG.
+        readinessProbe:
+          exec:
+            command: ["/bin/sh", "-c", "redis-cli ping | grep -q PONG"]
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 6
+        livenessProbe:
+          exec:
+            command: ["/bin/sh", "-c", "redis-cli ping | grep -q PONG"]
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 6
         ports:
         - containerPort: 6379
 ---

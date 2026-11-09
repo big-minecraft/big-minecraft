@@ -93,11 +93,9 @@ tasks:
       # spuriously or have to be skipped, and skipping it means never testing
       # ReadWriteMany at all on exactly the profiles where it is least certain.
       - task: storage
-      # Same reasoning as storage above: preflight provisions a REAL
-      # LoadBalancer Service, so whatever assigns addresses has to exist
-      # first. On the clouds that is the provider's own controller and this is
-      # a no-op; on bare metal MetalLB is ours to install, and installing it
-      # after preflight meant the probe could never pass on a new cluster.
+      # preflight provisions a REAL LoadBalancer Service, so this reports
+      # whether anything is able to answer it before that check runs. Nothing
+      # is installed here on any profile any more -- see the task itself.
       - task: edge
       - task: preflight
       - echo ""
@@ -152,7 +150,7 @@ tasks:
       - NAMESPACE={{.NAMESPACE}} {{.SCRIPTS_DIR}}/generate-secrets.sh
 
   config:init:
-    desc: Create config/PROFILE.yaml from that profile's example
+    desc: Create config/PROFILE.yaml from that profile's template
     silent: true
     cmds:
       - task: _require-profile
@@ -165,12 +163,11 @@ tasks:
           exit 1
         fi
 
-        TEMPLATE={{.CHART_DIR}}/values.example-{{.PROFILE}}.yaml
+        TEMPLATE={{.CONFIG_DIR}}/templates/{{.PROFILE}}.yaml
         if [ ! -f "$TEMPLATE" ]; then
-          # Only reached by a profile someone added without an example next to
-          # it. The fallback template still produces a working starting point.
-          TEMPLATE={{.CHART_DIR}}/values.example.yaml
-          echo "No example for profile '{{.PROFILE}}' -- starting from the fallback template."
+          echo "✗ No template for profile '{{.PROFILE}}': $TEMPLATE"
+          echo "   A profile needs one; conformance.sh checks for it."
+          exit 1
         fi
 
         mkdir -p {{.CONFIG_DIR}}
@@ -178,7 +175,7 @@ tasks:
         echo "✓ Created $CONFIG from $(basename "$TEMPLATE")"
         echo ""
         echo "Next steps:"
-        echo "  1. Edit $CONFIG (every line marked CHANGE THIS)"
+        echo "  1. Edit $CONFIG -- fill every empty value"
         echo "  2. Run 'task validate PROFILE={{.PROFILE}}' to check it"
         echo "  3. Run 'task secrets:generate' to create secrets"
         echo "  4. Run 'task install PROFILE={{.PROFILE}}' to deploy"
@@ -277,27 +274,49 @@ tasks:
       - helmfile apply --selector name=mongodb-operator
       - helmfile apply --selector name=minio
 
+  # Kept as a task because `task install` sequences it before preflight, and
+  # because "where do addresses come from" is a question worth having an answer
+  # to in one place. BMC no longer installs a provider on any profile:
+  #
+  #   bare metal / k3s : k3s's own servicelb (Klipper). Built in, nothing to
+  #                      install -- it binds the Service's port on each node
+  #                      and reports the node address. Two Services coexist on
+  #                      one address as long as their ports differ, which is
+  #                      what lets Traefik (80/443) and the game edge
+  #                      (25565/19132) share it with no configuration at all.
+  #   clouds           : the provider's controller, from the Terraform layer.
+  #
+  # BMC used to install MetalLB here, with an address pool, a sharing-key
+  # annotation patched onto k3s's Traefik, and an externalTrafficPolicy that
+  # had to agree across both Services. On a k3s cluster that machinery also
+  # fought Klipper, which k3s leaves enabled: both controllers write to the
+  # same Service status, and MetalLB would clear the address Klipper had just
+  # assigned. It was removed rather than papered over.
   edge:
-    desc: Install the LoadBalancer provider, if this profile uses one
+    desc: Report where LoadBalancer addresses come from for this profile
     silent: true
     cmds:
       - task: _require-profile
       - |
-        echo "Installing LoadBalancer provider (no-op unless the profile enables one)..."
-      - helmfile apply --selector name=metallb
-      # The pool. The release waits on metallb's own `wait: true`, so the
-      # validating webhook that admits it is already serving.
-      - helmfile apply --selector name=metallb-config
-      # k3s's Traefik is already a LoadBalancer Service and claims the pool's
-      # address on sight. On a single-address pool that leaves nothing for
-      # anything else -- including preflight's probe, which carries the game
-      # edge's allow-shared-ip annotation but cannot share with a Traefik that
-      # does not. Annotating it here, before preflight, is what makes one
-      # address serve both.
-      - "{{.SCRIPTS_DIR}}/configure-traefik-sharing.sh"
+        case "{{.PROFILE}}" in
+          baremetal)
+            echo "LoadBalancer provider: k3s servicelb (built in) -- nothing to install."
+            if kubectl get ds -n kube-system -o name 2>/dev/null | grep -q svclb; then
+              echo "  ✓ servicelb is running (svclb DaemonSet present)"
+            else
+              echo "  ⚠ no svclb DaemonSet yet -- it appears with the first"
+              echo "    LoadBalancer Service. If none ever appears, this k3s was"
+              echo "    started with --disable servicelb and no LoadBalancer will"
+              echo "    get an address."
+            fi
+            ;;
+          *)
+            echo "LoadBalancer provider: supplied by the cloud -- nothing to install."
+            ;;
+        esac
 
   deploy:
-    desc: Deploy dependencies (ingress controller, cert-manager, MetalLB, per profile)
+    desc: Deploy dependencies (ingress controller, cert-manager, per profile)
     silent: true
     cmds:
       - task: _require-profile
@@ -311,12 +330,9 @@ tasks:
       # list is safe to keep in one order for all profiles.
       - helmfile apply --selector name=ingress-nginx
       - helmfile apply --selector name=cert-manager
-      - helmfile apply --selector name=metallb
-      - helmfile apply --selector name=metallb-config
-      - "{{.SCRIPTS_DIR}}/configure-traefik-sharing.sh"
 
   wait-for-webhooks:
-    desc: Wait for cert-manager and MetalLB webhooks to be ready
+    desc: Wait for cert-manager's webhook to be ready
     silent: true
     cmds:
       - "{{.SCRIPTS_DIR}}/wait-for-webhooks.sh"
@@ -630,18 +646,20 @@ tasks:
         echo "Empty on every line means nothing is accruing charges."
 
   uninstall:
-    desc: Remove BMC installation from cluster
-    prompt: This will DELETE the BMC installation from '{{.NAMESPACE}}'. Continue?
+    desc: Remove BMC from the cluster, verifying nothing is left behind
+    prompt: This will DELETE the BMC installation in '{{.NAMESPACE}}'. Continue?
     silent: true
     cmds:
       - task: _require-profile
-      - helmfile destroy
-      - echo ""
-      - echo "⚠️  Secrets were NOT deleted. To remove secrets run:"
-      - echo "   kubectl delete secret bmc-secrets -n {{.NAMESPACE}}"
-      - echo ""
-      - echo "The GameServer CRD is annotated helm.sh/resource-policy=keep and"
-      - echo "was NOT deleted, so existing GameServers survive."
+      - PROFILE={{.PROFILE}} NAMESPACE={{.NAMESPACE}} {{.SCRIPTS_DIR}}/uninstall.sh
+
+  uninstall:purge:
+    desc: Uninstall and also remove the GameServer CRD (deletes ALL GameServers)
+    prompt: This DELETES the GameServer CRD, and with it every GameServer in the cluster. Continue?
+    silent: true
+    cmds:
+      - task: _require-profile
+      - PROFILE={{.PROFILE}} NAMESPACE={{.NAMESPACE}} {{.SCRIPTS_DIR}}/uninstall.sh --purge
 
   clean:
     desc: Clean this profile's generated config
@@ -677,13 +695,18 @@ tasks:
     silent: true
     cmds: ["{{.SCRIPTS_DIR}}/local-test.sh panel"]
 
+  test:uninstall:
+    desc: Run the real uninstall against the test cluster and assert nothing is left
+    silent: true
+    cmds: ["{{.SCRIPTS_DIR}}/local-test.sh uninstall"]
+
   test:down:
     desc: Delete the local test cluster
     silent: true
     cmds: ["{{.SCRIPTS_DIR}}/local-test.sh down"]
 
   test:all:
-    desc: Full local test - create cluster, build images, install, report
+    desc: Full local test - create cluster, build, install, report, assert clean uninstall
     silent: true
     cmds: ["{{.SCRIPTS_DIR}}/local-test.sh all"]
 

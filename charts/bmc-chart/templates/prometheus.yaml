@@ -2,6 +2,8 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: prometheus-server-role
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
 rules:
   - apiGroups: [""]
     resources: ["nodes", "nodes/proxy", "nodes/metrics", "services", "endpoints", "pods"]
@@ -13,6 +15,8 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
   name: prometheus-server-binding
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
 subjects:
   - kind: ServiceAccount
     name: kubectl-sa

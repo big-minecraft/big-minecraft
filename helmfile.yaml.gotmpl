@@ -6,8 +6,6 @@ environments:
       - {{ env "BMC_VALUES_FILE" | default (printf "config/%s.yaml" (env "PROFILE" | default "baremetal")) }}   # This installation (required)
 ---
 repositories:
-  - name: metallb
-    url: https://metallb.github.io/metallb
   - name: jetstack
     url: https://charts.jetstack.io
   - name: traefik
@@ -16,8 +14,6 @@ repositories:
     url: https://kubernetes.github.io/ingress-nginx
   - name: nfs-ganesha
     url: https://kubernetes-sigs.github.io/nfs-ganesha-server-and-external-provisioner/
-  - name: minio
-    url: https://charts.min.io/
   - name: ot-helm
     url: https://ot-container-kit.github.io/helm-charts
   - name: mariadb-operator
@@ -32,48 +28,18 @@ releases:
     chart: traefik/traefik
     version: 28.3.0
     installed: false
-  - name: metallb
-    namespace: metallb-system
-    createNamespace: true
-    chart: metallb/metallb
-    version: 0.14.9
-    installed: {{ .Values.global.metallb.installResources }}
-    # Ready, not merely created. The validating webhook that admits the
-    # IPAddressPool below has no endpoints until the controller pod is up, and
-    # a pool applied before then is rejected outright.
-    wait: true
-    timeout: 300
-    # NOTE: do not add a presync hook that deletes the MetalLB CRDs. Deleting a
-    # CRD cascades to its custom resources, so every apply would wipe the
-    # IPAddressPools and L2Advertisements this install depends on -- including
-    # any the cluster operator manages themselves. The pinned chart version
-    # above is what keeps CRD drift under control.
-
-  # The address pool itself, as a release of its own rather than a template in
-  # bmc-chart. preflight provisions a real LoadBalancer Service and runs before
-  # the application chart, so the pool has to exist earlier than bmc-chart does
-  # -- and a resource created outside a release cannot later be adopted by one
-  # without forging Helm's ownership metadata onto it. One owner, one apply.
-  - name: metallb-config
-    namespace: metallb-system
-    createNamespace: true
-    chart: ./charts/metallb-config
-    installed: {{ .Values.global.metallb.installResources }}
-    needs:
-      - metallb-system/metallb
-    # Same three layers bmc-chart reads, so global.metallb keeps one home.
-    values:
-      - charts/bmc-chart/values.yaml
-      - profiles/{{ env "PROFILE" | default "baremetal" }}.yaml
-      - {{ env "BMC_VALUES_FILE" | default (printf "config/%s.yaml" (env "PROFILE" | default "baremetal")) }}
-
   # Datastore operators, installed only for the datastores set to mode: ha.
   #
   # Each owns its own pods and Services; the bmc-chart creates the cluster
   # resources and aliases redis-service / mariadb-service / mongodb-service onto
   # them, so nothing that already resolves those names changes.
+  #
+  # They live OUTSIDE the app namespace, like cert-manager and ingress-nginx.
+  # An operator in the namespace it manages cannot clear its own CRs' finalizers
+  # during a namespace delete, which strands the namespace in Terminating
+  # forever. Outside it, the controller outlives the namespace and drains it.
   - name: redis-operator
-    namespace: {{ .Values.global.namespace }}
+    namespace: {{ .Values.global.namespace }}-operators
     createNamespace: true
     chart: ot-helm/redis-operator
     version: 0.26.1
@@ -85,7 +51,7 @@ releases:
     timeout: 300
 
   - name: mariadb-operator
-    namespace: {{ .Values.global.namespace }}
+    namespace: {{ .Values.global.namespace }}-operators
     createNamespace: true
     chart: mariadb-operator/mariadb-operator
     version: 26.6.0
@@ -100,7 +66,7 @@ releases:
           enabled: true
 
   - name: mongodb-operator
-    namespace: {{ .Values.global.namespace }}
+    namespace: {{ .Values.global.namespace }}-operators
     createNamespace: true
     chart: mongodb-helm/community-operator
     version: 0.13.0
@@ -113,35 +79,100 @@ releases:
     values:
       - community-operator-crds:
           enabled: true
+        # Unlike the other two, this operator watches only its own namespace by
+        # default. "*" also grants the cluster-wide RBAC it needs to reconcile
+        # a MongoDBCommunity elsewhere, and database.namespace puts the
+        # ServiceAccount the database pods run as in the app namespace, where
+        # the CR lives. That namespace already exists by this point --
+        # scripts/generate-secrets.sh creates it, and `task install` gates on
+        # the secret existing.
+        operator:
+          watchNamespace: "*"
+        database:
+          namespace: {{ .Values.global.namespace }}
 
   # Object storage for deployment artifacts, where there is no managed
   # equivalent. Must exist before big-minecraft: a deployment whose artifact
   # cannot be fetched will not start.
+  #
+  # Bitnami's chart, not MinIO's own, and the images come from `bitnamilegacy`.
+  # This is not a preference -- MinIO withdrew their community container images
+  # from the public registries, and the chart they publish cannot install:
+  #
+  #   quay.io/minio/minio, quay.io/minio/mc  -> 401 UNAUTHORIZED (anonymous)
+  #   docker.io/minio/minio, docker.io/minio/mc -> repository gone
+  #
+  # Public control repositories on the same registries still resolve 200
+  # anonymously, so this is MinIO's namespace and not a quay outage or a
+  # credential problem on the node.
+  #
+  # Bitnami then moved their own catalogue behind a subscription in August
+  # 2025: docker.io/bitnami/minio has no tags left, and the chart hard-fails on
+  # any image outside `bitnami/` unless allowInsecureImages is set. The
+  # `bitnamilegacy` repositories are what remains readable anonymously -- the
+  # final pre-paywall builds, frozen, receiving no security updates. Pinned by
+  # exact tag for that reason: these are not moving targets, and 'latest' does
+  # not exist.
+  #
+  # Both halves are therefore dead ends long-term. The real options are
+  # mirroring MinIO into a registry you control, a MinIO (AIStor)
+  # subscription, or an actively-maintained S3 implementation such as SeaweedFS
+  # or Garage -- the last of which is a change to this release only, since
+  # everything downstream speaks S3 and talks to artifactStore.endpoint.
   - name: minio
     # BMC's namespace, not its own: it authenticates with bmc-secrets, and
     # secrets are namespaced. The publish Job and the fetch init container read
     # the same secret from the same place.
     namespace: {{ .Values.global.namespace }}
     createNamespace: true
-    chart: minio/minio
-    version: 5.4.0
+    chart: oci://registry-1.docker.io/bitnamicharts/minio
+    version: 17.0.21
     installed: {{ .Values.global.artifactStore.install }}
     values:
-      - mode: standalone
+      - global:
+          security:
+            # Required: the chart refuses any image outside `bitnami/` without
+            # it, and every image below is a `bitnamilegacy/` one.
+            allowInsecureImages: true
+        image:
+          registry: docker.io
+          repository: bitnamilegacy/minio
+          # Matches this chart version's appVersion (2025.7.23). Bitnami's own
+          # tag is -r3; bitnamilegacy mirrors -r3 through -r5.
+          tag: 2025.7.23-debian-12-r3
+        clientImage:
+          registry: docker.io
+          repository: bitnamilegacy/minio-client
+          tag: 2025.7.21-debian-12-r2
+        # Nothing in BMC drives the web console, and leaving it on would pin a
+        # third frozen image (minio-object-browser) for a UI no one opens.
+        console:
+          enabled: false
+        mode: standalone
         # Deployment templates are re-publishable from the panel, so one
         # replica is enough; distributed mode needs four nodes.
-        replicas: 1
+        #
+        # Bitnami spells this replicaCount, and honours it only in distributed
+        # mode -- standalone is always a single Deployment replica.
+        replicaCount: 1
+        auth:
+          existingSecret: bmc-secrets
+          # Bitnami defaults to the keys root-user/root-password; BMC's secret
+          # carries MinIO's own spelling, which generate-secrets.sh writes
+          # alongside artifactAccessKey/artifactSecretKey. Point the chart at
+          # those rather than reissuing every installation's credentials.
+          rootUserSecretKey: rootUser
+          rootPasswordSecretKey: rootPassword
+        # Replaces the official chart's customCommands/mc post-install Job: in
+        # standalone mode this is MINIO_DEFAULT_BUCKETS on the server container
+        # itself, so bucket creation no longer needs a second image at all.
+        defaultBuckets: {{ .Values.global.artifactStore.bucket | quote }}
         persistence:
           enabled: true
           size: {{ .Values.global.artifactStore.size | quote }}
           {{- with .Values.global.storage.classes.database.name }}
           storageClass: {{ . | quote }}
           {{- end }}
-        existingSecret: bmc-secrets
-        buckets: []
-        customCommands:
-          - command: "mb --ignore-existing myminio/{{ .Values.global.artifactStore.bucket }}"
-        users: []
         resources:
           requests:
             memory: 512Mi
@@ -231,9 +262,6 @@ releases:
       - profiles/{{ env "PROFILE" | default "baremetal" }}.yaml
       - {{ env "BMC_VALUES_FILE" | default (printf "config/%s.yaml" (env "PROFILE" | default "baremetal")) }}
     needs:
-      {{- if .Values.global.metallb.installResources }}
-      - metallb-system/metallb-config
-      {{- end }}
       {{- if eq .Values.global.ingress.tls.mode "cluster-issuer" }}
       - cert-manager/cert-manager
       {{- end }}

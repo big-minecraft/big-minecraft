@@ -26,7 +26,7 @@
 #    LoadBalancer probe only provisions TCP, so it will NOT catch a failure
 #    here -- check that Bedrock actually answers on 19132 after installing.
 #
-# You must still set in values.custom.yaml:
+# You must still set in config/gke.yaml:
 #   global.ingress.host, global.panel.panelHost, global.certManager.email
 
 global:
@@ -37,10 +37,6 @@ global:
         # Backend-service-based external L4 load balancer. The older
         # target-pool implementation cannot carry TCP and UDP on one Service.
         cloud.google.com/l4-rbs: "enabled"
-      # Unlike AWS, GCP honours loadBalancerIP. Reserve a regional static
-      # address in Terraform and set it in values.custom.yaml to keep the game
-      # address stable across rebuilds.
-      loadBalancerIP: ""
       sourceRanges: []
 
     # Same design as the EKS profile: file sessions are reached through
@@ -100,7 +96,7 @@ global:
     sftpPassthrough:
       enabled: true
       minPort: 31400
-      portCount: 20
+      portCount: 50
 
     service:
       annotations:
@@ -112,11 +108,3 @@ global:
     tls:
       mode: cluster-issuer
 
-  # Datastores run in-cluster. Set mode to "ha" for operator-managed clusters;
-  # see charts/bmc-chart/values.yaml for what each mode installs.
-  redis:
-    mode: single
-  mariaDB:
-    mode: single
-  mongoDB:
-    mode: single

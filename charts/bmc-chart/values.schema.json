@@ -1,0 +1,463 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BMC configuration contract",
+  "description": "Validated by Helm against the merged values (values.yaml + profiles/<profile>.yaml + config/<profile>.yaml).",
+  "type": "object",
+  "properties": {
+    "global": {
+      "type": "object",
+      "required": [
+        "certManager",
+        "panel",
+        "ingress",
+        "storage"
+      ],
+      "properties": {
+        "namespace": {
+          "type": "string",
+          "minLength": 1
+        },
+        "environment": {
+          "enum": [
+            "production",
+            "development"
+          ]
+        },
+        "certManager": {
+          "type": "object",
+          "required": [
+            "email"
+          ],
+          "properties": {
+            "installClusterIssuer": {
+              "type": "boolean"
+            },
+            "clusterIssuerName": {
+              "type": "string"
+            },
+            "email": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "@",
+              "not": {
+                "pattern": "(^your-email|example\\.com$)"
+              }
+            }
+          }
+        },
+        "panel": {
+          "type": "object",
+          "required": [
+            "panelHost"
+          ],
+          "properties": {
+            "panelHost": {
+              "type": "string",
+              "minLength": 1,
+              "not": {
+                "pattern": "example\\.com$"
+              }
+            },
+            "storagePath": {
+              "type": "string",
+              "minLength": 1
+            },
+            "inviteCodeExpiryDays": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "ingress": {
+          "type": "object",
+          "required": [
+            "host",
+            "className"
+          ],
+          "properties": {
+            "className": {
+              "type": "string",
+              "minLength": 1
+            },
+            "host": {
+              "type": "string",
+              "minLength": 1,
+              "not": {
+                "pattern": "example\\.com$"
+              }
+            },
+            "tls": {
+              "type": "object",
+              "properties": {
+                "mode": {
+                  "enum": [
+                    "cluster-issuer",
+                    "existing-secret",
+                    "none"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "storage": {
+          "type": "object",
+          "required": [
+            "classes"
+          ],
+          "properties": {
+            "persistentDeployments": {
+              "type": "boolean"
+            },
+            "classes": {
+              "type": "object",
+              "required": [
+                "shared",
+                "database"
+              ],
+              "properties": {
+                "shared": {
+                  "$ref": "#/$defs/storageClass"
+                },
+                "database": {
+                  "$ref": "#/$defs/storageClass"
+                },
+                "persistent": {
+                  "$ref": "#/$defs/storageClassOptional"
+                }
+              }
+            },
+            "volumeSize": {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/$defs/quantity"
+              }
+            }
+          }
+        },
+        "edge": {
+          "type": "object",
+          "properties": {
+            "game": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "$ref": "#/$defs/serviceType"
+                },
+                "externalTrafficPolicy": {
+                  "enum": [
+                    "Local",
+                    "Cluster"
+                  ]
+                },
+                "sourceRanges": {
+                  "$ref": "#/$defs/cidrList"
+                }
+              }
+            },
+            "file": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "$ref": "#/$defs/serviceType"
+                },
+                "sourceRanges": {
+                  "$ref": "#/$defs/cidrList"
+                }
+              }
+            }
+          }
+        },
+        "redis": {
+          "type": "object",
+          "properties": {
+            "mode": {
+              "$ref": "#/$defs/datastoreMode"
+            },
+            "external": {
+              "type": "boolean"
+            },
+            "externalHost": {
+              "type": "string"
+            },
+            "externalPort": {
+              "$ref": "#/$defs/port"
+            },
+            "port": {
+              "$ref": "#/$defs/port"
+            }
+          }
+        },
+        "mariaDB": {
+          "type": "object",
+          "properties": {
+            "mode": {
+              "$ref": "#/$defs/datastoreMode"
+            },
+            "port": {
+              "$ref": "#/$defs/port"
+            }
+          }
+        },
+        "mongoDB": {
+          "type": "object",
+          "properties": {
+            "mode": {
+              "$ref": "#/$defs/datastoreMode"
+            },
+            "port": {
+              "$ref": "#/$defs/port"
+            }
+          }
+        },
+        "artifactStore": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "install": {
+              "type": "boolean"
+            },
+            "bucket": {
+              "type": "string",
+              "minLength": 1
+            },
+            "size": {
+              "$ref": "#/$defs/quantity"
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "storage"
+            ],
+            "properties": {
+              "storage": {
+                "required": [
+                  "persistentDeployments"
+                ],
+                "properties": {
+                  "persistentDeployments": {
+                    "const": true
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "storage": {
+                "properties": {
+                  "classes": {
+                    "required": [
+                      "persistent"
+                    ],
+                    "properties": {
+                      "persistent": {
+                        "required": [
+                          "name"
+                        ],
+                        "properties": {
+                          "name": {
+                            "minLength": 1
+                          },
+                          "accessMode": {
+                            "const": "ReadWriteMany"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "artifactStore"
+            ],
+            "properties": {
+              "artifactStore": {
+                "required": [
+                  "enabled"
+                ],
+                "properties": {
+                  "enabled": {
+                    "const": false
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "storage": {
+                "properties": {
+                  "classes": {
+                    "properties": {
+                      "shared": {
+                        "properties": {
+                          "accessMode": {
+                            "const": "ReadWriteMany"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "redis"
+            ],
+            "properties": {
+              "redis": {
+                "required": [
+                  "external"
+                ],
+                "properties": {
+                  "external": {
+                    "const": true
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "redis": {
+                "required": [
+                  "externalHost"
+                ],
+                "properties": {
+                  "externalHost": {
+                    "minLength": 1
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "edge"
+            ],
+            "properties": {
+              "edge": {
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "file": {
+                    "required": [
+                      "type"
+                    ],
+                    "properties": {
+                      "type": {
+                        "const": "LoadBalancer"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "edge": {
+                "properties": {
+                  "file": {
+                    "required": [
+                      "sourceRanges"
+                    ],
+                    "properties": {
+                      "sourceRanges": {
+                        "minItems": 1
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "storageClass": {
+      "type": "object",
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "accessMode": {
+          "enum": [
+            "ReadWriteOnce",
+            "ReadWriteMany",
+            "ReadWriteOncePod"
+          ]
+        }
+      }
+    },
+    "serviceType": {
+      "enum": [
+        "LoadBalancer",
+        "NodePort",
+        "ClusterIP"
+      ]
+    },
+    "datastoreMode": {
+      "enum": [
+        "single",
+        "ha"
+      ]
+    },
+    "port": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535
+    },
+    "quantity": {
+      "type": "string",
+      "pattern": "^[0-9]+(\\.[0-9]+)?(Ki|Mi|Gi|Ti|K|M|G|T)?$"
+    },
+    "cidrList": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+/[0-9]{1,2}$"
+      }
+    },
+    "storageClassOptional": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "accessMode": {
+          "enum": [
+            "ReadWriteOnce",
+            "ReadWriteMany",
+            "ReadWriteOncePod"
+          ]
+        }
+      }
+    }
+  }
+}

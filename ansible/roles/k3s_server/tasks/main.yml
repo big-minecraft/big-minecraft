@@ -8,14 +8,12 @@
 - name: Bootstrap the first server
   when: inventory_hostname == _first_server
   block:
-    # --disable servicelb is not optional. k3s ships Klipper, which also serves
-    # Services of type LoadBalancer, and it competes with MetalLB.
     - name: Install k3s (first server)
       ansible.builtin.shell: |
         set -o pipefail
         curl -sfL https://get.k3s.io | \
           {{ ('INSTALL_K3S_VERSION=' ~ k3s_version) if k3s_version | default('') else '' }} \
-          sh -s - server --disable servicelb \
+          sh -s - server \
           {{ '--cluster-init' if (groups['k3s_servers'] | length) > 1 else '' }} \
           --tls-san {{ _api_address }}
       args:
@@ -48,7 +46,7 @@
     curl -sfL https://get.k3s.io | \
       {{ ('INSTALL_K3S_VERSION=' ~ k3s_version) if k3s_version | default('') else '' }} \
       K3S_TOKEN='{{ k3s_token }}' \
-      sh -s - server --disable servicelb \
+      sh -s - server \
       --server https://{{ _api_address }}:6443 \
       --tls-san {{ _api_address }}
   args:

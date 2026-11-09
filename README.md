@@ -25,7 +25,7 @@ specific capabilities. `task preflight` verifies all of them.
 | A **ReadWriteOnce** storage class | Databases, staging volumes, and every deployment type that pulls artifacts |
 | A **ReadWriteMany** class — **only if you run persistent deployments** | A persistent deployment's server runs in place on its volume while a file session can mount the same volume |
 | An **IngressClass** | Serves the web panel |
-| A **LoadBalancer** implementation | The game entrypoint. MetalLB on bare metal, the provider's controller on cloud |
+| A **LoadBalancer** implementation | The game entrypoint. k3s's built-in servicelb on bare metal, the provider's controller on cloud |
 | **Outbound internet egress from pods** | The proxy downloads its plugin jar from GitHub on every start |
 
 Only the game entrypoint is internet-facing. Everything else — panel, databases,
@@ -124,7 +124,7 @@ a YAML file, never editing a template.
 
 | Profile | For |
 |---|---|
-| `baremetal` | Bare metal / k3s with MetalLB + Longhorn (the default) — see [docs/baremetal-install.md](docs/baremetal-install.md) |
+| `baremetal` | Bare metal / k3s (the default). Addresses come from k3s's built-in servicelb, so there is none to configure. `task cluster` installs Longhorn for storage; name your own classes in `config/baremetal.yaml` if you bring them — see [docs/baremetal-install.md](docs/baremetal-install.md) |
 | `eks` | Amazon EKS — see [`terraform/eks/`](terraform/eks/) to build the cluster |
 | `gke` | Google Kubernetes Engine — see [`terraform/gke/`](terraform/gke/) |
 | `aks` | Azure Kubernetes Service — see [`terraform/aks/`](terraform/aks/) |
@@ -141,7 +141,7 @@ goes through Ansible.
 
 Provider-specific load balancer settings are supplied as
 `global.edge.game.annotations`, which are passed through to the Service
-verbatim. See `charts/bmc-chart/values.example.yaml` for AWS/GCP/Azure examples.
+verbatim. Each cloud profile under `profiles/` carries that provider's set.
 
 ---
 
@@ -153,7 +153,7 @@ task verify
 
 # 2. Create your config, pre-filled for your profile
 task config:init PROFILE=baremetal
-#    then edit config/baremetal.yaml -- every line marked CHANGE THIS
+#    then edit config/baremetal.yaml -- fill every empty value
 
 # 3. Check the cluster can actually run BMC
 task preflight PROFILE=baremetal
@@ -168,8 +168,13 @@ task install PROFILE=baremetal
 Access the panel at your configured domain and use the invite code from step 4.
 
 Your configuration lives in `config/<profile>.yaml` — one file per profile,
-all of `config/` gitignored. `config:init` creates it from that profile's
-`values.example-<profile>.yaml`.
+all of `config/*.yaml` gitignored. `config:init` creates it from that profile's
+template in `config/templates/`, which holds only the keys you must supply;
+everything about the environment lives in `profiles/<profile>.yaml`.
+
+What must be set is defined once, declaratively, in
+`charts/bmc-chart/values.schema.json`, and Helm enforces it on every render —
+`task validate` just surfaces it early.
 
 Because the file is keyed by profile, one checkout can hold configs for several
 clusters at once and nothing is overwritten when you switch:
@@ -187,7 +192,7 @@ together. `config:init` refuses to overwrite a config that already exists.
 ### On bare metal
 
 Full guide: **[docs/baremetal-install.md](docs/baremetal-install.md)** — k3s,
-MetalLB, Longhorn, port forwarding, and the failure modes specific to owning
+servicelb, Longhorn, port forwarding, and the failure modes specific to owning
 every layer yourself. There is no Terraform layer for this profile.
 
 ### On a cloud
@@ -237,7 +242,11 @@ task test:build     # OPTIONAL - build panel/manager from source, import
 ```
 
 `task test:all` runs the whole sequence, building only if the published images
-cannot run on your node.
+cannot run on your node. It finishes with `test:uninstall`, which runs the real
+`task uninstall` against the cluster and fails if anything survives it. That is
+the only place the HA teardown path is exercised -- `values.local.yaml` puts all
+three datastores in `ha` mode -- so a leak shows up there rather than on a
+user's cluster.
 
 Two deliberate safety properties: it writes its own kubeconfig to
 `.local-test/kubeconfig` so **your default kubectl context is never switched**,
@@ -292,7 +301,8 @@ task diff             # Show what an apply would change
 task install          # Complete installation
 task upgrade          # Upgrade an existing installation
 task sftp:info        # Connection details for open file sessions
-task uninstall        # Remove BMC, leaving the cluster
+task uninstall        # Remove BMC, verifying nothing is left behind
+task uninstall:purge  # ...and remove the GameServer CRD (deletes ALL GameServers)
 task teardown         # Destroy BMC *and* the cloud infrastructure under it
 task teardown:verify  # List cloud resources that would still incur charges
 task help             # Show all tasks
