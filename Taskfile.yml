@@ -108,6 +108,7 @@ tasks:
       - task: deploy
       - task: wait-for-webhooks
       - task: deploy-bmc
+      - task: wait-for-panel
 
   preflight:
     desc: Verify the cluster satisfies the capability contract
@@ -350,6 +351,13 @@ tasks:
       - echo "Deploying BMC..."
       - echo "=========================================="
       - helmfile apply --selector name=big-minecraft
+
+  wait-for-panel:
+    desc: Wait until the panel is serving, then print its URL
+    silent: true
+    cmds:
+      - task: _require-profile
+      - PROFILE={{.PROFILE}} NAMESPACE={{.NAMESPACE}} CHART_DIR={{.CHART_DIR}} CONFIG_DIR={{.CONFIG_DIR}} {{.SCRIPTS_DIR}}/wait-for-panel.sh
 
   upgrade:
     desc: Upgrade existing BMC installation
