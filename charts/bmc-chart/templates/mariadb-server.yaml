@@ -60,7 +60,7 @@ spec:
         fsGroup: 999
       containers:
       - name: mariadb
-        image: {{ .Values.global.mariaDB.image | default "mariadb" }}:{{ .Values.global.mariaDB.tag | default "latest" }}
+        image: {{ .Values.global.mariaDB.image }}:{{ .Values.global.mariaDB.tag }}
         ports:
         - containerPort: 3306
         env:

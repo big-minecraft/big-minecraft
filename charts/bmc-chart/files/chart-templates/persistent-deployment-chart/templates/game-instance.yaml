@@ -11,7 +11,7 @@ spec:
   command:
     - /bin/bash
     - /entrypoint/entrypoint.sh
-  port: {{ .Values.server.port | default 25565 }}
+  port: {{ .Values.server.port }}
   env:
     {{- range .Values.server.env }}
     - name: {{ .name }}
@@ -33,7 +33,7 @@ spec:
   volume:
     mountPath: {{ .Values.volume.mountPath }}
     storageClass: {{ .Values.global.storage.classes.persistent.name }}
-    size: {{ .Values.global.storage.volumeSize.persistent | default "10Gi" }}
+    size: {{ .Values.global.storage.volumeSize.persistent }}
   redis:
     host: {{ .Values.global.redis.host | quote }}
     port: {{ .Values.global.redis.port | quote }}
@@ -55,11 +55,11 @@ metadata:
     app: {{ .Values.name }}
     kyriji.dev/deployment-type: "persistent"
 spec:
-  accessModes: [{{ .Values.global.storage.classes.persistent.accessMode | default "ReadWriteMany" | quote }}]
+  accessModes: [{{ .Values.global.storage.classes.persistent.accessMode | quote }}]
   storageClassName: {{ .Values.global.storage.classes.persistent.name }}
   resources:
     requests:
-      storage: {{ .Values.global.storage.volumeSize.persistent | default "10Gi" }}
+      storage: {{ .Values.global.storage.volumeSize.persistent }}
 ---
 apiVersion: v1
 kind: ConfigMap

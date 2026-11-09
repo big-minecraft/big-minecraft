@@ -60,7 +60,7 @@ spec:
         fsGroup: 999
       containers:
       - name: mongodb
-        image: {{ .Values.global.mongoDB.image | default "mongo" }}:{{ .Values.global.mongoDB.tag | default "4.4" }}
+        image: {{ .Values.global.mongoDB.image }}:{{ .Values.global.mongoDB.tag }}
         ports:
         - containerPort: 27017
         env:

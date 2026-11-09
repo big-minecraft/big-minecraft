@@ -11,7 +11,7 @@ spec:
   command:
     - /bin/bash
     - /entrypoint/entrypoint.sh
-  port: {{ .Values.server.port | default 25565 }}
+  port: {{ .Values.server.port }}
   additionalPorts:
     - name: bedrock
       port: 19132
@@ -35,14 +35,14 @@ spec:
       memory: {{ .Values.resources.limits.memory }}
       cpu: {{ .Values.resources.limits.cpu }}
   volume:
-    mountPath: {{ .Values.volume.mountPath | default "/minecraft" }}
+    mountPath: {{ .Values.volume.mountPath }}
     storageClass: {{ .Values.global.storage.classes.shared.name }}
-    size: {{ .Values.global.storage.volumeSize.proxy | default "5Gi" }}
+    size: {{ .Values.global.storage.volumeSize.proxy }}
   {{- if and .Values.global.artifactStore.enabled .Values.artifactVersion }}
   artifact:
     endpoint: {{ .Values.global.artifactStore.endpoint | quote }}
     bucket: {{ .Values.global.artifactStore.bucket | quote }}
-    deployment: {{ .Values.name | default "proxy" | quote }}
+    deployment: {{ .Values.name | quote }}
     version: {{ .Values.artifactVersion | quote }}
   {{- end }}
   redis:
@@ -70,11 +70,11 @@ metadata:
     app: proxy
     kyriji.dev/deployment-type: "proxy"
 spec:
-  accessModes: [{{ .Values.global.storage.classes.shared.accessMode | default "ReadWriteOnce" | quote }}]
+  accessModes: [{{ .Values.global.storage.classes.shared.accessMode | quote }}]
   storageClassName: {{ .Values.global.storage.classes.shared.name }}
   resources:
     requests:
-      storage: {{ .Values.global.storage.volumeSize.proxy | default "5Gi" }}
+      storage: {{ .Values.global.storage.volumeSize.proxy }}
 ---
 apiVersion: v1
 kind: ConfigMap

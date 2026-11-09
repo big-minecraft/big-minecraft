@@ -188,6 +188,12 @@
             },
             "port": {
               "$ref": "#/$defs/port"
+            },
+            "image": {
+              "$ref": "#/$defs/imageName"
+            },
+            "tag": {
+              "$ref": "#/$defs/imageTag"
             }
           }
         },
@@ -202,6 +208,12 @@
             },
             "port": {
               "$ref": "#/$defs/port"
+            },
+            "image": {
+              "$ref": "#/$defs/imageName"
+            },
+            "tag": {
+              "$ref": "#/$defs/imageTag"
             }
           }
         },
@@ -216,6 +228,12 @@
             },
             "port": {
               "$ref": "#/$defs/port"
+            },
+            "image": {
+              "$ref": "#/$defs/imageName"
+            },
+            "tag": {
+              "$ref": "#/$defs/imageTag"
             }
           }
         },
@@ -469,6 +487,14 @@
       }
     },
     "serviceHost": {
+      "type": "string",
+      "minLength": 1
+    },
+    "imageName": {
+      "type": "string",
+      "minLength": 1
+    },
+    "imageTag": {
       "type": "string",
       "minLength": 1
     }

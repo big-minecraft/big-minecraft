@@ -89,7 +89,7 @@ while [ ! -f $SHUTDOWN_FLAG ]; do
 if [ -f /tmp/should_run ]; then
 echo "Starting Minecraft server..."
 
-java {{ .Values.server.jvmOpts | default "" }} -jar ./{{ .Values.server.jarName }} {{ .Values.server.args | default "nogui" }} < /tmp/server_input &
+java {{ .Values.server.jvmOpts }} -jar ./{{ .Values.server.jarName }} {{ .Values.server.args }} < /tmp/server_input &
 SERVER_PID=$!
 
 while kill -0 $SERVER_PID 2>/dev/null && [ ! -f $SHUTDOWN_FLAG ]; do

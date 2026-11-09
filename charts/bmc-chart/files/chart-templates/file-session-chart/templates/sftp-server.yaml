@@ -9,7 +9,7 @@ metadata:
     {{- end }}
   {{- end }}
 spec:
-  type: {{ .Values.global.edge.file.type | default "NodePort" }}
+  type: {{ .Values.global.edge.file.type }}
   {{- with .Values.global.edge.file.sourceRanges }}
   # Restrict who can reach SFTP. Applies to LoadBalancer, and to NodePort on
   # clusters whose CNI honours it -- on others, use a node firewall as well.
@@ -21,7 +21,7 @@ spec:
   ports:
     - port: 22
       targetPort: 22
-      {{- if eq (.Values.global.edge.file.type | default "NodePort") "NodePort" }}
+      {{- if eq .Values.global.edge.file.type "NodePort" }}
       # Allocated by the panel. Note there is no range check and no collision
       # detection against the NodePorts the platform chart hardcodes
       # (redis 30079, prometheus 30090 in development).

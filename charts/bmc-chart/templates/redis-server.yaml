@@ -17,7 +17,7 @@ spec:
   type: ClusterIP
   ports:
     - port: {{ .Values.global.redis.port }}
-      targetPort: {{ .Values.global.redis.externalPort | default 6379 }}
+      targetPort: {{ .Values.global.redis.externalPort }}
       protocol: TCP
       name: redis
 ---
@@ -30,7 +30,7 @@ metadata:
 addressType: IPv4
 ports:
   - name: redis
-    port: {{ .Values.global.redis.externalPort | default 6379 }}
+    port: {{ .Values.global.redis.externalPort }}
     protocol: TCP
 endpoints:
   - addresses: [{{ $host | quote }}]
@@ -88,7 +88,7 @@ spec:
     spec:
       containers:
       - name: redis
-        image: {{ .Values.global.redis.image | default "redis" }}:{{ .Values.global.redis.tag | default "latest" }}
+        image: {{ .Values.global.redis.image }}:{{ .Values.global.redis.tag }}
         # No password is configured for the in-cluster Redis, so the probe
         # needs no credentials. grep, not just exit status: redis-cli exits 0
         # while the server is still loading, printing LOADING rather than PONG.

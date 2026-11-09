@@ -11,7 +11,7 @@ spec:
   command:
     - /bin/bash
     - /entrypoint/entrypoint.sh
-  port: {{ .Values.server.port | default 25565 }}
+  port: {{ .Values.server.port }}
   env:
     {{- range .Values.server.env }}
     - name: {{ .name }}
@@ -31,14 +31,14 @@ spec:
       memory: {{ .Values.resources.limits.memory }}
       cpu: {{ .Values.resources.limits.cpu }}
   volume:
-    mountPath: {{ .Values.volume.mountPath | default "/minecraft" }}
+    mountPath: {{ .Values.volume.mountPath }}
     storageClass: {{ .Values.global.storage.classes.shared.name }}
-    size: {{ .Values.global.storage.volumeSize.scalable | default "5Gi" }}
+    size: {{ .Values.global.storage.volumeSize.scalable }}
   {{- if and .Values.global.artifactStore.enabled .Values.artifactVersion }}
   artifact:
     endpoint: {{ .Values.global.artifactStore.endpoint | quote }}
     bucket: {{ .Values.global.artifactStore.bucket | quote }}
-    deployment: {{ .Values.name | default "proxy" | quote }}
+    deployment: {{ .Values.name | quote }}
     version: {{ .Values.artifactVersion | quote }}
   {{- end }}
   redis:
@@ -69,11 +69,11 @@ metadata:
     app: {{ .Values.name }}
     kyriji.dev/deployment-type: "scalable"
 spec:
-  accessModes: [{{ .Values.global.storage.classes.shared.accessMode | default "ReadWriteOnce" | quote }}]
+  accessModes: [{{ .Values.global.storage.classes.shared.accessMode | quote }}]
   storageClassName: {{ .Values.global.storage.classes.shared.name }}
   resources:
     requests:
-      storage: {{ .Values.global.storage.volumeSize.scalable | default "5Gi" }}
+      storage: {{ .Values.global.storage.volumeSize.scalable }}
 ---
 apiVersion: v1
 kind: ConfigMap
