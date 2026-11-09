@@ -59,11 +59,16 @@ spec:
             - name: deployment-data
               mountPath: {{ .Values.publish.mountPath }}
               readOnly: true
+            - name: scripts
+              mountPath: /scripts
       volumes:
         - name: deployment-data
           persistentVolumeClaim:
             claimName: {{ .Values.publish.pvcName }}
             readOnly: true
+        - name: scripts
+          configMap:
+            name: {{ .Values.publish.jobName }}-script
 ---
 apiVersion: v1
 kind: ConfigMap

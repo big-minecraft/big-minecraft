@@ -19,8 +19,6 @@ spec:
         - name: storage
           persistentVolumeClaim:
             claimName: bmc-panel-storage
-        - name: kube-config
-          emptyDir: {}
         # Runtime charts shipped with this release. items[].path rebuilds the
         # directory tree that the flattened ConfigMap keys encode.
         - name: runtime-charts

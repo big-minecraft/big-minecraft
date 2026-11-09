@@ -61,4 +61,4 @@ metadata:
   name: {{ .Values.sftp.podName }}-config
 data:
   sftp.json: |
-{{ .Files.Get "data/sftp.json" | indent 4 }}
+{{ tpl (.Files.Get "data/sftp.json") . | indent 4 }}
