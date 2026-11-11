@@ -40,6 +40,11 @@ global:
   artifactStore:
     enabled: true
 
+  sftp:
+    # Password login for SFTP file sessions. false leaves SSH keys as the only
+    # way in.
+    passwordAuth: true
+
   # Switching mode later strands the old volumes.
   mariaDB:
     mode: single

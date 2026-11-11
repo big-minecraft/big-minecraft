@@ -379,6 +379,17 @@
               "$ref": "#/$defs/quantity"
             }
           }
+        },
+        "sftp": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "passwordAuth": {
+              "type": "boolean"
+            }
+          }
         }
       },
       "allOf": [

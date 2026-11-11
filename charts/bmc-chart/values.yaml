@@ -246,6 +246,9 @@ global:
   sftp:
     # Password stored in secret 'bmc-secrets' key 'sftp-password'
     enabled: true
+    # false removes password login from file sessions; an SSH key is then the
+    # only way in.
+    passwordAuth: true
 
   fileEditSession:
     timeoutMinutes: 15
