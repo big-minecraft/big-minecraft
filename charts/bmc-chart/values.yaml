@@ -1,21 +1,13 @@
 # BMC (Big Minecraft) Chart Default Values
 #
-# This file contains safe, environment-neutral defaults only.
-# DO NOT add secrets or environment-specific values here.
+# Environment-neutral defaults only -- no secrets, nothing cluster-specific.
 #
-# Configuration is layered, lowest precedence first:
-#   1. this file          -- neutral defaults
-#   2. profiles/<name>.yaml -- how one KIND of environment satisfies the contract
-#   3. config/<profile>.yaml -- this specific installation
+# Precedence, lowest first: this file < profiles/<name>.yaml < config/<profile>.yaml
 #
-# For installation:
-#   1. Run 'task config:init'
-#   2. Edit config/<profile>.yaml with your configuration
-#   3. Run 'task secrets:generate' to create Kubernetes secrets
-#   4. Run 'task install PROFILE=<profile>' to deploy
+# Install: task config:init, edit config/<profile>.yaml, task secrets:generate,
+# task install PROFILE=<profile>
 
-# Container images. Overriding these is what lets a locally built image be used
-# instead of the published one (see scripts/local-test.sh).
+# Override to run a locally built image (see scripts/local-test.sh).
 images:
   panel:
     repository: kyrokrypt/bmc-panel
@@ -37,51 +29,47 @@ global:
     email: ""
 
   panel:
-    # Secrets are stored in Kubernetes secret 'bmc-secrets'
     # Domains must be set in config/<profile>.yaml
     panelHost: ""
     storagePath: /storage
     inviteCodeExpiryDays: 7
 
-  # Edge = the surfaces BMC exposes outside the cluster.
-  # `annotations` is a verbatim passthrough: environment-specific load balancer
-  # configuration belongs in a profile as data, never as template logic. This is
-  # what lets a new environment be a YAML file rather than a template change.
+  # Single sign-on. Every field below comes from your identity provider.
+  oidc:
+    enabled: false
+    # Named on the panel's login button, e.g. "authentik".
+    displayName: ""
+    # Issuer URL, trailing slash included.
+    issuer: ""
+    clientId: ""
+    # From the provider. Keep config/<profile>.yaml out of git.
+    clientSecret: ""
+    # Space-separated. 'groups' is required by allowedGroup and adminGroup.
+    scopes: "openid profile email groups"
+    # Group required to sign in; empty admits anyone.
+    allowedGroup: ""
+    # Group granted panel admin; empty grants it to no one.
+    adminGroup: ""
+    # Make an account on first login, no invite needed.
+    autoCreateUsers: true
+    # Keep password login alongside SSO.
+    allowLocalLogin: true
+
+  # The surfaces BMC exposes outside the cluster.
   edge:
-    # The game entrypoint. This is the ONLY surface that must be internet-facing.
+    # The game entrypoint; the only surface that must be internet-facing.
     game:
       type: LoadBalancer
       annotations: {}
+      # GCP and Azure only; from `task cluster` output.
       loadBalancerIP: ""
-      # Who may reach the game entrypoint; empty is anywhere, which is what a
-      # public Minecraft server usually wants.
-      #
-      # Enforced by the cloud load balancer on EKS/GKE/AKS, and by kube-proxy
-      # for a LoadBalancer Service generally. NOT enforced under k3s's
-      # servicelb: it reaches pods through a hostPort on each node, which never
-      # passes through the LoadBalancer path this list filters. On bare metal,
-      # firewall the node instead -- this field will not do it for you.
+      # AWS only. One allocation per subnet.
+      eipAllocations: []
+      subnets: []
+      # Who may reach the game entrypoint; empty is anywhere.
       sourceRanges: []
-      # Cluster | Local. Ignored when type is ClusterIP, which does not accept
-      # the field at all.
-      #
-      # Cluster is Kubernetes' own default and what this edge rendered before
-      # the field existed, so leaving it alone changes nothing. kube-proxy may
-      # forward to a pod on another node, and SNATs when it does -- so the
-      # server sees a cluster address as the player's IP, not the player's.
-      #
-      # Local keeps the real source address, at the cost of only answering on
-      # nodes that actually run a proxy pod. Two reasons to want it:
-      #
-      #   - Per-player IP bans, rate limits and geo-logging need a real client
-      #     IP. Under Cluster every player appears to come from one address.
-      # Under k3s's servicelb this is the only thing that decides it: the
-      # Service's port is bound on the node, and Cluster means kube-proxy may
-      # hand the connection to a pod elsewhere, SNATting on the way.
-      #
-      # On a single-node cluster Local is always satisfiable: every pod is
-      # local to the only node there is. On a multi-node cluster Local means
-      # only the nodes actually running a proxy pod will answer.
+      # Cluster | Local. Local preserves the player's real IP, but only answers
+      # on nodes running a proxy pod.
       externalTrafficPolicy: Cluster
       java:
         port: 25565
@@ -89,47 +77,12 @@ global:
         enabled: true
         port: 19132
 
-    # SFTP / file-edit sessions, created per deployment at runtime by the panel.
-    #
-    # NodePort is the historical behaviour and stays the default. It is
-    # unreachable on clouds whose nodes sit in private subnets -- switching to
-    # ClusterIP requires the panel to proxy SFTP, and LoadBalancer costs one
-    # cloud load balancer per open file session.
+    # SFTP / file-edit sessions, created per deployment by the panel.
     file:
       type: NodePort
       annotations: {}
       # Restrict who can reach an open SFTP session (empty = anywhere)
       sourceRanges: []
-
-  # ingress-nginx, installed by helmfile when a profile asks for it. Kept here
-  # rather than in the Terraform layer because it needs nothing from any cloud
-  # provider: helmfile is the single answer to "what gets installed into this
-  # cluster", and the annotations below are data, exactly like edge.*.annotations.
-  ingressNginx:
-    install: false
-    service:
-      annotations: {}
-
-    # TCP passthrough for SFTP file sessions.
-    #
-    # Instead of giving every session its own cloud load balancer -- which takes
-    # about four minutes to provision and bills hourly with a one-hour minimum --
-    # the ingress controller forwards a block of ports straight through to the
-    # session pods. Sessions then become reachable as fast as the pod starts.
-    #
-    # The panel allocates one SFTP port per DEPLOYMENT from 31400 upwards
-    # (MIN_SFTP_PORT_RANGE in deploymentManager), so the mapping below is static:
-    # port 31400 always routes to whichever deployment currently holds 31400.
-    # That is also why the panel's existing "panelHost:sftpPort" address becomes
-    # correct with no panel change -- panelHost resolves to the ingress load
-    # balancer, which now listens on exactly that port.
-    #
-    # portCount is bounded by the cloud load balancer's listener limit (50 on an
-    # AWS NLB), and by how many deployments you expect to have.
-    sftpPassthrough:
-      enabled: false
-      minPort: 31400
-      portCount: 20
 
   ingress:
     className: "traefik"
@@ -138,50 +91,59 @@ global:
     tls:
       # cluster-issuer | existing-secret | none
       mode: cluster-issuer
-      # Used when mode is 'cluster-issuer'; defaults to certManager.clusterIssuerName
+      # Defaults to certManager.clusterIssuerName
       issuer: ""
       # Used when mode is 'existing-secret'
       secretName: ""
 
+    # Ignored on bare metal, where k3s owns Traefik.
+    controller:
+      install: false
+
+      # single | ha. Safe to change at any time.
+      mode: single
+      # Read only when mode is 'ha'.
+      replicas: 3
+
+      service:
+        annotations: {}
+
+        # Reserved by the Terraform layer, so DNS can be pointed before install.
+        # GCP and Azure only; from `task cluster` output.
+        loadBalancerIP: ""
+        # AWS only. One allocation per subnet.
+        eipAllocations: []
+        subnets: []
+
+        # Leave on Cluster.
+        externalTrafficPolicy: Cluster
+
+      # Traefik forwards a block of ports straight to the session pods, one
+      # fixed port per deployment from minPort upwards.
+      # portCount is capped at 48; on EKS sftp_passthrough_port_count must agree.
+      sftpPassthrough:
+        enabled: false
+        minPort: 31400
+        portCount: 20
+
   storage:
-    # Class NAMES are deliberately empty here. This file is the neutral default
-    # layer, and there is no storage class every cluster has -- a name invented
-    # here would be wrong on most of them and, worse, wrong silently: the PVC
-    # is created and simply never binds. A profile or a config names its own,
-    # and values.schema.json fails the render if one is left empty.
+    # Empty on purpose: no class name is correct on every cluster. A profile or
+    # config names its own; the schema fails the render if one is left empty.
     classes:
-      # Shared game data and panel manifests. RWX is NOT optional: the panel
-      # mounts a deployment's game volume into a file-edit pod and an SFTP pod
-      # concurrently with the running server, so multiple pods hold the same
-      # claim whenever a file session is open.
-      # Staging volumes, and the PVCs of deployment types whose instances pull
-      # artifacts rather than mounting this. One pod holds it at a time -- the
-      # file session -- so ReadWriteOnce is enough.
+      # Shared game data, panel manifests and staging volumes.
       shared:
         name: ""
         accessMode: ReadWriteOnce
-      # MariaDB and MongoDB. Single writer each -- these do not want a network
-      # filesystem.
+      # MariaDB and MongoDB. Single writer each.
       database:
         name: ""
         accessMode: ReadWriteOnce
 
-      # Persistent deployments only. Their server runs in place on this volume
-      # while a file session can mount it too, so two pods hold it at once and
-      # ReadWriteMany is unavoidable. It is also cheap there: a persistent
-      # deployment is one instance, so the volume never sees more than a
-      # handful of mounts.
+      # Persistent deployments only. Must be ReadWriteMany.
       persistent:
         name: ""
         accessMode: ReadWriteMany
-    # Whether this installation runs persistent deployments.
-    #
-    # false lets a cluster skip ReadWriteMany entirely -- no EFS on EKS, no NFS
-    # server on GKE, no nfs-common on every bare-metal node. Preflight only
-    # probes for RWX when this is true.
-    #
-    # Turn it on before creating your first persistent deployment; leaving it
-    # false and creating one gives you a PVC that never binds.
+    # false skips ReadWriteMany entirely.
     persistentDeployments: true
 
     volumeSize:
@@ -193,87 +155,53 @@ global:
       mariaDB: "5Gi"
       mongoDB: "5Gi"
 
-  # Object storage for deployment artifacts. Instances pull a versioned
-  # artifact instead of every instance reading one shared filesystem at
-  # startup, which is what stops scale-up contending on that filesystem.
-  #
-  # install runs MinIO in-cluster, for anywhere without managed object storage.
-  # Credentials live in bmc-secrets.
+  # Object storage for deployment artifacts. `install` runs MinIO in-cluster.
   artifactStore:
-    # On by default: every deployment type except persistent pulls its files
-    # from here rather than mounting the shared volume, which is what lets that
-    # volume be ReadWriteOnce without pinning every instance to one node.
     enabled: true
     install: true
-    # Leave empty when install is true: the panel resolves it to the in-cluster
-    # MinIO Service, which lives in BMC's namespace. Set it to an S3 or GCS
-    # endpoint to use managed object storage instead.
+    # Leave empty when install is true; else an S3 or GCS endpoint.
     endpoint: ""
     bucket: "bmc-artifacts"
     region: "us-east-1"
-    # MinIO's backing volume. Only read when install is true.
+    # MinIO's backing volume; only read when install is true.
     size: "20Gi"
 
-  # In-cluster NFS server, providing the ReadWriteMany storage class on clouds
-  # whose managed RWX filesystem is disproportionately expensive.
-  #
-  # On GKE the managed option is Filestore, whose smallest instance is 1 TiB at
-  # roughly $200/month regardless of how little you store -- more than the rest
-  # of a small cluster costs. This runs an NFS server backed by an ordinary
-  # block volume instead, so you pay for the size you ask for.
-  #
-  # The trade is availability: one NFS server pod serves every deployment's game
-  # data, so while it restarts, mounts hang. It is a single point of failure in
-  # a way Filestore and EFS are not. Storage is on a normal PVC, so the data
-  # survives the pod; only availability blips.
+  # In-cluster NFS server providing the ReadWriteMany class. One pod serves
+  # every deployment, so mounts hang while it restarts.
   nfsServer:
     install: false
-    # Storage class for the NFS server's own backing volume. Empty uses the
-    # cluster default. This wants ReadWriteOnce block storage, not a network
-    # filesystem.
+    # Wants ReadWriteOnce block storage; empty uses the cluster default.
     backingStorageClass: ""
     size: "100Gi"
-    # Name of the ReadWriteMany class this creates. Point
-    # storage.classes.shared.name at it.
+    # Point storage.classes.shared.name at this.
     storageClassName: "nfs"
 
   redis:
-    # The image for mode: single. As with mariaDB, `latest` is the historical
-    # default; pin it when you care about reproducible rebuilds. Redis holds
-    # only coordination data here, so a version change costs less than it
-    # would for the other two.
+    # Image for mode: single.
     image: redis
     tag: "latest"
-    # single: one pod, no failover. The state is coordination data, rebuilt
-    #         from running instances on restart.
-    # ha:     operator-managed replication with Sentinel. The operator tracks
-    #         the master and keeps a Service pointing at it, so clients connect
-    #         to one name and failover needs no client support.
+    # single: one pod, no failover. ha: Sentinel replication via the operator.
     mode: single
+    # Read only when mode is 'ha'.
     replicas: 3
 
     # What everything connects to, in every mode.
     host: "redis-service"
     port: 6379
 
-    # Point at a Redis you run yourself. Skips the in-cluster install entirely.
+    # Point at a Redis you run yourself.
     external: false
     externalHost: ""
     externalPort: 6379
 
   mariaDB:
-    # The image for mode: single. `latest` is the historical default and is
-    # kept so this change alters nothing on its own -- but it is a live
-    # hazard: `latest` now resolves to MariaDB 13, and a major-version jump
-    # under an initialised datadir is not something the entrypoint migrates
-    # for you. Pin it, e.g.
-    #   tag: "11.4"      # LTS
+    # Image for mode: single. Pin this -- a major-version jump under an
+    # initialised datadir is not migrated for you. e.g. tag: "11.4" (LTS)
     image: mariadb
     tag: "latest"
-    # single: one pod on one volume.
-    # ha:     Galera via mariadb-operator. Wants at least 3 nodes for quorum --
-    #         on a single-node cluster the members die together.
+    # single: one pod. ha: Galera via mariadb-operator, needs 3+ nodes.
     mode: single
+    # Read only when mode is 'ha'. Keep it odd.
     replicas: 3
 
     host: mariadb-service
@@ -284,35 +212,18 @@ global:
     # Point at a database you run yourself.
     external: false
 
-    # Derived from mode and external; set only for a database neither
-    # `task secrets:generate` nor the operator created.
+    # Set only for a database neither `task secrets:generate` nor the operator made.
     existingSecret: ""
     passwordKey: ""
 
   mongoDB:
-    # The image for mode: single. Pinned, not `latest`: a datastore that
-    # silently changes major version under a running installation is how you
-    # get an empty database or a server that will not start.
-    #
-    # 4.4, not 6.0, and that is deliberate. MongoDB 5.0+ requires a CPU with
-    # AVX, and dies with SIGILL (exit 132) and "requires a CPU with AVX
-    # support" on hosts without it -- which includes every QEMU/KVM guest left
-    # on the default kvm64/qemu64 CPU model, and any physical CPU older than
-    # Sandy Bridge (AVX arrived with x86-64-v3). 4.4 is the last release
-    # without that requirement.
-    #
-    # The cost: 4.4 reached end of life in February 2024 and gets no security
-    # patches. mongodb-service is ClusterIP, so it is never internet-facing,
-    # but if your hardware does have AVX prefer a supported release:
-    #   image: mongo
-    #   tag: "8.0"
-    # Check with: grep -w avx /proc/cpuinfo
+    # 4.4 because MongoDB 5.0+ needs AVX and dies with SIGILL without it.
+    # If `grep -w avx /proc/cpuinfo` hits, prefer tag: "8.0".
     image: mongo
     tag: "4.4"
-    # single: one pod on one volume.
-    # ha:     replica set via the MongoDB Community Operator. The driver does
-    #         failover natively once given a replica-set URI.
+    # single: one pod. ha: replica set via the MongoDB Community Operator.
     mode: single
+    # Read only when mode is 'ha'. Keep it odd.
     replicas: 3
 
     host: mongodb-service
@@ -322,8 +233,7 @@ global:
 
     external: false
 
-    # Used verbatim when non-empty, instead of building one from host/port.
-    # A replica set needs this: mongodb://u:p@h1,h2,h3/db?replicaSet=rs0
+    # Used verbatim when non-empty. A replica set needs this.
     uri: ""
 
     existingSecret: ""

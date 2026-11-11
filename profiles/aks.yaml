@@ -1,41 +1,22 @@
 # Profile: Azure Kubernetes Service
 #
-# The cluster and its network come from terraform/aks/. This profile only states
-# how AKS satisfies BMC's capability contract; it installs none of it.
+# How AKS satisfies BMC's capability contract. The cluster and its network come
+# from terraform/aks/; this profile installs none of it.
 #
-# The contract, and who satisfies it on AKS:
 #   - RWX storage        -> azurefile-csi, built in      (Azure Files, SMB)
 #   - RWO storage        -> managed-csi, built in        (Azure Disk CSI)
 #   - LoadBalancer       -> AKS's own service controller (no controller to install)
-#   - IngressClass       -> ingress-nginx                (installed by helmfile)
+#   - IngressClass       -> traefik                      (installed by helmfile)
 #   - pod egress         -> outbound through the standard load balancer
 #
-# Verify all of it before installing:
-#   task preflight PROFILE=aks
+# Verify all of it before installing: task preflight PROFILE=aks
 #
-# Three things differ from the other cloud profiles in ways worth knowing before
-# you debug them:
-#
-# 1. ReadWriteMany comes from Azure Files rather than an in-cluster NFS server.
-#    Unlike Filestore on GCP there is no 1 TiB minimum -- Azure Files bills for
-#    what you use -- so the NFS server GKE needs is unnecessary here. The
-#    tradeoff is that azurefile-csi is SMB, not a POSIX filesystem: file locking
-#    and permissions are emulated. Only persistent deployments touch it. If a
-#    server misbehaves on it, set global.nfsServer.install true and point
-#    storage.classes.persistent at "nfs" instead.
-#
-# 2. Azure load balancers hand out an IP, not a hostname, so DNS records are A
-#    records rather than CNAMEs -- same as GKE, unlike EKS.
-#
-# 3. Mixed TCP+UDP on one Service is the riskiest assumption here, as on GKE.
-#    The game edge carries TCP 25565 and UDP 19132 together, which needs
-#    MixedProtocolLBService (GA in 1.26) and the standard load balancer SKU that
-#    terraform/aks sets. The preflight LoadBalancer probe only provisions TCP,
-#    so it will NOT catch a failure here -- check that Bedrock actually answers
-#    on 19132 after installing.
-#
-# You must still set in config/aks.yaml:
-#   global.ingress.host, global.panel.panelHost, global.certManager.email
+# Differs from the other cloud profiles:
+#   - RWX comes from Azure Files, billed for what you use. It is SMB, so locking
+#     and permissions are emulated; switch to nfsServer if that bites.
+#   - Azure load balancers hand out an IP, so DNS records are A, not CNAME.
+#   - Mixed TCP+UDP on one Service needs Kubernetes >= 1.26 and the standard LB
+#     SKU terraform/aks sets. Check Bedrock answers on 19132 after installing.
 
 global:
   edge:
@@ -44,20 +25,16 @@ global:
       annotations: {}
       sourceRanges: []
 
-    # Same design as the EKS and GKE profiles: file sessions are reached through
-    # ingress-nginx TCP passthrough rather than a load balancer per session, so
-    # a session is usable as soon as its pod starts. See ingressNginx below.
+    # Reached through Traefik TCP passthrough. See ingress.controller below.
     file:
       type: ClusterIP
       annotations: {}
-      # Not read for ClusterIP. Access is bounded by whoever can reach the
-      # ingress load balancer.
+      # Not read for ClusterIP; access is bounded by the ingress load balancer.
       sourceRanges: []
 
   storage:
     classes:
-      # Staging and artifact-pulling instances: one pod at a time. Azure Disk,
-      # built into AKS, no class to create.
+      # Azure Disk, built into AKS.
       shared:
         name: "managed-csi"
         accessMode: ReadWriteOnce
@@ -65,41 +42,34 @@ global:
         name: "managed-csi"
         accessMode: ReadWriteOnce
 
-      # Persistent deployments only. Azure Files is the native ReadWriteMany
-      # answer here and has no minimum size, so nothing extra is installed.
+      # Persistent deployments only; Azure Files is the native RWX here.
       persistent:
         name: "azurefile-csi"
         accessMode: ReadWriteMany
 
-  # Not needed: azurefile-csi already provides ReadWriteMany. Turn this on only
-  # if you move storage.classes.persistent off Azure Files -- see note 1 above.
+  # Not needed: azurefile-csi already provides ReadWriteMany.
   nfsServer:
     install: false
 
 
-  # Installed by helmfile, as on every profile. Azure's own Application Gateway
-  # ingress is a separate product with its own certificate model; ingress-nginx
-  # fits tls.mode: cluster-issuer without it.
-  ingressNginx:
-    install: true
-
-    # Forward the panel's SFTP port block through to file session pods, instead
-    # of giving each session its own load balancer.
-    sftpPassthrough:
-      enabled: true
-      minPort: 31400
-      portCount: 50
-
-    service:
-      annotations:
-        # Health probing on AKS defaults to the first port, which for this
-        # Service is a raw TCP passthrough port rather than anything that
-        # answers HTTP. Point the probe at the controller's own health endpoint
-        # so the load balancer does not mark every node unhealthy.
-        service.beta.kubernetes.io/azure-load-balancer-health-probe-request-path: "/healthz"
-
+  # Traefik plus cert-manager. Azure's Application Gateway ingress has its own
+  # certificate model and does not fit cluster-issuer mode.
   ingress:
-    className: "nginx"
+    className: "traefik"
     tls:
       mode: cluster-issuer
 
+    controller:
+      install: true
+
+      # Replaces the per-session load balancer; see edge.file above.
+      sftpPassthrough:
+        enabled: true
+        minPort: 31400
+        portCount: 25
+
+      service:
+        annotations:
+          # AKS probes the first port, here raw TCP passthrough. Without this
+          # every node is marked unhealthy.
+          service.beta.kubernetes.io/azure-load-balancer-health-probe-request-path: "/ping"

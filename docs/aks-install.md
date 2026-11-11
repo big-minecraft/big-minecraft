@@ -91,8 +91,9 @@ Rough fixed monthly, eastus list prices, two `Standard_D4s_v5` nodes:
 | Control plane (`sku_tier = "Free"`) | $0 |
 | 2 × Standard_D4s_v5 | $280 |
 | 2 × standard load balancer (panel + game) | ~$37 |
+| 2 × standard static public IP (panel + game) | ~$7 |
 | Managed OS disks, 2 × 50 GiB | ~$19 |
-| **Fixed total** | **~$335** |
+| **Fixed total** | **~$342** |
 
 Variable on top: egress per GB as players pull world data, Azure Files billed per GB used (only if you
 run persistent deployments), and the nodes the pool adds under load. `sku_tier = "Standard"` adds a

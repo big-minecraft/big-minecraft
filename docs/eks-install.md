@@ -86,8 +86,9 @@ Rough fixed monthly, us-east-1 list prices, two `m6i.xlarge` nodes:
 | 2 × m6i.xlarge | $280 |
 | NAT gateway | $33 |
 | 2 × NLB (panel + game) | $33 |
+| 2 × Elastic IP (panel + game) | $7 |
 | EBS gp3 boot volumes | $8 |
-| **Fixed total** | **~$430** |
+| **Fixed total** | **~$435** |
 
 Variable on top: data transfer out (~$0.09/GB, the one that scales with players), NAT data processing,
 NLB LCUs, EFS storage as worlds grow, and the nodes Karpenter adds under load.

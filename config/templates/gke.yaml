@@ -1,8 +1,6 @@
 # Your installation. Created by: task config:init PROFILE=gke
-# Everything about GKE as a KIND of cluster -- storage classes, edge types,
-# ingress class, load balancer annotations -- is in profiles/gke.yaml.
-# The cluster itself comes from terraform/gke/. Fill the empty values; `task validate`
-# names any you miss.
+# Cluster-kind settings live in profiles/gke.yaml; the cluster comes from
+# terraform/gke/. Fill the empty values; `task validate` names any you miss.
 global:
   certManager:
     email: ""                  # e.g. admin@yourdomain.com
@@ -11,30 +9,33 @@ global:
     panelHost: ""              # e.g. panel.yourdomain.com
   ingress:
     host: ""                   # must match panelHost
+    controller:
+      # Point DNS at these addresses before `task install`.
+      service:
+        loadBalancerIP: ""     # panel address from `task cluster`
+      mode: single             # single | ha -- safe to change later
+      replicas: 3              # 'ha' only, 2 or more
 
   storage:
-    # false skips ReadWriteMany entirely: no persistent deployments, and this
-    # profile's RWX storage can go (see terraform/gke/).
+    # false disables persistent deployments and the RWX storage they need.
     persistentDeployments: true
 
-  # false makes instances mount the shared volume instead of pulling published
-  # artifacts. That needs storage.classes.shared.accessMode: ReadWriteMany,
-  # which profiles/gke.yaml does not set -- the schema will say so.
   artifactStore:
+    # false mounts the shared volume instead, which needs RWX shared storage.
     enabled: true
 
-  # Switching topology later is not a migration -- the old mode's volumes are
-  # stranded and BMC starts on an empty database.
+  # Switching mode later strands the old volumes.
   mariaDB:
     mode: single
+    replicas: 3              # 'ha' only, 3 or more (odd -- Galera needs quorum)
   mongoDB:
     mode: single
+    replicas: 3              # 'ha' only, 3 or more (odd -- the replica set elects)
   redis:
     mode: single
+    replicas: 3              # 'ha' only, 3 or more
 
   edge:
     game:
-      # Unlike AWS, GCP honours this. Reserve a regional static address in
-      # Terraform and set it here to keep the game address stable across
-      # cluster rebuilds. Empty lets GCP allocate one.
+      # Reserved in Terraform; empty lets GCP pick.
       loadBalancerIP: ""

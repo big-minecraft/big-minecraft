@@ -7,14 +7,27 @@ global:
     installClusterIssuer: true # false if your cluster already has one
   panel:
     panelHost: ""              # e.g. panel.yourdomain.com
+
+  # Single sign-on, optional. Everything below comes from your provider.
+  oidc:
+    enabled: false
+    displayName: ""            # name on the login button, e.g. authentik
+    issuer: ""                 # e.g. https://auth.yourdomain.com/application/o/bmc-panel/
+    clientId: ""
+    clientSecret: ""           # a secret in a plain file -- keep this file private
+    scopes: "openid profile email groups"
+    allowedGroup: ""           # group required to sign in; empty admits anyone
+    adminGroup: ""             # group granted panel admin; empty grants no one
+    autoCreateUsers: true      # make an account on first login, no invite needed
+    allowLocalLogin: true      # false removes password login -- SSO or nothing
+
   ingress:
     host: ""                   # must match panelHost
 
   storage:
     # false skips ReadWriteMany entirely; 'persistent' below is then unused.
     persistentDeployments: true
-    # What `task cluster PROFILE=baremetal` installs. Change all three if you
-    # brought your own storage; `persistent` must be ReadWriteMany.
+    # What `task cluster` installs. `persistent` must be ReadWriteMany.
     classes:
       shared:
         name: "longhorn"
@@ -23,23 +36,23 @@ global:
       persistent:
         name: "longhorn"
 
-  # false makes instances mount the shared volume instead of pulling published
-  # artifacts, and needs storage.classes.shared.accessMode: ReadWriteMany.
+  # false mounts the shared volume instead, which needs RWX shared storage.
   artifactStore:
     enabled: true
 
-  # Switching topology later is not a migration -- the old mode's volumes are
-  # stranded and BMC starts on an empty database.
+  # Switching mode later strands the old volumes.
   mariaDB:
     mode: single
+    replicas: 3              # 'ha' only, 3 or more (odd -- Galera needs quorum)
   mongoDB:
     mode: single
+    replicas: 3              # 'ha' only, 3 or more (odd -- the replica set elects)
   redis:
     mode: single
+    replicas: 3              # 'ha' only, 3 or more
 
   edge:
     game:
-      # Local makes the server see real player IPs, which per-player bans and
-      # rate limits need. Under k3s servicelb this is the only thing that
-      # decides it, at the cost of only answering on nodes running a proxy pod.
+      # Local makes the server see real player IPs, but only answers on nodes
+      # running a proxy pod.
       externalTrafficPolicy: Cluster

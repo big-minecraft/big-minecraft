@@ -63,7 +63,8 @@ echo "Contract:"
 echo ""
 if SCHEMA_ERR=$(helm template bmc "$CHART_DIR" \
       -f "$CHART_DIR/values.yaml" -f "profiles/${PROFILE}.yaml" -f "$VALUES_FILE" \
-      --api-versions "cert-manager.io/v1/ClusterIssuer" 2>&1 >/dev/null); then
+      --api-versions "cert-manager.io/v1/ClusterIssuer" \
+      --api-versions "traefik.io/v1alpha1" 2>&1 >/dev/null); then
   echo -e "${GREEN}✓${NC} values satisfy charts/bmc-chart/values.schema.json"
 else
   echo -e "${RED}✗${NC} values do not satisfy charts/bmc-chart/values.schema.json:"

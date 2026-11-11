@@ -1,68 +1,44 @@
 # Profile: Google Kubernetes Engine
 #
-# The cluster and its network come from terraform/gke/. This profile only states
-# how GKE satisfies BMC's capability contract; it installs none of it.
+# How GKE satisfies BMC's capability contract. The cluster and its network come
+# from terraform/gke/; this profile installs none of it.
 #
-# The contract, and who satisfies it on GKE:
 #   - RWX storage        -> in-cluster NFS server        (see nfsServer below)
 #   - RWO storage        -> standard-rwo, built in       (PD CSI, on by default)
 #   - LoadBalancer       -> GKE's own service controller (no controller to install)
-#   - IngressClass       -> ingress-nginx                (installed by helmfile)
+#   - IngressClass       -> traefik                      (installed by helmfile)
 #   - pod egress         -> Cloud NAT, if nodes are private
 #
-# Verify all of it before installing:
-#   task preflight PROFILE=gke
+# Verify all of it before installing: task preflight PROFILE=gke
 #
-# Two things differ from EKS in ways worth knowing before you debug them:
-#
-# 1. GKE load balancers hand out an IP, not a hostname, so DNS records are A
-#    records rather than CNAMEs. They are also regional rather than per-zone, so
-#    the NLB cross-zone trap that AWS has does not exist here.
-#
-# 2. Mixed TCP+UDP on one Service is the riskiest assumption in this profile.
-#    The game edge carries TCP 25565 and UDP 19132 together, which needs
-#    MixedProtocolLBService (GA in 1.26) and a backend-service-based L4 load
-#    balancer, requested by the l4-rbs annotation below. The preflight
-#    LoadBalancer probe only provisions TCP, so it will NOT catch a failure
-#    here -- check that Bedrock actually answers on 19132 after installing.
-#
-# You must still set in config/gke.yaml:
-#   global.ingress.host, global.panel.panelHost, global.certManager.email
+# Differs from EKS:
+#   - GKE load balancers hand out an IP, so DNS records are A, not CNAME.
+#   - Mixed TCP+UDP on one Service needs Kubernetes >= 1.26 and the l4-rbs
+#     annotation below. Check Bedrock answers on 19132 after installing.
 
 global:
   edge:
     game:
       type: LoadBalancer
       annotations:
-        # Backend-service-based external L4 load balancer. The older
-        # target-pool implementation cannot carry TCP and UDP on one Service.
+        # The older target-pool implementation cannot carry TCP and UDP at once.
         cloud.google.com/l4-rbs: "enabled"
       sourceRanges: []
 
-    # Same design as the EKS profile: file sessions are reached through
-    # ingress-nginx TCP passthrough rather than a load balancer per session, so
-    # a session is usable as soon as its pod starts. See ingressNginx below.
+    # Reached through Traefik TCP passthrough. See ingress.controller below.
     file:
       type: ClusterIP
       annotations: {}
-      # Not read for ClusterIP. Access is bounded by whoever can reach the
-      # ingress load balancer.
+      # Not read for ClusterIP; access is bounded by the ingress load balancer.
       sourceRanges: []
 
   storage:
     classes:
-      # Provided by the in-cluster NFS server, NOT by Filestore.
-      #
-      # Filestore is the managed option, and its smallest instance is 1 TiB at
-      # roughly $200/month whether you store a terabyte or nothing -- more than
-      # the rest of a small cluster costs. The NFS server below is backed by an
-      # ordinary disk, so you pay for the size you actually ask for.
       # Staging and artifact-pulling instances: one pod at a time.
       shared:
         name: "standard-rwo"
         accessMode: ReadWriteOnce
-      # GKE ships this by default, backed by pd-balanced through the PD CSI
-      # driver. Nothing needs to create it.
+      # Ships with GKE, backed by pd-balanced.
       database:
         name: "standard-rwo"
         accessMode: ReadWriteOnce
@@ -72,11 +48,8 @@ global:
         name: "nfs"
         accessMode: ReadWriteMany
 
-  # ReadWriteMany, cheaply. One NFS server pod serves every deployment's game
-  # data: while it restarts, mounts hang. The data itself lives on a normal
-  # PVC and survives the pod.
-  # Only needed for persistent deployments -- it exists to provide RWX. Set
-  # storage.persistentDeployments false and this can go too.
+  # RWX storage, instead of Filestore (1 TiB minimum). Persistent
+  # deployments only -- turn both off together.
   nfsServer:
     install: true
     backingStorageClass: "standard-rwo"
@@ -84,27 +57,23 @@ global:
     storageClassName: "nfs"
 
 
-  # Installed by helmfile, as on every profile. GKE's own ingress (GCLB)
-  # terminates TLS with a Google-managed certificate referenced by annotation
-  # rather than a Kubernetes Secret, so it does not fit tls.mode:
-  # cluster-issuer; ingress-nginx does.
-  ingressNginx:
-    install: true
-
-    # Forward the panel's SFTP port block through to file session pods, instead
-    # of giving each session its own load balancer.
-    sftpPassthrough:
-      enabled: true
-      minPort: 31400
-      portCount: 50
-
-    service:
-      annotations:
-        # Same backend-service L4 load balancer as the game edge.
-        cloud.google.com/l4-rbs: "enabled"
-
+  # Traefik plus cert-manager. GKE's own ingress terminates TLS with a
+  # Google-managed certificate, so it does not fit cluster-issuer mode.
   ingress:
-    className: "nginx"
+    className: "traefik"
     tls:
       mode: cluster-issuer
 
+    controller:
+      install: true
+
+      # Replaces the per-session load balancer; see edge.file above.
+      sftpPassthrough:
+        enabled: true
+        minPort: 31400
+        portCount: 25
+
+      service:
+        annotations:
+          # Same backend-service L4 load balancer as the game edge.
+          cloud.google.com/l4-rbs: "enabled"

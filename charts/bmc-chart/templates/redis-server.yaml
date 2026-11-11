@@ -1,13 +1,9 @@
-{{- /*
-The Service is named redis-service in every mode on purpose: the mode changes
-what sits behind the name, never the name itself, so anything already resolving
-it keeps working.
-*/ -}}
+# redis-service in every mode: the mode changes what is behind the name.
 {{- if .Values.global.redis.external }}
 {{- $host := .Values.global.redis.externalHost | required "global.redis.externalHost is required when global.redis.external is true" }}
 {{- if regexMatch "^[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}$" $host }}
-{{- /* ExternalName cannot express an IP, so an IP endpoint needs a ClusterIP
-Service with a hand-written EndpointSlice. This form can also remap the port. */ -}}
+# ExternalName cannot express an IP, so an IP endpoint needs a ClusterIP Service
+# plus a hand-written EndpointSlice.
 apiVersion: v1
 kind: Service
 metadata:
@@ -46,11 +42,7 @@ spec:
   externalName: {{ $host | quote }}
 {{- end }}
 {{- else if eq .Values.global.redis.mode "ha" }}
-{{- /*
-The operator owns the Redis pods and their Services. This aliases the name
-everything already uses onto the operator's master Service, which the operator
-repoints on failover -- so a plain single-endpoint client needs no changes.
-*/ -}}
+# Aliases the usual name onto the operator's master Service.
 apiVersion: v1
 kind: Service
 metadata:
@@ -68,14 +60,8 @@ metadata:
     app: redis
 spec:
   replicas: 1
-  # Recreate, not the default RollingUpdate. These are single-replica
-  # Deployments on a ReadWriteOnce volume holding an exclusive lock on the
-  # data directory, so RollingUpdate deadlocks: it starts the replacement
-  # before retiring the incumbent, the replacement cannot take the lock
-  # (mongod exits 100 DBPathInUse; mariadbd refuses the datadir), and the
-  # incumbent is never retired because its replacement never goes Ready.
-  # Recreate stops the old pod first, which is also the only safe order for
-  # a database that must not be mounted twice.
+  # Recreate, not RollingUpdate: one replica on an RWO volume, so a rolling
+  # replacement would deadlock against the incumbent.
   strategy:
     type: Recreate
   selector:
@@ -89,9 +75,7 @@ spec:
       containers:
       - name: redis
         image: {{ .Values.global.redis.image }}:{{ .Values.global.redis.tag }}
-        # No password is configured for the in-cluster Redis, so the probe
-        # needs no credentials. grep, not just exit status: redis-cli exits 0
-        # while the server is still loading, printing LOADING rather than PONG.
+        # grep, not exit status: redis-cli exits 0 while still loading.
         readinessProbe:
           exec:
             command: ["/bin/sh", "-c", "redis-cli ping | grep -q PONG"]

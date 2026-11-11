@@ -19,9 +19,12 @@ Each environment comes with different minimum costs. While cloud environment cos
 | Environment | Auto-scaling | Minimum cost |
 |---|---|---|
 | **Bare-metal** | No | Your hardware and bandwidth only |
-| **Amazon EKS** | Yes | ~$430/mo |
-| **Google GKE** | Yes | ~$570/mo |
-| **Azure AKS** | Yes | ~$335/mo |
+| **Amazon EKS** | Yes | ~$435/mo |
+| **Google GKE** | Yes | ~$576/mo |
+| **Azure AKS** | Yes | ~$342/mo |
+
+Cloud figures include the static addresses reserved for the panel and the game edge, which bill whether
+or not a cluster is attached to them.
 
 Every install guide has a full **Cost** breakdown and the levers that move it.
 While **running bare-metal will almost always be the cheapest option for your network**, the tradeoff of auto-scaling is quite benefitial for networks with heavily fluctuating player counts.

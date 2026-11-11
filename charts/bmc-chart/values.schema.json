@@ -68,6 +68,43 @@
             }
           }
         },
+        "oidc": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "displayName": {
+              "type": "string"
+            },
+            "issuer": {
+              "type": "string",
+              "pattern": "^(https?://|$)"
+            },
+            "clientId": {
+              "type": "string"
+            },
+            "clientSecret": {
+              "type": "string"
+            },
+            "scopes": {
+              "type": "string",
+              "pattern": "(^$|openid)"
+            },
+            "allowedGroup": {
+              "type": "string"
+            },
+            "adminGroup": {
+              "type": "string"
+            },
+            "autoCreateUsers": {
+              "type": "boolean"
+            },
+            "allowLocalLogin": {
+              "type": "boolean"
+            }
+          }
+        },
         "ingress": {
           "type": "object",
           "required": [
@@ -95,6 +132,68 @@
                     "existing-secret",
                     "none"
                   ]
+                }
+              }
+            },
+            "controller": {
+              "type": "object",
+              "properties": {
+                "install": {
+                  "type": "boolean"
+                },
+                "mode": {
+                  "$ref": "#/$defs/haMode"
+                },
+                "replicas": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "service": {
+                  "type": "object",
+                  "properties": {
+                    "annotations": {
+                      "type": "object"
+                    },
+                    "externalTrafficPolicy": {
+                      "enum": [
+                        "Cluster",
+                        "Local"
+                      ]
+                    },
+                    "loadBalancerIP": {
+                      "type": "string"
+                    },
+                    "eipAllocations": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "pattern": "^eipalloc-[0-9a-f]+$"
+                      }
+                    },
+                    "subnets": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "pattern": "^subnet-[0-9a-f]+$"
+                      }
+                    }
+                  }
+                },
+                "sftpPassthrough": {
+                  "type": "object",
+                  "properties": {
+                    "enabled": {
+                      "type": "boolean"
+                    },
+                    "minPort": {
+                      "$ref": "#/$defs/port"
+                    },
+                    "portCount": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 48
+                    }
+                  }
                 }
               }
             }
@@ -152,6 +251,20 @@
                 },
                 "sourceRanges": {
                   "$ref": "#/$defs/cidrList"
+                },
+                "eipAllocations": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^eipalloc-[0-9a-f]+$"
+                  }
+                },
+                "subnets": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^subnet-[0-9a-f]+$"
+                  }
                 }
               }
             },
@@ -175,7 +288,11 @@
               "$ref": "#/$defs/serviceHost"
             },
             "mode": {
-              "$ref": "#/$defs/datastoreMode"
+              "$ref": "#/$defs/haMode"
+            },
+            "replicas": {
+              "type": "integer",
+              "minimum": 1
             },
             "external": {
               "type": "boolean"
@@ -204,7 +321,11 @@
               "$ref": "#/$defs/serviceHost"
             },
             "mode": {
-              "$ref": "#/$defs/datastoreMode"
+              "$ref": "#/$defs/haMode"
+            },
+            "replicas": {
+              "type": "integer",
+              "minimum": 1
             },
             "port": {
               "$ref": "#/$defs/port"
@@ -224,7 +345,11 @@
               "$ref": "#/$defs/serviceHost"
             },
             "mode": {
-              "$ref": "#/$defs/datastoreMode"
+              "$ref": "#/$defs/haMode"
+            },
+            "replicas": {
+              "type": "integer",
+              "minimum": 1
             },
             "port": {
               "$ref": "#/$defs/port"
@@ -418,6 +543,228 @@
               }
             }
           }
+        },
+        {
+          "if": {
+            "required": [
+              "ingress"
+            ],
+            "properties": {
+              "ingress": {
+                "required": [
+                  "controller"
+                ],
+                "properties": {
+                  "controller": {
+                    "required": [
+                      "mode"
+                    ],
+                    "properties": {
+                      "mode": {
+                        "const": "ha"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "ingress": {
+                "properties": {
+                  "controller": {
+                    "required": [
+                      "replicas"
+                    ],
+                    "properties": {
+                      "replicas": {
+                        "minimum": 2
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "redis"
+            ],
+            "properties": {
+              "redis": {
+                "required": [
+                  "mode"
+                ],
+                "properties": {
+                  "mode": {
+                    "const": "ha"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "redis": {
+                "required": [
+                  "replicas"
+                ],
+                "properties": {
+                  "replicas": {
+                    "minimum": 3
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "mariaDB"
+            ],
+            "properties": {
+              "mariaDB": {
+                "required": [
+                  "mode"
+                ],
+                "properties": {
+                  "mode": {
+                    "const": "ha"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "mariaDB": {
+                "required": [
+                  "replicas"
+                ],
+                "properties": {
+                  "replicas": {
+                    "minimum": 3
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "mongoDB"
+            ],
+            "properties": {
+              "mongoDB": {
+                "required": [
+                  "mode"
+                ],
+                "properties": {
+                  "mode": {
+                    "const": "ha"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "mongoDB": {
+                "required": [
+                  "replicas"
+                ],
+                "properties": {
+                  "replicas": {
+                    "minimum": 3
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "oidc"
+            ],
+            "properties": {
+              "oidc": {
+                "required": [
+                  "enabled"
+                ],
+                "properties": {
+                  "enabled": {
+                    "const": true
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "oidc": {
+                "required": [
+                  "issuer",
+                  "clientId",
+                  "clientSecret",
+                  "displayName"
+                ],
+                "properties": {
+                  "issuer": {
+                    "minLength": 1,
+                    "pattern": "^https?://"
+                  },
+                  "clientId": {
+                    "minLength": 1
+                  },
+                  "clientSecret": {
+                    "minLength": 1
+                  },
+                  "displayName": {
+                    "minLength": 1
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "oidc"
+            ],
+            "properties": {
+              "oidc": {
+                "required": [
+                  "allowLocalLogin"
+                ],
+                "properties": {
+                  "allowLocalLogin": {
+                    "const": false
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "oidc": {
+                "required": [
+                  "enabled"
+                ],
+                "properties": {
+                  "enabled": {
+                    "const": true
+                  }
+                }
+              }
+            }
+          }
         }
       ]
     }
@@ -449,7 +796,7 @@
         "ClusterIP"
       ]
     },
-    "datastoreMode": {
+    "haMode": {
       "enum": [
         "single",
         "ha"

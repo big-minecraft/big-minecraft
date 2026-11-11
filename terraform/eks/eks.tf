@@ -28,7 +28,7 @@ locals {
 
   panel_rules = {
     panel_http = {
-      description = "Panel HTTP via ingress-nginx (also carries ACME HTTP-01 challenges)"
+      description = "Panel HTTP via Traefik (also carries ACME HTTP-01 challenges)"
       protocol    = "tcp"
       from_port   = 80
       to_port     = 80
@@ -36,7 +36,7 @@ locals {
       cidr_blocks = var.panel_allowed_cidrs
     }
     panel_https = {
-      description = "Panel HTTPS via ingress-nginx"
+      description = "Panel HTTPS via Traefik"
       protocol    = "tcp"
       from_port   = 443
       to_port     = 443

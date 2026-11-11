@@ -21,7 +21,8 @@ RENDER_ONLY=0
 # Capabilities the templates gate on. `helm template` has no cluster
 # connection, so these must be declared or the guarded resources render empty.
 API_VERSIONS=(
-  --api-versions "cert-manager.io/v1/ClusterIssuer"
+  --api-versions "cert-manager.io/v1/ClusterIssuer" \
+  --api-versions "traefik.io/v1alpha1"
 )
 
 FAILED=0

@@ -87,8 +87,9 @@ zone):
 | 3 × n2-standard-4 | $415 |
 | Cloud NAT gateway | $32 |
 | 2 × L4 load balancer (panel + game) | ~$36 |
+| 2 × reserved regional address (panel + game) | ~$6 |
 | Boot disks, 3 × 50 GiB pd-balanced | $15 |
-| **Fixed total** | **~$570** |
+| **Fixed total** | **~$576** |
 
 Variable on top: egress per GB as players pull world data, NAT data processing, the disk backing shared
 storage, and the nodes the pool adds under load.

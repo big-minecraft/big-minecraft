@@ -6,24 +6,16 @@ vars:
   CONFIG_DIR: config
   # What builds the cluster, kept apart from what configures BMC on it.
   INFRA_DIR: config/infrastructure
-  # Task evaluates `sh:` vars eagerly, for EVERY invocation. Without the
-  # fallback a machine with no yq cannot even run `task verify` or `task help`
-  # -- it dies with exit status 127 before reaching the prerequisite check.
-  # The `tr -d '"'` also normalises kislyuk/yq (Python), which emits JSON and
-  # would otherwise yield a namespace with literal quotes in it.
+  # Fallback keeps a machine with no yq able to run `task verify`. The `tr`
+  # normalises the Python yq, which emits JSON.
   NAMESPACE:
     sh: '{ yq ".global.namespace" {{.CHART_DIR}}/values.yaml 2>/dev/null || echo bmc; } | tr -d ''"'''
   SCRIPTS_DIR: scripts
-  # Which kind of environment this cluster is. See profiles/.
-  # No default on purpose: a silent fallback means `task teardown` with no
-  # PROFILE acts on whichever cluster the default happens to name. Pass it per
-  # command or export it.
+  # See profiles/. No default -- a fallback would let `task teardown` act on
+  # the wrong cluster.
   PROFILE: '{{.PROFILE}}'
-  # Which Terraform root module belongs to this profile. Profiles with no cloud
-  # layer (bare metal) resolve to a directory that does not exist, and the
-  # teardown task checks before using it. Anchored to the Taskfile: a relative
-  # path resolves against wherever `task` was invoked from, so teardown run from
-  # a subdirectory skipped the destroy and still reported success.
+  # Terraform root for this profile. Anchored to the Taskfile so it does not
+  # resolve against the invocation directory.
   # The cluster's own name, for cleanup that has to run after its API is gone.
   # tfvars is the source of truth; the fallback matches variables.tf's default.
   CLUSTER_NAME:
@@ -78,20 +70,10 @@ tasks:
       # without this the failure is five minutes deep in a Helm timeout instead
       # of a one-second "run task secrets:generate".
       - task: secrets:check
-      # Before storage, not after preflight. Every task below reads
-      # config/PROFILE.yaml -- that file is per-machine and gitignored, so on a
-      # fresh clone it does not exist yet. helmfile's own complaint about a
-      # missing environment values file names no fix; validate names the exact
-      # file and tells you to run `task config:init`. It is a pure yq merge of
-      # the values layers, so nothing here needs the cluster to be built out
-      # first.
+      # First: validate is the only task that names `task config:init` when
+      # the gitignored config/PROFILE.yaml is missing.
       - task: validate
-      # Before preflight, not after. On profiles where the cluster has no
-      # managed RWX filesystem, BMC brings its own NFS server -- and preflight's
-      # shared-storage probe is the single most valuable check it makes. Running
-      # it against a storage class that does not exist yet would either fail
-      # spuriously or have to be skipped, and skipping it means never testing
-      # ReadWriteMany at all on exactly the profiles where it is least certain.
+      # Before preflight, whose shared-storage probe needs the storage class.
       - task: storage
       # preflight provisions a REAL LoadBalancer Service, so this reports
       # whether anything is able to answer it before that check runs. Nothing
@@ -190,14 +172,49 @@ tasks:
       - |
         case "{{.PROFILE}}" in
           eks|gke|aks)
+            # A fresh clone has the lock file but no providers, and apply's
+            # error for that reads like a version conflict.
+            cd {{.TF_DIR}} && tofu init -input=false
             cd {{.TF_DIR}} && tofu apply -var-file={{.ROOT_DIR}}/{{.INFRA_DIR}}/{{.PROFILE}}.tfvars
+
+            # Restate the two outputs that block the next step.
+            PANEL=$(cd {{.TF_DIR}} && tofu output -json panel_dns_records 2>/dev/null)
+            GAME=$(cd {{.TF_DIR}} && tofu output -json game_dns_records 2>/dev/null)
+            fmt() { printf '%s' "$1" | tr -d '[]"' | tr ',' '\n' | sed '/^$/d' | sed 's/^/       /'; }
+            echo ""
+            echo "=========================================="
+            echo "Point DNS at these, THEN run task install"
+            echo "=========================================="
+            echo ""
+            echo "  Panel  ({{.PROFILE}})  ->  A records for your panel host:"
+            fmt "$PANEL"
+            echo ""
+            echo "  Game            ->  A records for the address players use:"
+            fmt "$GAME"
+            echo ""
+            echo "  These are reserved and will not change on reinstall."
+            echo ""
+            echo "  Put them in config/{{.PROFILE}}.yaml as well -- the load"
+            echo "  balancers only attach an address they are told to use:"
+            if [ "{{.PROFILE}}" = "eks" ]; then
+              echo "    global.ingress.controller.service.eipAllocations + subnets"
+              echo "    global.edge.game.eipAllocations + subnets"
+              echo "  (allocation ids and subnet ids, not addresses:"
+              echo "     cd {{.TF_DIR}} && tofu output \\"
+              echo "       ingress_eip_allocation_ids game_eip_allocation_ids edge_subnet_ids)"
+            else
+              echo "    global.ingress.controller.service.loadBalancerIP"
+              echo "    global.edge.game.loadBalancerIP"
+            fi
+            echo ""
+            echo "  cert-manager validates over HTTP-01 against the panel host,"
+            echo "  so DNS must resolve before task install -- otherwise the"
+            echo "  first certificate fails and cert-manager backs off an hour."
+            echo ""
             ;;
           baremetal)
-            # Check the inventory parses before handing it to Ansible. A YAML
-            # error there makes Ansible fall back to implicit localhost, and
-            # the playbook then reports an empty k3s_servers group -- which
-            # reads as "you forgot to add hosts" rather than "line 45 is
-            # malformed", buried under four parser warnings.
+            # A YAML error here makes Ansible fall back to implicit localhost
+            # and report an empty k3s_servers group, which misleads.
             INV={{.ROOT_DIR}}/{{.INFRA_DIR}}/baremetal.inventory.yml
             if ! yq '.' "$INV" >/dev/null 2>&1; then
               echo ""
@@ -275,24 +292,8 @@ tasks:
       - helmfile apply --selector name=mongodb-operator
       - helmfile apply --selector name=minio
 
-  # Kept as a task because `task install` sequences it before preflight, and
-  # because "where do addresses come from" is a question worth having an answer
-  # to in one place. BMC no longer installs a provider on any profile:
-  #
-  #   bare metal / k3s : k3s's own servicelb (Klipper). Built in, nothing to
-  #                      install -- it binds the Service's port on each node
-  #                      and reports the node address. Two Services coexist on
-  #                      one address as long as their ports differ, which is
-  #                      what lets Traefik (80/443) and the game edge
-  #                      (25565/19132) share it with no configuration at all.
-  #   clouds           : the provider's controller, from the Terraform layer.
-  #
-  # BMC used to install MetalLB here, with an address pool, a sharing-key
-  # annotation patched onto k3s's Traefik, and an externalTrafficPolicy that
-  # had to agree across both Services. On a k3s cluster that machinery also
-  # fought Klipper, which k3s leaves enabled: both controllers write to the
-  # same Service status, and MetalLB would clear the address Klipper had just
-  # assigned. It was removed rather than papered over.
+  # BMC installs no LoadBalancer provider: k3s has servicelb built in, and the
+  # clouds get the provider's controller from the Terraform layer.
   edge:
     desc: Report where LoadBalancer addresses come from for this profile
     silent: true
@@ -322,14 +323,9 @@ tasks:
     cmds:
       - task: _require-profile
       - echo "Installing profile dependencies..."
-      # Each release is selected by name. A release that is not named here is
-      # never installed, whatever `needs:` says in helmfile.yaml.gotmpl -- helmfile
-      # only walks needs when passed --include-needs. Adding a dependency to
-      # helmfile.yaml.gotmpl therefore means adding a line here too.
-      #
-      # Every one of these is a no-op unless the profile turns it on, so the
-      # list is safe to keep in one order for all profiles.
-      - helmfile apply --selector name=ingress-nginx
+      # A release not named here is never installed, whatever `needs:` says --
+      # helmfile only walks needs with --include-needs.
+      - helmfile apply --selector name=traefik
       - helmfile apply --selector name=cert-manager
 
   wait-for-webhooks:
@@ -384,13 +380,8 @@ tasks:
     cmds:
       - task: _require-profile
       - |
-        # Order matters, and getting it wrong wastes twenty minutes.
-        #
-        # Kubernetes-created load balancers (the game edge, the ingress) leave
-        # ENIs in the VPC subnets. Terraform cannot delete a VPC out from under
-        # them, so `tofu destroy` first gets most of the way and then hangs on
-        # subnet deletion until it times out. Removing the Helm releases first
-        # lets the load balancer controller clean its own ENIs up.
+        # Order matters: Kubernetes-created load balancers leave ENIs that hang
+        # subnet deletion. Removing the releases first lets them be cleaned up.
         echo "==========================================" 
         echo "1/5  Removing BMC (releases the load balancers)"
         echo "=========================================="
@@ -400,15 +391,8 @@ tasks:
         echo "=========================================="
         echo "2/5  Deleting persistent volume claims"
         echo "=========================================="
-        # Helm does not delete PVCs created from a StatefulSet's
-        # volumeClaimTemplate -- that is deliberate, so an upgrade cannot eat
-        # your data. It also means the NFS server's backing disk outlives
-        # `helmfile destroy`, and deleting the cluster does not reclaim it
-        # either: the disk is owned by the PV, not the node. The result is a
-        # disk quietly billing every month for a cluster that no longer exists.
-        #
-        # Deleting the PVCs lets the CSI driver delete the underlying disks
-        # while there is still a cluster around to do it.
+        # Helm leaves StatefulSet PVCs behind and their disks keep billing.
+        # Deleting them lets the CSI driver reclaim them while it still can.
         for ns in {{.NAMESPACE}} nfs; do
           PVCS=$(kubectl get pvc -n "$ns" --no-headers 2>/dev/null | wc -l | tr -d ' ')
           if [ "${PVCS:-0}" != "0" ]; then
@@ -425,11 +409,8 @@ tasks:
         echo "=========================================="
         echo "3/5  Waiting for cloud load balancers to disappear"
         echo "=========================================="
-        # This stage exists so a cloud provider releases the network interfaces
-        # behind its load balancers before the VPC under them is destroyed.
-        # Profiles with no cloud layer have nothing to wait for -- and on k3s
-        # they would wait forever anyway, because k3s's own Traefik is a
-        # LoadBalancer Service that the teardown neither removes nor should.
+        # Lets the provider release its load balancer ENIs before the VPC goes.
+        # Skipped off-cloud, where k3s's own Traefik would wait forever.
         case "{{.PROFILE}}" in
           eks|gke|aks) ;;
           *)
@@ -459,13 +440,8 @@ tasks:
               sleep 5
             done
 
-            # The AWS Load Balancer Controller creates a shared backend security
-            # group ("k8s-traffic-<cluster>-<hash>") that Terraform never knows
-            # about, and removing the controller leaves it behind. A non-default
-            # security group blocks VPC deletion, so `tofu destroy` gets all the
-            # way to the VPC and then fails on a dependency with no obvious
-            # owner. Security groups are free, so this is about being able to
-            # finish the destroy, not about cost.
+            # The controller leaves a shared backend security group Terraform
+            # does not know about, which blocks VPC deletion.
             for SG in $(aws ec2 describe-security-groups \
               --filters "Name=group-name,Values=k8s-traffic-*" \
               --query 'SecurityGroups[].GroupId' --output text 2>/dev/null); do
@@ -511,12 +487,8 @@ tasks:
           exit 0
         fi
 
-        # Karpenter launches its instances through the EC2 API, so Terraform has
-        # no record of them and never destroys them. Deleting the cluster kills
-        # the controller too, and the orphans keep ENIs in the private subnets --
-        # which Terraform cannot then delete, so destroy sits in DependencyViolation
-        # retries until it times out. Deleting the NodePool while Karpenter is
-        # still alive is what actually terminates them.
+        # Karpenter's instances are invisible to Terraform. Deleting the
+        # NodePool while the controller still lives is what terminates them.
         if kubectl get nodepools >/dev/null 2>&1; then
           kubectl delete nodepools --all --wait=false 2>/dev/null || true
           echo "  waiting for nodeclaims to drain..."
@@ -577,6 +549,8 @@ tasks:
               echo "  (this profile's cluster is not provisioned by this repo)"
               exit 0
             fi
+            # Same reason as `task cluster`: a teardown can run from a fresh clone.
+            cd {{.TF_DIR}} && tofu init -input=false
             cd {{.TF_DIR}} && tofu destroy -auto-approve \
               -var-file={{.ROOT_DIR}}/{{.INFRA_DIR}}/{{.PROFILE}}.tfvars
             ;;
@@ -585,6 +559,15 @@ tasks:
         echo ""
         echo "Done. Verify nothing is still billable with:"
         echo "  task teardown:verify"
+        case "{{.PROFILE}}" in
+          eks|gke|aks)
+            echo ""
+            echo "The reserved panel and game addresses were released with the"
+            echo "infrastructure, so any DNS records pointing at them now resolve"
+            echo "to nothing. Rebuilding reserves NEW addresses -- re-point DNS"
+            echo "from 'task cluster' before installing again."
+            ;;
+        esac
 
   teardown:verify:
     desc: List any cloud resources still running that would incur charges
@@ -625,12 +608,9 @@ tasks:
             echo "      Pass PROFILE=eks to check AWS instead."
             ;;
           aks)
-            # Resource groups first: on Azure almost everything here lives in
-            # one, so a leftover group is the clearest signal that a destroy
-            # did not finish. AKS also creates its own node resource group
-            # (MC_<group>_<cluster>_<region>) holding the VMSS, disks and
-            # public IPs -- it should disappear with the cluster.
-            printf "%-24s %s\n" "Resource groups:"  "$(az group list --query '[].name' --output tsv 2>/dev/null | tr '\n' ' ')"
+            # A leftover resource group is the clearest signal a destroy did
+            # not finish. The filtered-out groups are Azure's own and free.
+            printf "%-24s %s\n" "Resource groups:"  "$(az group list --query "[?name!='NetworkWatcherRG' && !starts_with(name,'DefaultResourceGroup-') && !starts_with(name,'cloud-shell-storage-')].name" --output tsv 2>/dev/null | tr '\n' ' ')"
             printf "%-24s %s\n" "AKS clusters:"     "$(az aks list --query '[].name' --output tsv 2>/dev/null | tr '\n' ' ')"
             printf "%-24s %s\n" "Virtual machines:" "$(az vm list --query '[].name' --output tsv 2>/dev/null | tr '\n' ' ')"
             printf "%-24s %s\n" "Scale sets:"       "$(az vmss list --query '[].name' --output tsv 2>/dev/null | tr '\n' ' ')"
@@ -722,13 +702,7 @@ tasks:
     desc: Verify prerequisites (no PROFILE reports what every profile shares)
     silent: true
     cmds:
-      # No _require-profile here, deliberately. An empty PROFILE is meaningful
-      # for this one task: it reports the tooling every profile needs and names
-      # the per-profile extras, which is what the README's first Quick Start
-      # step asks for and what _require-profile used to reject. The script
-      # still rejects a profile name that does not exist, so the typo case the
-      # guard covered is covered. Every other task keeps the guard, and
-      # `task install` runs verify only after passing it.
+      # No _require-profile: an empty PROFILE reports what every profile needs.
       - PROFILE={{.PROFILE}} {{.SCRIPTS_DIR}}/verify-prerequisites.sh
 
   help:

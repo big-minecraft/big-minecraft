@@ -11,8 +11,7 @@ metadata:
 spec:
   type: {{ .Values.global.edge.file.type }}
   {{- with .Values.global.edge.file.sourceRanges }}
-  # Restrict who can reach SFTP. Applies to LoadBalancer, and to NodePort on
-  # clusters whose CNI honours it -- on others, use a node firewall as well.
+  # Restrict who can reach SFTP. NodePort honours this only on some CNIs.
   loadBalancerSourceRanges:
     {{- toYaml . | nindent 4 }}
   {{- end }}
@@ -22,23 +21,21 @@ spec:
     - port: 22
       targetPort: 22
       {{- if eq .Values.global.edge.file.type "NodePort" }}
-      # Allocated by the panel. Note there is no range check and no collision
-      # detection against the NodePorts the platform chart hardcodes
-      # (redis 30079, prometheus 30090 in development).
+      # Allocated by the panel, with no collision check against the platform
+      # chart's hardcoded NodePorts.
       nodePort: {{ .Values.sftp.nodePort }}
       {{- end }}
 
-{{- if .Values.global.ingressNginx.sftpPassthrough.enabled }}
+# Walked one level at a time: an older panel has no ingress.controller, and
+# indexing through the nil would fail the whole chart.
+{{- $ingress := (.Values.global | default dict).ingress | default dict -}}
+{{- $controller := $ingress.controller | default dict -}}
+{{- $passthrough := $controller.sftpPassthrough | default dict -}}
+{{- if $passthrough.enabled }}
 ---
-# Stable, port-named Service for ingress-nginx TCP passthrough.
-#
-# The tcp-services mapping is keyed by port and written once at install time, so
-# the Service it points at must have a name derived from the PORT, not from this
-# session or its deployment. The panel assigns a port per deployment and never
-# moves it, so "sftp-slot-31400" is always whichever deployment holds 31400.
-#
-# This exists alongside the session-named Service above; both select the same
-# pod. The session-named one stays because the LoadBalancer edge still uses it.
+# Stable, port-named Service for Traefik TCP passthrough; bmc-chart's routes
+# are rendered once at install time. Sits alongside the session-named Service
+# above, which the LoadBalancer edge uses; both select the same pod.
 apiVersion: v1
 kind: Service
 metadata:

@@ -144,7 +144,7 @@ variable "file_session_allowed_cidrs" {
 }
 
 variable "panel_allowed_cidrs" {
-  description = "Who may reach the panel over HTTP/HTTPS (ports 80, 443 via ingress-nginx). 0.0.0.0/0 is required if you want Let's Encrypt HTTP-01 challenges to succeed."
+  description = "Who may reach the panel over HTTP/HTTPS (ports 80, 443 via Traefik). 0.0.0.0/0 is required if you want Let's Encrypt HTTP-01 challenges to succeed."
   type        = list(string)
   default     = ["0.0.0.0/0"]
 }
@@ -255,14 +255,14 @@ variable "ingress_lb_security_group_name" {
 }
 
 variable "sftp_passthrough_min_port" {
-  description = "First port of the SFTP block ingress-nginx forwards. Must match global.ingressNginx.sftpPassthrough.minPort, which in turn matches MIN_SFTP_PORT_RANGE in the panel."
+  description = "First port of the SFTP block Traefik forwards. Must match global.ingress.controller.sftpPassthrough.minPort, which in turn matches MIN_SFTP_PORT_RANGE in the panel."
   type        = number
   default     = 31400
 }
 
 variable "sftp_passthrough_port_count" {
-  description = "How many SFTP ports to open. Must match global.ingressNginx.sftpPassthrough.portCount. Bounded by the NLB's 50-listener limit."
+  description = "How many SFTP ports to open. Must match global.ingress.controller.sftpPassthrough.portCount. The NLB caps at 50 listeners and the controller Service also carries 80 and 443, so 48 is the ceiling."
   type        = number
-  default     = 20
+  default     = 25
 }
 

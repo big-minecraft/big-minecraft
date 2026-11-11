@@ -19,14 +19,14 @@ output "configure_kubectl" {
   value       = "az aks get-credentials --resource-group ${azurerm_resource_group.bmc.name} --name ${azurerm_kubernetes_cluster.bmc.name}"
 }
 
-output "panel_dns_target" {
-  description = "Available after helmfile installs ingress-nginx. Azure load balancers give an IP, so this is an A record, not a CNAME."
-  value       = "kubectl get svc ingress-nginx-controller -n ingress-nginx -o jsonpath='{.status.loadBalancer.ingress[0].ip}'"
+output "panel_dns_records" {
+  description = "A record for global.ingress.host and global.panel.panelHost. Point DNS here before `task install`, or the first certificate fails. Set as global.ingress.controller.service.loadBalancerIP in config/aks.yaml."
+  value       = azurerm_public_ip.ingress.ip_address
 }
 
-output "game_dns_target" {
-  description = "Available after BMC is installed -- the address players connect to."
-  value       = "kubectl get svc proxy-lb -n bmc -o jsonpath='{.status.loadBalancer.ingress[0].ip}'"
+output "game_dns_records" {
+  description = "A record for the address players connect to. Set it as global.edge.game.loadBalancerIP in config/aks.yaml."
+  value       = azurerm_public_ip.game.ip_address
 }
 
 output "next_steps" {

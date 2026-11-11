@@ -33,6 +33,25 @@ task secrets:generate
 ```
 **Make sure to copy these secrets down somewhere secure for later reference.**
 
+## Pointing your Domain
+
+Your DNS must point at the cluster **before** you install, or the panel's TLS certificate will fail.
+
+On a cloud profile, `task cluster` printed the addresses to use. To show them again:
+
+```sh
+cd terraform/<eks | gke | aks> && tofu output panel_dns_records game_dns_records
+```
+
+Create an **A record** for each with your DNS provider:
+
+| Record | Address |
+|---|---|
+| Your panel domain (`ingress.host`) | `panel_dns_records` |
+| The domain players connect to | `game_dns_records` |
+
+On bare metal, point an A record at a node running the ingress controller.
+
 ## Installation
 To complete the install, simply run:
 ```sh

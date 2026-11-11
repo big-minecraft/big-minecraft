@@ -99,7 +99,7 @@ ISSUER_NAME=$(read_value '.global.certManager.clusterIssuerName')
 GAME_EDGE=$(read_value '.global.edge.game.type')
 # Whether the install will bring its own ingress controller, in which case a
 # missing IngressClass is expected rather than disqualifying.
-INSTALL_NGINX=$(read_value '.global.ingressNginx.install')
+INSTALL_CONTROLLER=$(read_value '.global.ingress.controller.install')
 # Whether BMC brings its own RWX storage provider on this profile.
 INSTALL_NFS=$(read_value '.global.nfsServer.install')
 REDIS_EXTERNAL=$(read_value '.global.redis.external')
@@ -431,13 +431,10 @@ if [ -z "$INGRESS_CLASS" ] || [ "$INGRESS_CLASS" = "null" ] || [ "$INGRESS_CLASS
   fi
 elif kubectl get ingressclass "$INGRESS_CLASS" &>/dev/null; then
   pass "IngressClass '$INGRESS_CLASS' exists"
-elif [ "$INSTALL_NGINX" = "true" ]; then
-  # Same reasoning as the cert-manager check below: this profile installs its
-  # own ingress controller during `task deploy`, which runs AFTER preflight.
-  # Failing here would make a fresh cluster impossible to install onto -- the
-  # gate would demand something the very next step creates.
+elif [ "$INSTALL_CONTROLLER" = "true" ]; then
+  # The install adds this during `task deploy`, which runs after preflight.
   warn "IngressClass '$INGRESS_CLASS' not found yet (the install will add it)"
-  skip "global.ingressNginx.install is true, so helmfile installs ingress-nginx"
+  skip "global.ingress.controller.install is true, so helmfile installs Traefik"
 else
   AVAILABLE=$(kubectl get ingressclass -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true)
   fail "IngressClass '$INGRESS_CLASS' not found; cluster offers: ${AVAILABLE:-<none>}"

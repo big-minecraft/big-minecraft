@@ -10,8 +10,6 @@ repositories:
     url: https://charts.jetstack.io
   - name: traefik
     url: https://traefik.github.io/charts
-  - name: ingress-nginx
-    url: https://kubernetes.github.io/ingress-nginx
   - name: nfs-ganesha
     url: https://kubernetes-sigs.github.io/nfs-ganesha-server-and-external-provisioner/
   - name: ot-helm
@@ -22,31 +20,84 @@ repositories:
     url: https://mongodb.github.io/helm-charts
 ---
 releases:
+  # The ingress controller. Skipped on bare metal, where k3s owns Traefik.
   - name: traefik
     namespace: traefik
     createNamespace: true
     chart: traefik/traefik
-    version: 28.3.0
-    installed: false
-  # Datastore operators, installed only for the datastores set to mode: ha.
-  #
-  # Each owns its own pods and Services; the bmc-chart creates the cluster
-  # resources and aliases redis-service / mariadb-service / mongodb-service onto
-  # them, so nothing that already resolves those names changes.
-  #
-  # They live OUTSIDE the app namespace, like cert-manager and ingress-nginx.
-  # An operator in the namespace it manages cannot clear its own CRs' finalizers
-  # during a namespace delete, which strands the namespace in Terminating
-  # forever. Outside it, the controller outlives the namespace and drains it.
+    version: 34.4.1
+    installed: {{ .Values.global.ingress.controller.install }}
+    # Wait for a load balancer address before bmc-chart's Ingress triggers an
+    # ACME order -- an HTTP-01 challenge against an unaddressed entryPoint fails
+    # and cert-manager backs off for an hour.
+    wait: true
+    timeout: 300
+    values:
+      - deployment:
+          replicas: {{ if eq .Values.global.ingress.controller.mode "ha" }}{{ .Values.global.ingress.controller.replicas }}{{ else }}1{{ end }}
+        {{- if eq .Values.global.ingress.controller.mode "ha" }}
+        podDisruptionBudget:
+          enabled: true
+          minAvailable: 1
+        # Preferred, not required: required strands replicas Pending on a
+        # cluster with fewer nodes than replicas.
+        affinity:
+          podAntiAffinity:
+            preferredDuringSchedulingIgnoredDuringExecution:
+              - weight: 100
+                podAffinityTerm:
+                  topologyKey: kubernetes.io/hostname
+                  labelSelector:
+                    matchLabels:
+                      app.kubernetes.io/name: traefik
+        {{- end }}
+        # Cloud LBs probe the Service's own ports, so /ping must answer on
+        # the public entryPoint.
+        ping:
+          entryPoint: web
+        service:
+          annotations:
+            {{- toYaml .Values.global.ingress.controller.service.annotations | nindent 12 }}
+            {{- with .Values.global.ingress.controller.service.eipAllocations }}
+            # AWS ignores spec.loadBalancerIP; one allocation per subnet
+            # below, or the Service stays <pending>.
+            service.beta.kubernetes.io/aws-load-balancer-eip-allocations: {{ join "," . | quote }}
+            {{- end }}
+            {{- with .Values.global.ingress.controller.service.subnets }}
+            service.beta.kubernetes.io/aws-load-balancer-subnets: {{ join "," . | quote }}
+            {{- end }}
+          spec:
+            externalTrafficPolicy: {{ .Values.global.ingress.controller.service.externalTrafficPolicy }}
+            {{- with .Values.global.ingress.controller.service.loadBalancerIP }}
+            # GCP and Azure only; see values.yaml.
+            loadBalancerIP: {{ . | quote }}
+            {{- end }}
+        {{- if .Values.global.ingress.controller.sftpPassthrough.enabled }}
+        # One entryPoint per SFTP port the panel can hand out; entryPoints
+        # are static controller config. bmc-chart adds the IngressRouteTCPs.
+        ports:
+          {{- $min := .Values.global.ingress.controller.sftpPassthrough.minPort | int }}
+          {{- range $i := until (.Values.global.ingress.controller.sftpPassthrough.portCount | int) }}
+          {{- $port := add $min $i }}
+          sftp-{{ $port }}:
+            port: {{ $port }}
+            exposedPort: {{ $port }}
+            protocol: TCP
+            expose:
+              default: true
+          {{- end }}
+        {{- end }}
+  # Datastore operators, installed only for datastores set to mode: ha.
+  # Outside the app namespace, so a namespace delete can still clear their
+  # CRs' finalizers.
   - name: redis-operator
     namespace: {{ .Values.global.namespace }}-operators
     createNamespace: true
     chart: ot-helm/redis-operator
     version: 0.26.1
     installed: {{ eq .Values.global.redis.mode "ha" }}
-    # Wait for the operator to be Ready, not merely created. Its validating
-    # webhook has no endpoints until the pod is up, and a cluster resource
-    # applied before then is rejected outright.
+    # Its validating webhook has no endpoints until the pod is up, and a
+    # cluster resource applied before then is rejected.
     wait: true
     timeout: 300
 
@@ -56,9 +107,8 @@ releases:
     chart: mariadb-operator/mariadb-operator
     version: 26.6.0
     installed: {{ eq .Values.global.mariaDB.mode "ha" }}
-    # Wait for the operator to be Ready, not merely created. Its validating
-    # webhook has no endpoints until the pod is up, and a cluster resource
-    # applied before then is rejected outright.
+    # Its validating webhook has no endpoints until the pod is up, and a
+    # cluster resource applied before then is rejected.
     wait: true
     timeout: 300
     values:
@@ -71,58 +121,30 @@ releases:
     chart: mongodb-helm/community-operator
     version: 0.13.0
     installed: {{ eq .Values.global.mongoDB.mode "ha" }}
-    # Wait for the operator to be Ready, not merely created. Its validating
-    # webhook has no endpoints until the pod is up, and a cluster resource
-    # applied before then is rejected outright.
+    # Its validating webhook has no endpoints until the pod is up, and a
+    # cluster resource applied before then is rejected.
     wait: true
     timeout: 300
     values:
       - community-operator-crds:
           enabled: true
         # Unlike the other two, this operator watches only its own namespace by
-        # default. "*" also grants the cluster-wide RBAC it needs to reconcile
-        # a MongoDBCommunity elsewhere, and database.namespace puts the
-        # ServiceAccount the database pods run as in the app namespace, where
-        # the CR lives. That namespace already exists by this point --
-        # scripts/generate-secrets.sh creates it, and `task install` gates on
-        # the secret existing.
+        # "*" grants the cluster-wide RBAC it needs; database.namespace puts
+        # the database pods' ServiceAccount where the CR lives.
         operator:
           watchNamespace: "*"
         database:
           namespace: {{ .Values.global.namespace }}
 
-  # Object storage for deployment artifacts, where there is no managed
-  # equivalent. Must exist before big-minecraft: a deployment whose artifact
-  # cannot be fetched will not start.
+  # Must exist before big-minecraft: a deployment whose artifact cannot be
+  # fetched will not start.
   #
-  # Bitnami's chart, not MinIO's own, and the images come from `bitnamilegacy`.
-  # This is not a preference -- MinIO withdrew their community container images
-  # from the public registries, and the chart they publish cannot install:
-  #
-  #   quay.io/minio/minio, quay.io/minio/mc  -> 401 UNAUTHORIZED (anonymous)
-  #   docker.io/minio/minio, docker.io/minio/mc -> repository gone
-  #
-  # Public control repositories on the same registries still resolve 200
-  # anonymously, so this is MinIO's namespace and not a quay outage or a
-  # credential problem on the node.
-  #
-  # Bitnami then moved their own catalogue behind a subscription in August
-  # 2025: docker.io/bitnami/minio has no tags left, and the chart hard-fails on
-  # any image outside `bitnami/` unless allowInsecureImages is set. The
-  # `bitnamilegacy` repositories are what remains readable anonymously -- the
-  # final pre-paywall builds, frozen, receiving no security updates. Pinned by
-  # exact tag for that reason: these are not moving targets, and 'latest' does
-  # not exist.
-  #
-  # Both halves are therefore dead ends long-term. The real options are
-  # mirroring MinIO into a registry you control, a MinIO (AIStor)
-  # subscription, or an actively-maintained S3 implementation such as SeaweedFS
-  # or Garage -- the last of which is a change to this release only, since
-  # everything downstream speaks S3 and talks to artifactStore.endpoint.
+  # Bitnami's chart with `bitnamilegacy` images: the last anonymously
+  # readable MinIO builds, frozen and unpatched, pinned by exact tag.
+  # Long-term, mirror MinIO yourself or swap in another S3 implementation.
   - name: minio
     # BMC's namespace, not its own: it authenticates with bmc-secrets, and
-    # secrets are namespaced. The publish Job and the fetch init container read
-    # the same secret from the same place.
+    # secrets are namespaced.
     namespace: {{ .Values.global.namespace }}
     createNamespace: true
     chart: oci://registry-1.docker.io/bitnamicharts/minio
@@ -131,41 +153,29 @@ releases:
     values:
       - global:
           security:
-            # Required: the chart refuses any image outside `bitnami/` without
-            # it, and every image below is a `bitnamilegacy/` one.
+            # Required: the chart refuses images outside `bitnami/`.
             allowInsecureImages: true
         image:
           registry: docker.io
           repository: bitnamilegacy/minio
-          # Matches this chart version's appVersion (2025.7.23). Bitnami's own
-          # tag is -r3; bitnamilegacy mirrors -r3 through -r5.
+          # Matches this chart version's appVersion (2025.7.23).
           tag: 2025.7.23-debian-12-r3
         clientImage:
           registry: docker.io
           repository: bitnamilegacy/minio-client
           tag: 2025.7.21-debian-12-r2
-        # Nothing in BMC drives the web console, and leaving it on would pin a
-        # third frozen image (minio-object-browser) for a UI no one opens.
+        # Unused by BMC, and leaving it on pins a third frozen image.
         console:
           enabled: false
         mode: standalone
-        # Deployment templates are re-publishable from the panel, so one
-        # replica is enough; distributed mode needs four nodes.
-        #
-        # Bitnami spells this replicaCount, and honours it only in distributed
-        # mode -- standalone is always a single Deployment replica.
+        # One replica is enough; distributed mode needs four nodes.
         replicaCount: 1
         auth:
           existingSecret: bmc-secrets
-          # Bitnami defaults to the keys root-user/root-password; BMC's secret
-          # carries MinIO's own spelling, which generate-secrets.sh writes
-          # alongside artifactAccessKey/artifactSecretKey. Point the chart at
-          # those rather than reissuing every installation's credentials.
+          # bmc-secrets uses MinIO's own key spelling, not Bitnami's default.
           rootUserSecretKey: rootUser
           rootPasswordSecretKey: rootPassword
-        # Replaces the official chart's customCommands/mc post-install Job: in
-        # standalone mode this is MINIO_DEFAULT_BUCKETS on the server container
-        # itself, so bucket creation no longer needs a second image at all.
+        # On the server itself, so creating the bucket needs no second image.
         defaultBuckets: {{ .Values.global.artifactStore.bucket | quote }}
         persistence:
           enabled: true
@@ -177,11 +187,8 @@ releases:
           requests:
             memory: 512Mi
 
-  # ReadWriteMany storage, for clusters with no affordable managed option.
-  #
-  # Must exist before big-minecraft: the panel's PVC and every game deployment
-  # claim against the class this creates, and a PVC naming a class that does not
-  # exist stays Pending indefinitely rather than failing.
+  # ReadWriteMany storage. Must exist before big-minecraft: a PVC naming a
+  # missing class stays Pending.
   - name: nfs-server-provisioner
     namespace: nfs
     createNamespace: true
@@ -196,50 +203,12 @@ releases:
         storageClass:
           create: true
           name: {{ .Values.global.nfsServer.storageClassName | quote }}
-          # Game data outlives a session. Deleting a PVC should not silently
-          # take the world with it.
+          # Game data outlives a session; deleting a PVC must not take it.
           reclaimPolicy: Retain
           mountOptions:
-            # Keep a server restart from turning into permanent EIO in the game
-            # servers: block and retry rather than failing the I/O.
+            # Block and retry rather than failing I/O when the server restarts.
             - hard
             - nfsvers=4.1
-
-  # Installed by helmfile rather than by the Terraform layer: ingress-nginx
-  # needs nothing from any cloud provider, so keeping it here preserves one
-  # place to look for what lands in a cluster. Service annotations come from
-  # the profile as data -- see global.ingressNginx.service.annotations.
-  #
-  # On EKS this needs the AWS Load Balancer Controller to already exist, or its
-  # Service sits in <pending> forever. Terraform installs that controller, and
-  # Terraform runs before helmfile, so the ordering holds across the two tools.
-  - name: ingress-nginx
-    namespace: ingress-nginx
-    createNamespace: true
-    chart: ingress-nginx/ingress-nginx
-    version: 4.11.3
-    installed: {{ .Values.global.ingressNginx.install }}
-    values:
-      - controller:
-          service:
-            annotations:
-              {{- toYaml .Values.global.ingressNginx.service.annotations | nindent 14 }}
-        {{- if .Values.global.ingressNginx.sftpPassthrough.enabled }}
-        # One entry per SFTP port the panel can hand out. The chart turns these
-        # into the tcp-services ConfigMap AND into ports on the controller
-        # Service, which is what puts listeners on the cloud load balancer.
-        #
-        # Keyed by port rather than by deployment on purpose: the panel assigns
-        # a port per deployment and never moves it, so this mapping never needs
-        # to change when deployments come and go. The file-session chart names
-        # its Service to match.
-        tcp:
-          {{- $min := .Values.global.ingressNginx.sftpPassthrough.minPort | int }}
-          {{- $ns := .Values.global.namespace }}
-          {{- range $i := until (.Values.global.ingressNginx.sftpPassthrough.portCount | int) }}
-          {{ add $min $i | quote }}: "{{ $ns }}/sftp-slot-{{ add $min $i }}:22"
-          {{- end }}
-        {{- end }}
 
   - name: cert-manager
     namespace: cert-manager
@@ -265,8 +234,8 @@ releases:
       {{- if eq .Values.global.ingress.tls.mode "cluster-issuer" }}
       - cert-manager/cert-manager
       {{- end }}
-      {{- if .Values.global.ingressNginx.install }}
-      - ingress-nginx/ingress-nginx
+      {{- if .Values.global.ingress.controller.install }}
+      - traefik/traefik
       {{- end }}
       {{- if .Values.global.nfsServer.install }}
       - nfs/nfs-server-provisioner

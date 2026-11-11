@@ -1,6 +1,4 @@
-{{- /*
-Packs one deployment into a versioned artifact.
-*/ -}}
+# Packs one deployment into a versioned artifact.
 ---
 apiVersion: batch/v1
 kind: Job
@@ -21,17 +19,14 @@ spec:
     spec:
       restartPolicy: Never
       {{- if .Values.publish.nodeName }}
-      # A ReadWriteOnce volume may already be attached elsewhere by a running
-      # instance or an open session. Without this the Job lands on a
-      # second node and hangs on multi-attach.
+      # The RWO volume may already be attached elsewhere, hanging on multi-attach.
       nodeName: {{ .Values.publish.nodeName | quote }}
       {{- end }}
       containers:
         - name: publish
           image: docker.io/bitnamilegacy/minio-client:2025.7.21-debian-12-r2
           env:
-            # MinIO Client writes its config under $HOME, and this image runs as uid 1001
-            # with no writable home. Without this, `mc alias set` fails.
+            # This image has no writable $HOME, so `mc alias set` fails without it.
             - name: MC_CONFIG_DIR
               value: /tmp/.mc
             - name: ARTIFACT_ENDPOINT

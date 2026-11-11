@@ -13,14 +13,14 @@ output "configure_kubectl" {
   value       = "gcloud container clusters get-credentials ${google_container_cluster.bmc.name} --region ${var.region} --project ${var.project_id}"
 }
 
-output "panel_dns_target" {
-  description = "Available after helmfile installs ingress-nginx. GCP load balancers give an IP, so this is an A record, not a CNAME."
-  value       = "kubectl get svc ingress-nginx-controller -n ingress-nginx -o jsonpath='{.status.loadBalancer.ingress[0].ip}'"
+output "panel_dns_records" {
+  description = "A record for global.ingress.host and global.panel.panelHost. Point DNS here before `task install`, or the first certificate fails. Set as global.ingress.controller.service.loadBalancerIP in config/gke.yaml."
+  value       = google_compute_address.ingress.address
 }
 
-output "game_dns_target" {
-  description = "Available after BMC is installed -- the address players connect to."
-  value       = "kubectl get svc proxy-lb -n bmc -o jsonpath='{.status.loadBalancer.ingress[0].ip}'"
+output "game_dns_records" {
+  description = "A record for the address players connect to. Set it as global.edge.game.loadBalancerIP in config/gke.yaml."
+  value       = google_compute_address.game.address
 }
 
 output "next_steps" {
@@ -29,7 +29,10 @@ output "next_steps" {
     1. gcloud container clusters get-credentials ${google_container_cluster.bmc.name} --region ${var.region} --project ${var.project_id}
     2. task preflight PROFILE=gke     # acceptance test for THIS layer
     3. task config:init PROFILE=gke && edit config/gke.yaml
-    4. task secrets:generate
-    5. task install PROFILE=gke
+       (set loadBalancerIP from panel_dns_records and game_dns_records above)
+    4. Point DNS at those addresses, and wait for it to resolve -- the first
+       certificate fails otherwise.
+    5. task secrets:generate
+    6. task install PROFILE=gke
   EOT
 }

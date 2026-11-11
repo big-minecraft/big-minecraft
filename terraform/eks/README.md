@@ -2,7 +2,7 @@
 
 This builds everything *below* BMC: the VPC, the EKS cluster, node groups, the
 EFS filesystem behind ReadWriteMany, the CSI drivers, the AWS Load Balancer
-Controller, and ingress-nginx.
+Controller, and Traefik.
 
 It does not install BMC. The chart layer (`task install PROFILE=eks`) does that,
 and the two halves meet at one file: **`profiles/eks.yaml`**.
@@ -29,9 +29,9 @@ The rule that decides who owns what:
 | Owned here | Owned by `helmfile.yaml` |
 |---|---|
 | VPC, NAT, subnets and their LB discovery tags | cert-manager |
-| EKS control plane, managed node group | ingress-nginx (`IngressClass: nginx`) |
+| EKS control plane, managed node group | Traefik (`IngressClass: traefik`) |
 | EBS + EFS CSI drivers, IRSA roles | |
-| `efs-sc` and `gp3` storage classes | Traefik (off for this profile) |
+| `efs-sc` and `gp3` storage classes | |
 | AWS Load Balancer Controller | the `big-minecraft` release |
 | Karpenter + its NodePool/EC2NodeClass | |
 
@@ -40,14 +40,14 @@ because they cannot be expressed without an AWS resource ID: the load balancer
 controller needs an IRSA role ARN, and the `efs-sc` storage class needs the
 filesystem ID.
 
-**cert-manager and ingress-nginx are deliberately not installed here.**
+**cert-manager and Traefik are deliberately not installed here.**
 `helmfile.yaml` installs cert-manager whenever `ingress.tls.mode` is
-`cluster-issuer`, which this profile sets, and ingress-nginx whenever
-`global.ingressNginx.install` is true, which this profile also sets. Two owners
-for one release means the first `helmfile apply` fights this layer over the
-CRDs.
+`cluster-issuer`, which this profile sets, and Traefik whenever
+`global.ingress.controller.install` is true, which this profile also sets. Two
+owners for one release means the first `helmfile apply` fights this layer over
+the CRDs.
 
-ingress-nginx does depend on the load balancer controller installed here -- its
+Traefik does depend on the load balancer controller installed here -- its
 Service sits in `<pending>` forever without one. Terraform runs before helmfile,
 so that ordering holds without either tool knowing about the other.
 
