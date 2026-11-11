@@ -252,3 +252,7 @@ global:
 
   fileEditSession:
     timeoutMinutes: 15
+    # Largest single upload the panel accepts, in MB.
+    maxUploadMb: 4096
+    # Anything larger is download-only; the in-house editor refuses to open it.
+    maxEditorFileMb: 4

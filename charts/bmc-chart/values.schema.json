@@ -390,6 +390,23 @@
               "type": "boolean"
             }
           }
+        },
+        "fileEditSession": {
+          "type": "object",
+          "properties": {
+            "timeoutMinutes": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "maxUploadMb": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "maxEditorFileMb": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
         }
       },
       "allOf": [
